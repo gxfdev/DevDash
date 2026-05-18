@@ -5,12 +5,15 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"devdash/internal/api"
+	"devdash/internal/alert"
 	"devdash/internal/auth"
 	"devdash/internal/collector"
 	"devdash/internal/config"
+	"devdash/internal/logger"
 	"devdash/internal/model"
 	"devdash/internal/node"
 	"devdash/internal/store"
@@ -20,21 +23,29 @@ import (
 
 func main() {
 	cfg := config.Load()
-	auth.InitSecret(cfg.JWTSecret)
+	logger.Setup()  // 初始化日志系统
+	
+	if err := auth.InitSecret(cfg.JWTSecret); err != nil {
+		log.Fatalf("FATAL: %v", err)
+	}
 
 	s := store.NewStore(cfg)
 	defer s.Close()
 
 	nm := node.NewNodeManager(s)
 	c := collector.NewCollector()
+	alertEngine := alert.NewEngine(s)  // 初始化告警引擎
 
 	// Register the server itself as the "self" node for local monitoring
 	registerSelfNode(nm, c)
 
-	go startCollection(c, s, nm, cfg)
+	go startCollection(c, s, nm, cfg, alertEngine)  // 传入告警引擎
 
 	r := gin.Default()
-	r.Use(corsMiddleware())
+	
+	// ✅ 添加日志中间件
+	r.Use(logger.Middleware())
+	
 	handler := api.NewHandler(c, s, nm)
 	handler.RegisterRoutes(r)
 
@@ -99,25 +110,45 @@ func runtimeArch() string {
 	return arch
 }
 
-func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config) {
+func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine) {
 	ticker := time.NewTicker(time.Duration(cfg.CollectInterval) * time.Second)
 	defer ticker.Stop()
+
+	// ✅ 限制并发数，防止资源耗尽
+	sem := make(chan struct{}, 5)
 
 	first := true
 	for range ticker.C {
 		nodes := nm.ListNodes()
+		var wg sync.WaitGroup
+		
 		for _, n := range nodes {
 			if n.Role == "agent" || n.Role == "full" || n.ID == "self" {
-				snap, err := c.Collect()
-				if err != nil {
-					log.Printf("采集失败 node=%s: %v", n.ID, err)
-					continue
-				}
-				snap.NodeID = n.ID
-				s.SaveSnapshot(snap)
-				nm.UpdateHeartbeat(n.ID)
+				wg.Add(1)
+				go func(node model.Node) {
+					defer wg.Done()
+					
+					// ✅ 获取信号量（最多5个并发）
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					
+					snap, err := c.Collect()
+					if err != nil {
+						log.Printf("采集失败 node=%s: %v", node.ID, err)
+						return
+					}
+					snap.NodeID = node.ID
+					s.SaveSnapshot(snap)
+					
+					alertEngine.Evaluate(snap)  // ✅ 评估告警规则
+					
+					nm.UpdateHeartbeat(node.ID)
+				}(n)
 			}
 		}
+		
+		wg.Wait()  // 等待所有采集完成
+		
 		if first {
 			first = false
 			log.Println("首次采集完成")

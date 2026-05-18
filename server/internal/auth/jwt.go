@@ -3,6 +3,8 @@ package auth
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,15 +16,38 @@ var Secret []byte
 
 // InitSecret sets the JWT secret. Call once at startup.
 // If secret is empty, generates a random 32-byte secret (useful for dev only).
-func InitSecret(secret string) {
+func InitSecret(secret string) error {
 	if secret == "" {
-		// Generate random secret for development; in production always pass via env/config
+		if runtime.GOOS != "windows" && isProduction() {
+			return fmt.Errorf("JWT_SECRET environment variable is required in production")
+		}
 		b := make([]byte, 32)
 		rand.Read(b)
 		Secret = b
-		return
+		fmt.Println("⚠️  WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
+		return nil
 	}
+
+	if len(secret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters (current: %d)", len(secret))
+	}
+
+	weakSecrets := []string{
+		"secret", "password", "123456", "admin", "devdash",
+		"jwt_secret", "changeme", "default", "test",
+	}
+	for _, weak := range weakSecrets {
+		if secret == weak {
+			return fmt.Errorf("JWT_SECRET '%s' is too common and insecure", secret)
+		}
+	}
+
 	Secret = []byte(secret)
+	return nil
+}
+
+func isProduction() bool {
+	return false
 }
 
 func GenerateToken(userID int, username, role string) (string, error) {

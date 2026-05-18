@@ -38,8 +38,8 @@ var upgrader = websocket.Upgrader{
 			"http://127.0.0.1:9090": true,
 		}
 		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
+		if origin == "" || origin == "null" {
+			return false
 		}
 		return allowedOrigins[origin]
 	},
@@ -76,7 +76,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api.PUT("/auth/password", auth.Middleware(), h.changePassword)
 	api.POST("/auth/logout", auth.Middleware(), h.authLogout)
 
-	v1 := r.Group("/api/v1", auth.Middleware())
+	v1 := r.Group("/api/v1", auth.Middleware(), auth.CSRFMiddleware())
 
 	v1.GET("/snapshot", h.getSnapshot)
 	v1.GET("/latest", h.getLatest)
@@ -147,7 +147,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.POST("/collect", h.triggerCollect)
 	v1.GET("/ws", h.websocket)
 
-	r.GET("/ws/terminal/:nodeId", h.terminalWS)
+	r.GET("/ws/terminal/:nodeId", auth.Middleware(), h.terminalWS)
 }
 
 // ── Auth ──────────────────────────────────────────────────────
@@ -162,16 +162,29 @@ func (h *Handler) login(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "username and password are required"})
 		return
 	}
+
+	clientIP := c.ClientIP()
+	if err := auth.CheckLoginRateLimit(clientIP); err != nil {
+		c.JSON(429, gin.H{"error": "too many attempts, please try again later"})
+		return
+	}
+
 	hash, err := h.store.GetUser(req.Username)
 	if err != nil || !auth.CheckPassword(hash, req.Password) {
 		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
+	auth.ResetLoginAttempts(clientIP)
+
 	role := "user"
 	if req.Username == "admin" {
 		role = "admin"
 	}
 	token, _ := auth.GenerateToken(1, req.Username, role)
+	
+	csrfToken, _ := auth.GenerateCSRFToken()
+	c.SetCookie("csrf_token", csrfToken, 86400, "/", "", false, true)
+	
 	c.JSON(200, gin.H{"token": token})
 }
 
@@ -370,6 +383,11 @@ func (h *Handler) deleteNode(c *gin.Context) {
 }
 
 func (h *Handler) getNodeMetrics(c *gin.Context) {
+	nodeID := c.Param("id")
+	if !h.isNodeAccessible(nodeID, c) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
+		return
+	}
 	h.mu.RLock()
 	cs := h.cachedSnapshot
 	h.mu.RUnlock()
@@ -379,10 +397,41 @@ func (h *Handler) getNodeMetrics(c *gin.Context) {
 	}
 	snap, err := h.collector.Collect()
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(500, gin.H{"error": "operation failed"})
 		return
 	}
 	c.JSON(200, snap)
+}
+
+func (h *Handler) isNodeAccessible(nodeID string, c *gin.Context) bool {
+	if nodeID == "self" {
+		return true
+	}
+
+	role, exists := c.Get("role")
+	if !exists {
+		return false
+	}
+
+	if role == "admin" {
+		nodes := h.nm.List()
+		for _, n := range nodes {
+			if n.ID == nodeID {
+				return true
+			}
+		}
+	}
+
+	username, _ := c.Get("username")
+	uname, _ := username.(string)
+	nodes := h.nm.ListByOwner(uname)
+	for _, n := range nodes {
+		if n.ID == nodeID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (h *Handler) getNodeHistory(c *gin.Context) {
@@ -538,7 +587,12 @@ func (h *Handler) listSoftware(c *gin.Context) {
 	c.JSON(200, []interface{}{})
 }
 
-func (h *Handler) installSoftware(c *gin.Context) {
+func (h *Handler) installNodeSoftware(c *gin.Context) {
+	nodeID := c.Param("id")
+	if !h.isNodeAccessible(nodeID, c) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
+		return
+	}
 	var req struct {
 		NodeID  string `json:"node_id"`
 		Name    string `json:"name"`
@@ -577,6 +631,11 @@ func (h *Handler) listFirewallRules(c *gin.Context) {
 }
 
 func (h *Handler) addFirewallRule(c *gin.Context) {
+	nodeID := c.Param("id")
+	if !h.isNodeAccessible(nodeID, c) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
+		return
+	}
 	var req struct {
 		Proto string `json:"proto"`
 		Port  string `json:"port"`
@@ -726,6 +785,10 @@ func (h *Handler) deleteCronJob(c *gin.Context) {
 
 func (h *Handler) listDatabases(c *gin.Context) {
 	nodeID := c.Param("id")
+	if !h.isNodeAccessible(nodeID, c) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
+		return
+	}
 	if h.store != nil {
 		c.JSON(200, h.store.ListDBConnections(nodeID))
 		return
@@ -894,6 +957,11 @@ func (h *Handler) getDBConnection(id int) (*sql.DB, string, func(), error) {
 // ── File Manager ──────────────────────────────────────────────
 
 func (h *Handler) listFiles(c *gin.Context) {
+	nodeID := c.Param("id")
+	if !h.isNodeAccessible(nodeID, c) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
+		return
+	}
 	path := c.Query("path")
 	if path == "" {
 		path = filemgr.GetDefaultRoot()

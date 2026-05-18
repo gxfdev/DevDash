@@ -85,6 +85,15 @@ func ClearLoginAttempts(ip string) {
 	delete(loginAttempts, ip)
 }
 
+func ResetLoginAttempts(ip string) {
+	loginMu.Lock()
+	defer loginMu.Unlock()
+	if record, exists := loginAttempts[ip]; exists {
+		record.attempts = 0
+		record.blockedUntil = time.Time{}
+	}
+}
+
 func SecurityMiddleware(allowedIPs []string) gin.HandlerFunc {
 	ipSet := make(map[string]bool)
 	for _, ip := range allowedIPs {

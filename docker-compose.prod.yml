@@ -42,7 +42,8 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
       - nginx-logs:/var/log/nginx
     depends_on:
-      - devdash
+      devdash:
+        condition: service_healthy  # 等待devdash健康检查通过
     networks:
       - internal-net
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"devdash/internal/config"
 	"devdash/internal/model"
 	"devdash/internal/software"
 
@@ -18,23 +19,45 @@ type Store struct {
 }
 
 func NewStore(cfg interface{}) *Store {
-	db, err := sql.Open("sqlite", "./devdash.db")
+	dbPath := "./devdash.db"
+	if c, ok := cfg.(*config.Config); ok && c != nil {
+		dbPath = c.DBPath
+	}
+	
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// ✅ 配置数据库连接池
+	db.SetMaxOpenConns(10)           // 最大打开连接数
+	db.SetMaxIdleConns(5)            // 最大空闲连接数
+	db.SetConnMaxLifetime(30 * time.Minute)  // 连接最大存活时间
+	
+	// 启用WAL模式提升并发性能
+	db.Exec(`PRAGMA journal_mode=WAL`)
+	// 设置超时时间
+	db.Exec(`PRAGMA busy_timeout=5000`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS nodes (
 		id TEXT PRIMARY KEY, name TEXT, os TEXT, arch TEXT, ip TEXT,
 		role TEXT, token TEXT, status TEXT, last_heartbeat DATETIME, created_at DATETIME)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status)`)
+	
 	db.Exec(`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY, username TEXT UNIQUE, password_hash TEXT, role TEXT, otp_enabled INTEGER)`)
+	
 	db.Exec(`CREATE TABLE IF NOT EXISTS snapshots (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT, timestamp DATETIME,
 		cpu REAL, mem REAL, disk REAL, net_recv REAL, net_sent REAL, load1 REAL,
 		snapshot_json TEXT)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_snapshots_node_time ON snapshots(node_id, timestamp DESC)`)
+	
 	db.Exec(`CREATE TABLE IF NOT EXISTS alerts (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT, node_name TEXT,
 		metric TEXT, level TEXT, message TEXT,
 		value REAL, threshold REAL, time DATETIME, status TEXT)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_alerts_node_status ON alerts(node_id, status)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_alerts_metric ON alerts(metric)`)
 	db.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, node_id TEXT,
 		action TEXT, detail TEXT, result TEXT, time DATETIME)`)

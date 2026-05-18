@@ -67,14 +67,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { ref, computed, onMounted, onUnmounted, h } from 'vue'
+import { NButton, NTag, useMessage, useDialog } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
+const dialog = useDialog()
 
 const selectedNode = ref<string | null>(null)
 const activeAlerts = ref<any[]>([])
@@ -84,7 +85,10 @@ const loading = ref(false)
 const showRule = ref(false)
 const saving = ref(false)
 const silencingId = ref<number | null>(null)
-const ruleForm = ref({ metric: 'cpu', op: '>', threshold: 90, level: 'warning', channels: ['browser'] })
+const ruleForm = ref({ metric: 'cpu', op: '>', threshold: 90, level: 'warning' as string, channels: ['browser'], enabled: true })
+
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const POLL_INTERVAL = 15000
 
 const nodeOptions = computed(() => [
   { label: '全部节点', value: null },
@@ -122,8 +126,73 @@ function formatTime(ts: any): string {
   try { return new Date(num * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return String(num) }
 }
 
+function showBrowserNotification(alert: any) {
+  if (!('Notification' in window)) return
+  if (Notification.permission === 'granted') {
+    const notification = new Notification(`DevDash 告警: ${alert.metric}`, {
+      body: alert.message || `${alert.node_name} ${alert.value}%`,
+      icon: '/favicon.ico',
+      tag: `devdash-alert-${alert.id}`,
+    })
+    notification.onclick = () => window.focus()
+  } else if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') showBrowserNotification(alert)
+    })
+  }
+}
+
+async function fetchAlerts() {
+  loading.value = true
+  const params: any = {}
+  if (selectedNode.value) params.node_id = selectedNode.value
+  
+  try {
+    const { data: activeData } = await client.get('/alerts/active', { params })
+    const newAlerts = Array.isArray(activeData) ? activeData : []
+    
+    const prevIds = new Set(activeAlerts.value.map((a: any) => a.id))
+    const trulyNew = newAlerts.filter((a: any) => !prevIds.has(a.id))
+    
+    if (trulyNew.length > 0 && document.hidden) {
+      trulyNew.forEach((a: any) => showBrowserNotification(a))
+    }
+    
+    activeAlerts.value = newAlerts
+  } catch (e: any) {
+    console.error('Failed to fetch active alerts:', e)
+    message.error('加载活跃告警失败')
+  }
+  
+  try {
+    const { data } = await client.get('/alerts/history', { params })
+    historyList.value = Array.isArray(data) ? data : []
+  } catch (e: any) {
+    console.error('Failed to fetch alert history:', e)
+  }
+  
+  try {
+    const { data } = await client.get('/alert-rules')
+    rules.value = Array.isArray(data) ? data : []
+  } catch (e: any) {
+    console.error('Failed to fetch alert rules:', e)
+  } finally { loading.value = false }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(fetchAlerts, POLL_INTERVAL)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 const historyColumns = [
-  { title: '时间', key: 'created_at', render: (r: any) => formatTime(r.created_at) },
+  { title: '时间', key: 'time', render: (r: any) => formatTime(r.time || r.created_at) },
   { title: '节点', key: 'node_name', render: (r: any) => r.node_name || r.node_id || '--' },
   { title: '指标', key: 'metric', render: (r: any) => r.metric || r.type || '--' },
   { title: '值', key: 'value', render: (r: any) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
@@ -142,30 +211,13 @@ const ruleColumns = [
   { title: '状态', key: 'enabled', render: (r: any) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
 ]
 
-async function fetchAlerts() {
-  loading.value = true
-  const params: any = {}
-  if (selectedNode.value) params.node_id = selectedNode.value
-  try {
-    const { data } = await client.get('/alerts/active', { params })
-    activeAlerts.value = Array.isArray(data) ? data : []
-  } catch {}
-  try {
-    const { data } = await client.get('/alerts/history', { params })
-    historyList.value = Array.isArray(data) ? data : []
-  } catch {}
-  try {
-    const { data } = await client.get('/alert-rules')
-    rules.value = Array.isArray(data) ? data : []
-  } catch {} finally { loading.value = false }
-}
-
 async function addRule() {
   saving.value = true
   try {
     await client.post('/alert-rules', ruleForm.value)
     message.success('规则已创建')
     showRule.value = false
+    ruleForm.value = { metric: 'cpu', op: '>', threshold: 90, level: 'warning', channels: ['browser'], enabled: true }
     await fetchAlerts()
   } catch (e: any) {
     message.error(e?.response?.data?.error || '创建失败')
@@ -174,17 +226,39 @@ async function addRule() {
 
 async function silenceAlert(a: any) {
   if (!a.id) return
-  silencingId.value = a.id
-  try {
-    await client.post(`/alerts/${a.id}/silence`)
-    message.success('已静默')
-    await fetchAlerts()
-  } catch { message.error('静默失败') } finally { silencingId.value = null }
+  
+  dialog.warning({
+    title: '确认静默',
+    content: `确定要静默此告警吗？${a.node_name || ''} - ${a.metric || ''}`,
+    positiveText: '确认',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      silencingId.value = a.id
+      try {
+        await client.post(`/alerts/${a.id}/silence`)
+        message.success('已静默')
+        await fetchAlerts()
+      } catch (e: any) {
+        message.error(e?.response?.data?.error || '静默失败')
+      } finally { silencingId.value = null }
+    }
+  })
 }
 
 onMounted(async () => {
   await nodesStore.fetchNodes()
-  if (nodesStore.nodes.length) fetchAlerts()
+  if (nodesStore.nodes.length) {
+    await fetchAlerts()
+    startPolling()
+  }
+  
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission()
+  }
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 

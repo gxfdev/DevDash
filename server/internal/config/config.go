@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
 	"strconv"
@@ -37,8 +39,18 @@ func Load() *Config {
 	}
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "devdash-default-secret-change-in-production-2024"
-		log.Println("[config] WARNING: JWT_SECRET not set, using default. Set JWT_SECRET env var for production.")
+		if os.Getenv("GIN_MODE") == "release" {
+			log.Fatal("FATAL: JWT_SECRET environment variable is required in production mode!")
+		}
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			log.Fatalf("FATAL: Failed to generate random JWT secret: %v", err)
+		}
+		secret = hex.EncodeToString(b)
+		log.Printf("[config] WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
+		log.Printf("[config] Auto-generated secret (save this): %s", secret)
+	} else if len(secret) < 32 {
+		log.Printf("[config] WARNING: JWT_SECRET should be at least 32 characters (current: %d)", len(secret))
 	}
 	return &Config{
 		ServerPort:      port,

@@ -35,8 +35,6 @@
           <n-alert type="error" :show-icon="false">{{ errorMsg }}</n-alert>
         </div>
       </n-form>
-
-      <div class="hint">默认账号：admin / admin123</div>
     </div>
   </div>
 </template>

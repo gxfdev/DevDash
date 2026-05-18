@@ -1,0 +1,11 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0d1117; color: #e6edf3; font-family: -apple-system, 'Segoe UI', sans-serif; }
+a { color: #58a6ff; text-decoration: none; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #161b22; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
+.n-card { background: #161b22 !important; border-color: #30363d !important; }
+.n-table { background: #161b22 !important; }
+.n-input, .n-select { background: #0d1117 !important; }
+.n-base-selection { background: #0d1117 !important; border-color: #30363d !important; }

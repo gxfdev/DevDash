@@ -1,0 +1,60 @@
+# DevDash - Git Ignore
+
+# === Database ===
+*.db
+data/
+devdash-data/
+
+# === Build Output ===
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+devdash
+agent
+server/devdash
+server/agent
+server/devdash.exe
+server/devdash.exe~
+
+# === Dependencies ===
+vendor/
+node_modules/
+web/node_modules/
+web/dist/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# === OS ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Logs ===
+*.log
+logs/
+
+# === Test / Temp ===
+test-*.ps1
+test_*.go
+*.prof
+*.trace
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+
+# === Nuxt (if any) ===
+web/.nuxt/
+
+# === Docker local ===
+docker-compose.override.yml

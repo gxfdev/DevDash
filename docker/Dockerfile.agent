@@ -1,0 +1,21 @@
+FROM golang:1.23-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY server/ ./server/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/agent ./cmd/agent
+
+
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S devdash && adduser -S devdash -G devdash
+
+COPY --from=builder /build/agent /usr/local/bin/agent
+USER devdash
+
+ENTRYPOINT ["agent"]

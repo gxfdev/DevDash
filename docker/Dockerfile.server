@@ -1,0 +1,53 @@
+FROM node:20-alpine AS web-builder
+
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /build/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --registry=https://registry.npmmirror.com
+
+COPY web/ .
+ENV VITE_API_BASE_URL=/api/v1
+RUN npx vite build --outDir dist
+
+
+FROM golang:1.23-alpine AS server-builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /build/server
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY server/ ./server/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=dev" -o /build/devdash ./cmd/server
+
+
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/cache/apk/* \
+    && addgroup -S devdash && adduser -S devdash -G devdash
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV TZ=Asia/Shanghai
+ENV GIN_MODE=release
+ENV PORT=9090
+ENV DB_PATH=/data/devdash.db
+
+COPY --from=server-builder /build/devdash /usr/local/bin/devdash
+COPY --from=web-builder /build/web/dist /srv/www
+
+RUN mkdir -p /data && chown -R devdash:devdash /data /srv/www
+
+USER devdash
+
+EXPOSE 9090
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:9090/api/v1/health || exit 1
+
+ENTRYPOINT ["devdash"]

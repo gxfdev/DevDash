@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  devdash:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    container_name: devdash
+    ports:
+      - "9090:9090"
+    volumes:
+      - devdash-data:/data
+    environment:
+      - PORT=9090
+      - INTERVAL=30
+      - DB_PATH=/data/devdash.db
+      - JWT_SECRET=${JWT_SECRET:-change-this-random-secret}
+      - STATIC_DIR=/srv/www
+      - TZ=Asia/Shanghai
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+      - GIN_MODE=release
+      - CORS_ORIGINS=http://localhost:9090,http://127.0.0.1:9090
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  default:
+    name: devdash-net
+
+volumes:
+  devdash-data:
+    name: devdash-data

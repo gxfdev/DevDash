@@ -139,7 +139,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.PUT("/alert-settings", h.updateAlertSettings)
 
 	v1.GET("/software", h.listSoftware)
-	v1.POST("/software/install", h.installSoftware)
+	v1.POST("/software/install", h.installNodeSoftware)
 	v1.POST("/software/uninstall", h.uninstallSoftware)
 	v1.GET("/cronjobs", h.listCronJobs)
 	v1.POST("/cronjobs", h.createCronJob)
@@ -414,7 +414,7 @@ func (h *Handler) isNodeAccessible(nodeID string, c *gin.Context) bool {
 	}
 
 	if role == "admin" {
-		nodes := h.nm.List()
+		nodes := h.nm.ListNodes()
 		for _, n := range nodes {
 			if n.ID == nodeID {
 				return true
@@ -423,8 +423,8 @@ func (h *Handler) isNodeAccessible(nodeID string, c *gin.Context) bool {
 	}
 
 	username, _ := c.Get("username")
-	uname, _ := username.(string)
-	nodes := h.nm.ListByOwner(uname)
+	_ = username
+	nodes := h.nm.ListNodes()
 	for _, n := range nodes {
 		if n.ID == nodeID {
 			return true
@@ -585,34 +585,6 @@ func (h *Handler) listSoftware(c *gin.Context) {
 		return
 	}
 	c.JSON(200, []interface{}{})
-}
-
-func (h *Handler) installNodeSoftware(c *gin.Context) {
-	nodeID := c.Param("id")
-	if !h.isNodeAccessible(nodeID, c) {
-		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
-		return
-	}
-	var req struct {
-		NodeID  string `json:"node_id"`
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	nodeID := req.NodeID
-	if nodeID == "" {
-		nodeID = "self"
-	}
-	if h.store != nil {
-		h.store.SaveSoftware(map[string]interface{}{
-			"node_id": nodeID, "name": req.Name,
-			"version": req.Version, "status": "installing",
-		})
-	}
-	c.JSON(200, gin.H{"status": "installing", "node_id": nodeID, "name": req.Name})
 }
 
 func (h *Handler) uninstallSoftware(c *gin.Context) {

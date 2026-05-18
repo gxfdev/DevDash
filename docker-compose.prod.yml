@@ -1,49 +1,55 @@
 version: '3.8'
 
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: devdash-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - devdash-web:/var/www/devdash:ro
-      - certs:/etc/certs:ro
-    depends_on:
-      - devdash
-    restart: unless-stopped
-
+  # DevDash 主服务
   devdash:
-    image: ghcr.io/${GITHUB_USER:-owner}/devdash:latest
-    container_name: devdash
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    container_name: devdash-app
+    restart: unless-stopped
     environment:
       - PORT=9090
-      - INTERVAL=30
-      - DB_PATH=/data/devdash.db
-      - JWT_SECRET=${JWT_SECRET:?Please set JWT_SECRET in .env}
-      - STATIC_DIR=/srv/www
+      - JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 32)}
       - TZ=Asia/Shanghai
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
       - GIN_MODE=release
-      - CORS_ORIGINS=${DOMAIN:-https://your-domain.com}
+      - CORS_ORIGINS=https://your-domain.com
     volumes:
       - devdash-data:/data
-    restart: unless-stopped
+    networks:
+      - internal-net
+    expose:
+      - "9090"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9090/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
+
+  # Nginx 反向代理 (HTTPS)
+  nginx:
+    image: nginx:alpine
+    container_name: devdash-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.ssl.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      - devdash
+    networks:
+      - internal-net
 
 networks:
-  default:
-    name: devdash-prod-net
+  internal-net:
+    driver: bridge
 
 volumes:
   devdash-data:
-    name: devdash-prod-data
-  devdash-web:
-    name: devdash-prod-web
-  certs:
-    name: devdash-certs
+  nginx-logs:

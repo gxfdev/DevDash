@@ -72,6 +72,9 @@ func Install(nodeID, name, version string) (string, error) {
 	if !validateVersion(version) {
 		return "", fmt.Errorf("invalid version format: %s", version)
 	}
+	if !isAllowedSoftware(name) && !isAllowedSoftware(strings.ToLower(name)) {
+		return "", fmt.Errorf("software not in allowed catalog: %s", name)
+	}
 
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
@@ -104,6 +107,9 @@ func Install(nodeID, name, version string) (string, error) {
 func Uninstall(nodeID, name string) (string, error) {
 	if !validateSoftwareName(name) {
 		return "", fmt.Errorf("invalid software name: %s", name)
+	}
+	if !isAllowedSoftware(name) && !isAllowedSoftware(strings.ToLower(name)) {
+		return "", fmt.Errorf("software not in allowed catalog: %s", name)
 	}
 
 	osName := runtime.GOOS
@@ -166,6 +172,9 @@ func GetStatus(nodeID, name string) string {
 func ServiceControl(nodeID, name, action string) (string, error) {
 	if !validateSoftwareName(name) {
 		return "", fmt.Errorf("invalid software name: %s", name)
+	}
+	if !isAllowedSoftware(name) && !isAllowedSoftware(strings.ToLower(name)) {
+		return "", fmt.Errorf("software not in allowed catalog: %s", name)
 	}
 
 	validActions := map[string]bool{"start": true, "stop": true, "restart": true, "status": true}

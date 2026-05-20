@@ -139,6 +139,11 @@ const menuOptions = [
   },
   { type: 'divider', key: 'd2' },
   {
+    label: 'Docker管理',
+    key: 'docker',
+    icon: renderIcon('🐳'),
+  },
+  {
     label: '系统设置',
     key: 'settings',
     icon: renderIcon('⚙️'),

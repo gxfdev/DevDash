@@ -43,6 +43,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { getErrorMessage } from '@/api/client'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -68,8 +69,8 @@ async function handleLogin() {
   try {
     await authStore.login(form.username, form.password)
     router.push('/')
-  } catch (e: any) {
-    errorMsg.value = e?.response?.data?.error || '登录失败，请检查用户名和密码'
+  } catch (e: unknown) {
+    errorMsg.value = getErrorMessage(e, '登录失败，请检查用户名和密码')
   } finally {
     loading.value = false
   }

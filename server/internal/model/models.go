@@ -16,20 +16,20 @@ type Node struct {
 }
 
 type Snapshot struct {
-	NodeID     string             `json:"node_id"`
-	Timestamp  time.Time          `json:"timestamp"`
-	CPU        CPUMetrics         `json:"cpu"`
-	Memory     MemoryMetrics      `json:"memory"`
-	Disk       DiskMetrics        `json:"disk"`
-	Network    NetworkMetrics     `json:"network"`
-	Load       LoadMetrics        `json:"load"`
-	Host       HostInfo           `json:"host"`
-	Processes  []ProcessInfo      `json:"processes"`
-	Containers []ContainerInfo    `json:"containers"`
-	GPU        *GPUMetrics        `json:"gpu,omitempty"`
-	Sensors    *SensorInfo        `json:"sensors,omitempty"`
-	DiskIO     *DiskIOMetrics     `json:"disk_io,omitempty"`
-	TCPConns   *TCPConnectionMetrics `json:"tcp_conns,omitempty"`
+	NodeID     string                 `json:"node_id"`
+	Timestamp  time.Time              `json:"timestamp"`
+	CPU        CPUMetrics             `json:"cpu"`
+	Memory     MemoryMetrics          `json:"memory"`
+	Disk       DiskMetrics            `json:"disk"`
+	Network    NetworkMetrics         `json:"network"`
+	Load       LoadMetrics            `json:"load"`
+	Host       HostInfo               `json:"host"`
+	Processes  []ProcessInfo          `json:"processes"`
+	Containers []ContainerInfo        `json:"containers"`
+	GPU        *GPUMetrics            `json:"gpu,omitempty"`
+	Sensors    *SensorInfo            `json:"sensors,omitempty"`
+	DiskIO     *DiskIOMetrics         `json:"disk_io,omitempty"`
+	TCPConns   *TCPConnectionMetrics  `json:"tcp_conns,omitempty"`
 }
 
 type CPUMetrics struct {
@@ -97,11 +97,32 @@ type ContainerInfo struct {
 }
 
 type GPUMetrics struct {
+	Name         string      `json:"name"`
+	UsagePercent float64     `json:"usage_percent"`
+	MemUsedMB    float64     `json:"mem_used_mb"`
+	MemTotalMB   float64     `json:"mem_total_mb"`
+	Temperature  float64     `json:"temperature"`
+	Devices      []GPUDevice `json:"devices,omitempty"`
+}
+
+type GPUDevice struct {
+	Index        int     `json:"gpu_index"`
 	Name         string  `json:"name"`
 	UsagePercent float64 `json:"usage_percent"`
 	MemUsedMB    float64 `json:"mem_used_mb"`
 	MemTotalMB   float64 `json:"mem_total_mb"`
-	Temperature  float64 `json:"temperature"`
+	Temperature  float64 `json:"temperature_celsius"`
+}
+
+type GPUMetricRow struct {
+	ID               int64     `json:"id"`
+	NodeID           string    `json:"node_id"`
+	Timestamp        time.Time `json:"timestamp"`
+	GPUIndex         int       `json:"gpu_index"`
+	UsagePercent     float64   `json:"usage_percent"`
+	MemUsedMB        float64   `json:"mem_used_mb"`
+	MemTotalMB       float64   `json:"mem_total_mb"`
+	TemperatureC     float64   `json:"temperature_celsius"`
 }
 
 type SensorInfo struct {
@@ -134,11 +155,12 @@ type Alert struct {
 }
 
 type User struct {
-	ID           int    `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"-"`
-	Role         string `json:"role"`
-	OTPEnabled   bool   `json:"otp_enabled"`
+	ID               int    `json:"id"`
+	Username         string `json:"username"`
+	PasswordHash     string `json:"-"`
+	Role             string `json:"role"`
+	OTPEnabled       bool   `json:"otp_enabled"`
+	MustChangePwd    bool   `json:"must_change_pwd"`
 }
 
 type AuditLog struct {
@@ -167,3 +189,5 @@ type CronJob struct {
 	Command    string `json:"command"`
 	Enabled    bool   `json:"enabled"`
 }
+
+

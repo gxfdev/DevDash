@@ -68,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+import { getErrorMessage } from '@/api/client'
 import { ref, computed, reactive, onMounted, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { NButton, NTag, NPopconfirm, useMessage } from 'naive-ui'
@@ -157,8 +158,8 @@ async function handleAdd() {
     message.success('节点添加成功')
     showAddModal.value = false
     Object.assign(addForm, { name: '', addr: '', token: '', note: '' })
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || '添加失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '添加失败'))
   } finally {
     addLoading.value = false
   }

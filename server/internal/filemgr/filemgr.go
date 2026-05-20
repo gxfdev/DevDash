@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 type FileInfo struct {
@@ -18,8 +19,12 @@ type FileInfo struct {
 	Path     string `json:"path,omitempty"`
 }
 
+type FileOpCallback func(op, path, name, ext string, size int64, isDir bool)
+
 var (
+	mu              sync.RWMutex
 	allowedBaseDirs []string
+	opCallback      FileOpCallback
 	dangerousPaths  = map[string]bool{
 		"/etc": true, "/root": true, "/boot": true, "/sys": true,
 		"/proc": true, "/dev": true, "bin": true, "sbin": true,
@@ -28,11 +33,41 @@ var (
 	}
 )
 
+func SetOpCallback(cb FileOpCallback) {
+	mu.Lock()
+	defer mu.Unlock()
+	opCallback = cb
+}
+
+func notifyOp(op, path, name, ext string, size int64, isDir bool) {
+	mu.RLock()
+	cb := opCallback
+	mu.RUnlock()
+	if cb != nil {
+		cb(op, path, name, ext, size, isDir)
+	}
+}
+
 func InitAllowedDirs(dirs []string) {
+	mu.Lock()
+	defer mu.Unlock()
 	allowedBaseDirs = dirs
 	if len(allowedBaseDirs) == 0 {
 		allowedBaseDirs = []string{GetDefaultRoot()}
 	}
+}
+
+func isPathAllowed(absPath string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	lowerPath := strings.ToLower(absPath)
+	for _, base := range allowedBaseDirs {
+		cleanBase := strings.ToLower(filepath.Clean(base))
+		if strings.HasPrefix(lowerPath, cleanBase) || lowerPath == cleanBase {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePath(userPath string) (string, error) {
@@ -44,18 +79,22 @@ func validatePath(userPath string) (string, error) {
 	absPath := cleanPath
 
 	if !filepath.IsAbs(cleanPath) {
-		homeDir := GetHomeDir()
-		absPath = filepath.Join(homeDir, cleanPath)
+		absPath, _ = filepath.Abs(cleanPath)
 	}
 
 	absPath = filepath.Clean(absPath)
 
-	for _, base := range allowedBaseDirs {
+	mu.RLock()
+	bases := make([]string, len(allowedBaseDirs))
+	copy(bases, allowedBaseDirs)
+	mu.RUnlock()
+
+	for _, base := range bases {
 		cleanBase := filepath.Clean(base)
-		if strings.HasPrefix(absPath, cleanBase) || absPath == cleanBase {
+		if strings.HasPrefix(strings.ToLower(absPath), strings.ToLower(cleanBase)) || strings.EqualFold(absPath, cleanBase) {
 			resolvedPath, err := filepath.EvalSymlinks(absPath)
 			if err == nil {
-				if strings.HasPrefix(resolvedPath, cleanBase) || resolvedPath == cleanBase {
+				if strings.HasPrefix(strings.ToLower(resolvedPath), strings.ToLower(cleanBase)) || strings.EqualFold(resolvedPath, cleanBase) {
 					return resolvedPath, nil
 				}
 				return "", fmt.Errorf("symlink target outside allowed directory")
@@ -181,6 +220,7 @@ func WriteFile(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("write failed: %w", err)
 	}
+	notifyOp("create", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), int64(len(data)), false)
 	return nil
 }
 
@@ -203,6 +243,7 @@ func Delete(path string) error {
 	if err != nil {
 		return fmt.Errorf("delete failed: %w", err)
 	}
+	notifyOp("delete", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), 0, false)
 	return nil
 }
 
@@ -225,6 +266,7 @@ func Mkdir(path string) error {
 	if err != nil {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
+	notifyOp("create", validatedPath, filepath.Base(validatedPath), "", 0, true)
 	return nil
 }
 
@@ -265,9 +307,13 @@ func GetHomeDir() string {
 
 func GetDefaultRoot() string {
 	if runtime.GOOS == "windows" {
-		return `C:\`
+		return os.Getenv("USERPROFILE")
 	}
-	return "/"
+	home := os.Getenv("HOME")
+	if home != "" {
+		return home
+	}
+	return "/tmp/devdash"
 }
 
 func GetDriveLetters() []string {
@@ -307,6 +353,7 @@ func Upload(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
+	notifyOp("upload", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), int64(len(data)), false)
 	return nil
 }
 

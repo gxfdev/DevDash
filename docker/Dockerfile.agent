@@ -2,7 +2,7 @@ FROM golang:1.23-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
-WORKDIR /build
+WORKDIR /build/server
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -12,10 +12,19 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/agent ./cmd/age
 
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates tzdata musl-locales \
+    && rm -rf /var/cache/apk/* \
     && addgroup -S devdash && adduser -S devdash -G devdash
+
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
+ENV MUSL_LOCPATH=/usr/share/i18n/locales/musl
+ENV TZ=Asia/Shanghai
 
 COPY --from=builder /build/agent /usr/local/bin/agent
 USER devdash
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:9091/health || exit 1
 
 ENTRYPOINT ["agent"]

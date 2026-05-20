@@ -17,6 +17,8 @@ const router = createRouter({
     { path: '/alerts', name: 'alerts', component: () => import('@/views/AlertView.vue'), meta: { requiresAuth: true } },
     { path: '/trends', name: 'trends', component: () => import('@/views/TrendsView.vue'), meta: { requiresAuth: true } },
     { path: '/settings', name: 'settings', component: () => import('@/views/SettingsView.vue'), meta: { requiresAuth: true } },
+    { path: '/docker', name: 'docker', component: () => import('@/views/DockerView.vue'), meta: { requiresAuth: true } },
+    { path: '/monitor', name: 'container-monitor', component: () => import('@/views/ContainerMonitorView.vue'), meta: { requiresAuth: true } },
   ],
 })
 

@@ -3,6 +3,7 @@ package alert
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"devdash/internal/model"
@@ -12,6 +13,7 @@ import (
 type Engine struct {
 	store       *store.Store
 	lastAlerts  map[string]time.Time
+	alertsMu    sync.RWMutex
 	cooldownSec int
 }
 
@@ -19,7 +21,7 @@ func NewEngine(s *store.Store) *Engine {
 	return &Engine{
 		store:       s,
 		lastAlerts:  make(map[string]time.Time),
-		cooldownSec: 300, // 默认5分钟冷却时间
+		cooldownSec: 300,
 	}
 }
 
@@ -29,16 +31,11 @@ func (e *Engine) Evaluate(snap *model.Snapshot) {
 	}
 
 	rules := e.store.ListAlertRules()
-	if rules == nil || len(rules) == 0 {
+	if len(rules) == 0 {
 		return
 	}
 
-	for _, r := range rules {
-		rule, ok := r.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
+	for _, rule := range rules {
 		enabled, _ := rule["enabled"].(bool)
 		if !enabled {
 			continue
@@ -56,9 +53,8 @@ func (e *Engine) Evaluate(snap *model.Snapshot) {
 
 		if e.checkCondition(*value, op, threshold) {
 			alertKey := fmt.Sprintf("%s:%s", snap.NodeID, metric)
-			
+
 			if e.isInCooldown(alertKey) {
-				log.Printf("[alert] 冷却中，跳过: %s", alertKey)
 				continue
 			}
 
@@ -74,15 +70,12 @@ func (e *Engine) Evaluate(snap *model.Snapshot) {
 				"status":    "firing",
 			}
 
-			if err := e.store.SaveAlert(alert); err != nil {
-				log.Printf("[alert] 保存失败: %v", err)
-				continue
-			}
+			e.store.SaveAlert(alert)
 
 			e.setCooldown(alertKey)
-			log.Printf("[alert] ⚠️ 触发告警: %s=%v %s %.1f [%s]", 
+			log.Printf("[alert] triggered: %s=%v %s %.1f [%s]",
 				metric, *value, op, threshold, level)
-			
+
 			go e.sendNotifications(alert)
 		}
 	}
@@ -126,20 +119,22 @@ func (e *Engine) checkCondition(value float64, op string, threshold float64) boo
 
 func (e *Engine) generateMessage(metric string, value float64, op string, threshold float64) string {
 	metricNames := map[string]string{
-		"cpu":    "CPU使用率",
-		"memory": "内存使用率",
-		"disk":   "磁盘使用率",
-		"load1":  "系统负载(1分钟)",
-		"load5":  "系统负载(5分钟)",
+		"cpu":    "CPU",
+		"memory": "Memory",
+		"disk":   "Disk",
+		"load1":  "Load1",
+		"load5":  "Load5",
 	}
 	name, ok := metricNames[metric]
 	if !ok {
 		name = metric
 	}
-	return fmt.Sprintf("%s %.2f%% %s 阈值 %.1f%%", name, value, op, threshold)
+	return fmt.Sprintf("%s %.2f%% %s %.1f%%", name, value, op, threshold)
 }
 
 func (e *Engine) isInCooldown(key string) bool {
+	e.alertsMu.RLock()
+	defer e.alertsMu.RUnlock()
 	lastTime, exists := e.lastAlerts[key]
 	if !exists {
 		return false
@@ -148,6 +143,8 @@ func (e *Engine) isInCooldown(key string) bool {
 }
 
 func (e *Engine) setCooldown(key string) {
+	e.alertsMu.Lock()
+	defer e.alertsMu.Unlock()
 	e.lastAlerts[key] = time.Now()
 }
 
@@ -156,20 +153,18 @@ func (e *Engine) sendNotifications(alert map[string]interface{}) {
 	if channels == nil {
 		return
 	}
-
 	channelList, ok := channels.([]string)
 	if !ok {
 		return
 	}
-
 	for _, ch := range channelList {
 		switch ch {
 		case "browser":
-			log.Printf("[alert] 浏览器通知已发送")
+			log.Printf("[alert] browser notification sent")
 		case "feishu":
 			go e.sendFeishuNotification(alert)
 		case "email":
-			log.Printf("[alert] 邮件通知已发送")
+			log.Printf("[alert] email notification sent")
 		case "webhook":
 			go e.sendWebhookNotification(alert)
 		}
@@ -177,13 +172,9 @@ func (e *Engine) sendNotifications(alert map[string]interface{}) {
 }
 
 func (e *Engine) sendFeishuNotification(alert map[string]interface{}) {
-	log.Printf("[alert] 飞书通知: %v", alert["message"])
+	log.Printf("[alert] feishu notification: %v", alert["message"])
 }
 
 func (e *Engine) sendWebhookNotification(alert map[string]interface{}) {
-	webhookURL := e.store.GetSetting("webhook_url")
-	if webhookURL == "" {
-		return
-	}
-	log.Printf("[alert] Webhook通知到: %s", webhookURL)
+	log.Printf("[alert] webhook notification sent")
 }

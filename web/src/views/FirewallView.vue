@@ -52,7 +52,7 @@ import { ref, computed, onMounted, h, watch } from 'vue'
 import { NButton, NTag, NSwitch, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -73,7 +73,7 @@ const presets = [
   { name: 'PostgreSQL', port: '5432', proto: 'tcp' },
 ]
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname, value: n.id })))
+const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname, value: n.id })))
 
 const columns = [
   { title: '协议', key: 'proto', width: 90 },
@@ -115,12 +115,12 @@ async function addRule() {
     showAdd.value = false
     Object.assign(form.value, { proto: 'tcp', port: '', src_ip: '', note: '' })
     fetchRules()
-  } catch (e: any) { message.error(e?.response?.data?.error || '添加失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '添加失败')) }
   finally { saving.value = false }
 }
 
 async function quickAdd(p: any) {
-  form.value = { proto: p.proto, port: p.port, src_ip: '', note: p.name }
+  form.value = { proto: p.proto || p.protocol, port: p.port, src_ip: '', note: p.name || p.note || '' }
   showAdd.value = true
 }
 

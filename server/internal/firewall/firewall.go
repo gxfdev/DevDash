@@ -1,12 +1,14 @@
 package firewall
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Rule struct {
@@ -77,13 +79,15 @@ func sanitizeInput(s string) string {
 
 func ListRules() ([]Rule, error) {
 	os := runtime.GOOS
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	var out []byte
 	var err error
 	switch os {
 	case "linux":
-		out, err = exec.Command("sh", "-c", "iptables -L -n --line-numbers 2>/dev/null || ufw status numbered").CombinedOutput()
+		out, err = exec.CommandContext(ctx, "sh", "-c", "iptables -L -n --line-numbers 2>/dev/null || ufw status numbered").CombinedOutput()
 	case "windows":
-		out, err = exec.Command("powershell", "-Command",
+		out, err = exec.CommandContext(ctx, "powershell", "-Command",
 			"Get-NetFirewallRule | Where-Object {$_.Direction -eq 'Inbound'} | Select-Object -First 100 Name,DisplayName,Action,Enabled,Direction | Format-List").CombinedOutput()
 	}
 	if err != nil {
@@ -205,6 +209,9 @@ func AddRule(port int, protocol, action, ip string) error {
 		return fmt.Errorf("invalid IP address: %s", ip)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	os := runtime.GOOS
 	portStr := strconv.Itoa(port)
 	safeProto := sanitizeInput(protocol)
@@ -222,7 +229,7 @@ func AddRule(port int, protocol, action, ip string) error {
 		} else {
 			args = append(args, "-j", "DROP")
 		}
-		cmd := exec.Command("iptables", args...)
+		cmd := exec.CommandContext(ctx, "iptables", args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("iptables add rule failed: %w, output: %s", err, string(out))
 		}
@@ -234,11 +241,11 @@ func AddRule(port int, protocol, action, ip string) error {
 		if safeAction != "allow" && safeAction != "" {
 			winAction = "Block"
 		}
-		psCmd := fmt.Sprintf(
-			"New-NetFirewallRule -DisplayName '%s' -Direction Inbound -Protocol %s -LocalPort %s -Action %s",
-			ruleName, safeProto, portStr, winAction,
+		cmd := exec.CommandContext(ctx, "powershell", "-Command",
+			"New-NetFirewallRule", "-DisplayName", ruleName,
+			"-Direction", "Inbound", "-Protocol", safeProto,
+			"-LocalPort", portStr, "-Action", winAction,
 		)
-		cmd := exec.Command("powershell", "-Command", psCmd)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("firewall rule creation failed: %w, output: %s", err, string(out))
 		}
@@ -252,20 +259,23 @@ func RemoveRule(id string) error {
 		return fmt.Errorf("invalid rule ID: %s", id)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	os := runtime.GOOS
 	safeID := sanitizeInput(id)
 
 	switch os {
 	case "linux":
-		cmd := exec.Command("iptables", "-D", "INPUT", safeID)
+		cmd := exec.CommandContext(ctx, "iptables", "-D", "INPUT", safeID)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("iptables delete rule failed: %w, output: %s", err, string(out))
 		}
 		return nil
 
 	case "windows":
-		cmd := exec.Command("powershell", "-Command",
-			fmt.Sprintf("Remove-NetFirewallRule -Name '%s'", safeID))
+		cmd := exec.CommandContext(ctx, "powershell", "-Command",
+			"Remove-NetFirewallRule", "-Name", safeID)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("remove firewall rule failed: %w, output: %s", err, string(out))
 		}
@@ -279,6 +289,9 @@ func ToggleRule(id string, enabled bool) error {
 		return fmt.Errorf("invalid rule ID: %s", id)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
 	os := runtime.GOOS
 	safeID := sanitizeInput(id)
 
@@ -290,8 +303,8 @@ func ToggleRule(id string, enabled bool) error {
 		} else {
 			action = "Disable"
 		}
-		cmd := exec.Command("powershell", "-Command",
-			fmt.Sprintf("%s-NetFirewallRule -Name '%s'", action, safeID))
+		cmd := exec.CommandContext(ctx, "powershell", "-Command",
+			action+"-NetFirewallRule", "-Name", safeID)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("toggle firewall rule failed: %w, output: %s", err, string(out))
 		}

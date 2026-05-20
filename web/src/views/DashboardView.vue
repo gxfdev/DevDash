@@ -132,10 +132,10 @@ const uptimeLabel = computed(() => {
 const alertItems = computed(() => {
   const cur = snap.current
   if (!cur) return []
-  const items: any[] = []
-  if (cur.cpu.usage_percent > 80) items.push({ id: 1, node: cur.host?.hostname || 'self', msg: `CPU ${cur.cpu.usage_percent.toFixed(1)}%` })
-  if (cur.memory.usage_percent > 85) items.push({ id: 2, node: cur.host?.hostname || 'self', msg: `内存 ${cur.memory.usage_percent.toFixed(1)}%` })
-  if (cur.disk.usage_percent > 90) items.push({ id: 3, node: cur.host?.hostname || 'self', msg: `磁盘 ${cur.disk.usage_percent.toFixed(1)}%` })
+  const items: { id: number; node: string; msg: string }[] = []
+  if (cur.cpu.usage_percent > 80) items.push({ id: 1, node: cur.host?.hostname || '本地', msg: `CPU ${cur.cpu.usage_percent.toFixed(1)}%` })
+  if (cur.memory.usage_percent > 85) items.push({ id: 2, node: cur.host?.hostname || '本地', msg: `内存 ${cur.memory.usage_percent.toFixed(1)}%` })
+  if (cur.disk.usage_percent > 90) items.push({ id: 3, node: cur.host?.hostname || '本地', msg: `磁盘 ${cur.disk.usage_percent.toFixed(1)}%` })
   return items
 })
 
@@ -144,7 +144,7 @@ function formatTime(ts: string) {
   catch { return ts }
 }
 
-function makeBaseOpt(): any {
+function makeBaseOpt(): Record<string, unknown> {
   return {
     grid: { top: 25, right: 16, bottom: 28, left: 48 },
     legend: { top: 2, right: 8, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 14, itemHeight: 2 },

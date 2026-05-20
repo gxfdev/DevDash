@@ -28,11 +28,28 @@
             <n-button size="small" @click="uploadFile">上传</n-button>
             <input ref="fileInput" type="file" multiple style="display:none" @change="doUpload" />
           </div>
-          <n-data-table :columns="fileColumns" :data="files" size="small" :bordered="false" :row-key="(row: any) => (row.path || row.name || String(Math.random()))" :key="'files-' + currentDir" />
-          <div v-if="!loading && files.length === 0" class="empty">目录为空或无法访问</div>
+          <div class="file-list-container">
+            <n-data-table
+              :columns="fileColumns"
+              :data="files"
+              size="small"
+              :bordered="false"
+              :row-key="(row: Record<string, unknown>) => (row.path || row.name || String(Math.random()))"
+              :key="'files-' + currentDir"
+              :scroll-x="800"
+              flex-height
+            />
+            <div v-if="!loading && files.length === 0" class="empty">目录为空或无法访问</div>
+          </div>
         </div>
       </div>
     </div>
+
+    <n-modal v-model:show="showPreview" preset="card" title="文件预览" style="width:80vw;max-width:1000px;max-height:80vh" :mask-closable="true">
+      <div v-if="previewLoading" class="preview-loading">加载中...</div>
+      <pre v-else-if="previewContent !== null" class="file-preview"><code>{{ previewContent }}</code></pre>
+      <div v-else class="empty">无法预览此文件</div>
+    </n-modal>
 
     <n-modal v-model:show="showNewFile" preset="card" title="新建文件" style="width:400px">
       <n-input v-model:value="newFileName" placeholder="filename.ext" />
@@ -57,7 +74,7 @@ import { ref, computed, onMounted, h, watch, nextTick } from 'vue'
 import { NButton, NTag, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -74,7 +91,11 @@ const newDirName = ref('')
 const fileInput = ref<HTMLInputElement>()
 const isWindows = navigator.userAgent.indexOf('Windows') > -1
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
+const showPreview = ref(false)
+const previewContent = ref<string | null>(null)
+const previewLoading = ref(false)
+
+const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
 
 function getDefaultRoot() {
   return isWindows ? 'C:\\' : '/'
@@ -94,20 +115,21 @@ function normalizePath(p: string): string {
 const fileColumns = [
   {
     title: '', key: 'type', width: 30,
-    render: (r: any) => r.type === 'dir' ? '📁' : r.is_dir ? '📁' : '📄',
+    render: (r: any) => String(r.type) === 'dir' ? '📁' : Boolean(r.is_dir) ? '📁' : '📄',
   },
-  { title: '名称', key: 'name' },
-  { title: '大小', key: 'size', render: (r: any) => (r.type === 'dir' || r.is_dir) ? '--' : formatSize(r.size || 0) },
-  { title: '权限', key: 'mode', render: (r: any) => r.mode || '--' },
-  { title: '修改时间', key: 'mtime', render: (r: any) => r.mtime || r.modified || '--' },
+  { title: '名称', key: 'name', ellipsis: { tooltip: true } },
+  { title: '大小', key: 'size', width: 90, render: (r: any) => (r.type === 'dir' || r.is_dir) ? '--' : formatSize(Number(r.size) || 0) },
+  { title: '权限', key: 'mode', width: 80, render: (r: any) => String(r.mode || '--') },
+  { title: '修改时间', key: 'mtime', width: 160, render: (r: any) => String(r.mtime || r.modified || '--') },
   {
     title: '操作',
     key: 'actions',
+    width: 200,
     render: (r: any) =>
-      h('div', { style: 'display:flex;gap:4px' }, [
+      h('div', { style: 'display:flex;gap:4px;flex-wrap:wrap' }, [
         (r.type === 'dir' || r.is_dir)
           ? h(NButton, { size: 'tiny', onClick: () => cd(r.path || joinPath(currentDir.value, r.name)) }, () => '进入')
-          : null,
+          : h(NButton, { size: 'tiny', onClick: () => previewFile(r) }, () => '预览'),
         h(NButton, { size: 'tiny', onClick: () => downloadFile(r) }, () => '下载'),
         h(NPopconfirm, { onPositiveClick: () => delFile(r) }, {
           trigger: () => h(NButton, { size: 'tiny', type: 'error' }, () => '删除'),
@@ -146,8 +168,8 @@ async function fetchDir() {
       const drives = ['C:\\', 'D:\\', 'E:\\']
       dirs.value.unshift(...drives.filter(d => !dirs.value.includes(d)))
     }
-  } catch (e: any) {
-    message.error('读取失败: ' + (e?.response?.data?.error || e.message || '未知错误'))
+  } catch (e: unknown) {
+    message.error('读取失败: ' + (getErrorMessage(e, '未知错误')))
     files.value = []
   } finally {
     loading.value = false
@@ -163,6 +185,28 @@ async function cd(path: string) {
 
 function refresh() { fetchDir() }
 
+async function previewFile(f: any) {
+  showPreview.value = true
+  previewContent.value = null
+  previewLoading.value = true
+
+  try {
+    const fpath = f.path || joinPath(currentDir.value, f.name)
+    const response = await client.get(`/node/${selectedNode.value}/fs/read`, {
+      params: { path: fpath },
+      responseType: 'text',
+      transformResponse: [(data: string) => data],
+    })
+
+    previewContent.value = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '读取文件失败'))
+    previewContent.value = null
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 async function createFile() {
   if (!selectedNode.value || !newFileName.value.trim()) { message.warning('请输入文件名'); return }
   try {
@@ -172,7 +216,7 @@ async function createFile() {
     showNewFile.value = false
     newFileName.value = ''
     fetchDir()
-  } catch (e: any) { message.error(e?.response?.data?.error || '创建失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '创建失败')) }
 }
 
 async function createDir() {
@@ -184,7 +228,7 @@ async function createDir() {
     showNewDir.value = false
     newDirName.value = ''
     fetchDir()
-  } catch (e: any) { message.error(e?.response?.data?.error || '创建失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '创建失败')) }
 }
 
 async function delFile(f: any) {
@@ -193,7 +237,7 @@ async function delFile(f: any) {
     await client.delete(`/node/${selectedNode.value}/fs/remove`, { data: { path: fpath } })
     message.success('已删除')
     fetchDir()
-  } catch (e: any) { message.error(e?.response?.data?.error || '删除失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '删除失败')) }
 }
 
 function downloadFile(f: any) {
@@ -213,7 +257,7 @@ async function doUpload(e: Event) {
     await client.post(`/node/${selectedNode.value}/fs/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
     message.success('上传成功')
     fetchDir()
-  } catch (e: any) { message.error(e?.response?.data?.error || '上传失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '上传失败')) }
   input.value = ''
 }
 
@@ -241,14 +285,18 @@ watch(selectedNode, async () => {
 .page { padding: 24px; height: 100%; display: flex; flex-direction: column; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0; }
 h2 { font-size: 20px; font-weight: 600; margin: 0; }
-.file-layout { display: grid; grid-template-columns: 200px 1fr; gap: 16px; flex: 1; min-height: 0; }
-.dir-tree { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.file-layout { display: grid; grid-template-columns: 200px 1fr; gap: 16px; flex: 1; min-height: 0; overflow: hidden; }
+.dir-tree { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .tree-title { padding: 12px 16px; font-size: 12px; color: #8b949e; border-bottom: 1px solid #21262d; flex-shrink: 0; }
-.tree-scroll { padding: 8px; overflow-y: auto; flex: 1; }
+.tree-scroll { padding: 8px; overflow-y: auto; flex: 1; min-height: 0; }
 .tree-item { padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-item:hover { background: #21262d; }
 .tree-item.active { background: #388bfd33; color: #58a6ff; font-weight: 500; }
-.file-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+.file-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .file-toolbar { padding: 12px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #21262d; flex-wrap: wrap; flex-shrink: 0; }
+.file-list-container { flex: 1; overflow: hidden; padding: 0 12px 12px; min-height: 0; }
 .empty { padding: 40px; text-align: center; color: #6e7681; }
+.preview-loading { text-align: center; padding: 20px; color: #8b949e; }
+.file-preview { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; max-height: 60vh; overflow: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.5; color: #e6edf3; white-space: pre-wrap; word-break: break-all; margin: 0; }
+.file-preview code { font-family: inherit; }
 </style>

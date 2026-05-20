@@ -7,23 +7,31 @@ export const useAuthStore = defineStore('auth', () => {
   const username = ref('')
   const isLoggedIn = ref(!!token.value)
 
-  // Bootstrap Authorization header from persisted token
   if (token.value) {
     client.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
   }
 
   async function login(user: string, pass: string) {
-    const { data } = await authClient.post('/auth/login', { username: user, password: pass })
-    token.value = data.token
-    username.value = user
-    localStorage.setItem('token', data.token)
-    client.defaults.headers.common['Authorization'] = `Bearer ${data.token}`
-    isLoggedIn.value = true
+    try {
+      const { data } = await authClient.post('/auth/login', { username: user, password: pass })
+      token.value = data.access_token
+      username.value = user
+      localStorage.setItem('token', data.access_token)
+      client.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`
+      isLoggedIn.value = true
+    } catch (err) {
+      isLoggedIn.value = false
+      throw err
+    }
   }
 
   async function fetchMe() {
-    const { data } = await authClient.get('/auth/me')
-    username.value = data.username || username.value
+    try {
+      const { data } = await authClient.get('/auth/me')
+      username.value = data.username || username.value
+    } catch (err) {
+      console.error('[auth] fetchMe failed:', err)
+    }
   }
 
   function logout() {

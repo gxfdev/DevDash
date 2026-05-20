@@ -47,8 +47,8 @@
           </n-form-item>
           <n-form-item label="告警级别">
             <n-radio-group v-model:value="ruleForm.level">
-              <n-radio value="warning">Warning (黄色)</n-radio>
-              <n-radio value="critical">Critical (红色)</n-radio>
+              <n-radio value="warning">警告 (黄色)</n-radio>
+              <n-radio value="critical">严重 (红色)</n-radio>
             </n-radio-group>
           </n-form-item>
           <n-form-item label="通知渠道">
@@ -71,7 +71,7 @@ import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import { NButton, NTag, useMessage, useDialog } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -92,7 +92,7 @@ const POLL_INTERVAL = 15000
 
 const nodeOptions = computed(() => [
   { label: '全部节点', value: null },
-  ...nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname || n.id, value: n.id })),
+  ...nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.id, value: n.id })),
 ])
 
 const metricOptions = [
@@ -109,7 +109,7 @@ const opOptions = [
   { label: '<=', value: '<=' },
 ]
 
-function formatTime(ts: any): string {
+function formatTime(ts: string | number): string {
   if (!ts) return '--'
   let num: number
   if (typeof ts === 'number') {
@@ -126,11 +126,11 @@ function formatTime(ts: any): string {
   try { return new Date(num * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return String(num) }
 }
 
-function showBrowserNotification(alert: any) {
+function showBrowserNotification(alert: { metric?: string; node_name?: string; value?: number; id?: string; message?: string; level?: string }) {
   if (!('Notification' in window)) return
   if (Notification.permission === 'granted') {
     const notification = new Notification(`DevDash 告警: ${alert.metric}`, {
-      body: alert.message || `${alert.node_name} ${alert.value}%`,
+      body: (alert.message || '') + ' ' + (alert.node_name || '') + ' ' + (alert.value ?? '') + '%',
       icon: '/favicon.ico',
       tag: `devdash-alert-${alert.id}`,
     })
@@ -144,22 +144,22 @@ function showBrowserNotification(alert: any) {
 
 async function fetchAlerts() {
   loading.value = true
-  const params: any = {}
+  const params: Record<string, unknown> = {}
   if (selectedNode.value) params.node_id = selectedNode.value
   
   try {
     const { data: activeData } = await client.get('/alerts/active', { params })
     const newAlerts = Array.isArray(activeData) ? activeData : []
     
-    const prevIds = new Set(activeAlerts.value.map((a: any) => a.id))
-    const trulyNew = newAlerts.filter((a: any) => !prevIds.has(a.id))
+    const prevIds = new Set(activeAlerts.value.map((a: Record<string, unknown>) => a.id))
+    const trulyNew = newAlerts.filter((a: Record<string, unknown>) => !prevIds.has(a.id))
     
     if (trulyNew.length > 0 && document.hidden) {
-      trulyNew.forEach((a: any) => showBrowserNotification(a))
+      trulyNew.forEach((a: Record<string, unknown>) => showBrowserNotification(a))
     }
     
     activeAlerts.value = newAlerts
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Failed to fetch active alerts:', e)
     message.error('加载活跃告警失败')
   }
@@ -167,14 +167,14 @@ async function fetchAlerts() {
   try {
     const { data } = await client.get('/alerts/history', { params })
     historyList.value = Array.isArray(data) ? data : []
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Failed to fetch alert history:', e)
   }
   
   try {
     const { data } = await client.get('/alert-rules')
     rules.value = Array.isArray(data) ? data : []
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Failed to fetch alert rules:', e)
   } finally { loading.value = false }
 }
@@ -192,23 +192,23 @@ function stopPolling() {
 }
 
 const historyColumns = [
-  { title: '时间', key: 'time', render: (r: any) => formatTime(r.time || r.created_at) },
-  { title: '节点', key: 'node_name', render: (r: any) => r.node_name || r.node_id || '--' },
-  { title: '指标', key: 'metric', render: (r: any) => r.metric || r.type || '--' },
-  { title: '值', key: 'value', render: (r: any) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
+  { title: '时间', key: 'time', render: (r: Record<string, unknown>) => formatTime(String(r.time || r.created_at || Date.now())) },
+  { title: '节点', key: 'node_name', render: (r: Record<string, unknown>) => r.node_name || r.node_id || '--' },
+  { title: '指标', key: 'metric', render: (r: Record<string, unknown>) => r.metric || r.type || '--' },
+  { title: '值', key: 'value', render: (r: Record<string, unknown>) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
   {
     title: '级别', key: 'level',
-    render: (r: any) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告'),
+    render: (r: Record<string, unknown>) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告'),
   },
-  { title: '状态', key: 'status', render: (r: any) => h(NTag, { size: 'small', type: r.status === 'firing' ? 'error' : r.status === 'silenced' ? 'default' : 'info' }, () => r.status === 'firing' ? '触发中' : r.status === 'silenced' ? '已静默' : r.status || '--') },
+  { title: '状态', key: 'status', render: (r: Record<string, unknown>) => h(NTag, { size: 'small', type: r.status === 'firing' ? 'error' : r.status === 'silenced' ? 'default' : 'info' }, () => r.status === 'firing' ? '触发中' : r.status === 'silenced' ? '已静默' : r.status || '--') },
 ]
 
 const ruleColumns = [
-  { title: '指标', key: 'metric', render: (r: any) => metricOptions.find(m => m.value === r.metric)?.label || r.metric || '--' },
-  { title: '条件', key: 'condition', render: (r: any) => `${r.op || '>'} ${typeof r.threshold === 'number' ? r.threshold : '--'}%` },
-  { title: '级别', key: 'level', render: (r: any) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告') },
-  { title: '渠道', key: 'channels', render: (r: any) => Array.isArray(r.channels) ? r.channels.join(', ') : 'browser' },
-  { title: '状态', key: 'enabled', render: (r: any) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
+  { title: '指标', key: 'metric', render: (r: Record<string, unknown>) => metricOptions.find(m => m.value === r.metric)?.label || r.metric || '--' },
+  { title: '条件', key: 'condition', render: (r: Record<string, unknown>) => `${r.op || '>'} ${typeof r.threshold === 'number' ? r.threshold : '--'}%` },
+  { title: '级别', key: 'level', render: (r: Record<string, unknown>) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告') },
+  { title: '渠道', key: 'channels', render: (r: Record<string, unknown>) => Array.isArray(r.channels) ? r.channels.join(', ') : 'browser' },
+  { title: '状态', key: 'enabled', render: (r: Record<string, unknown>) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
 ]
 
 async function addRule() {
@@ -219,12 +219,12 @@ async function addRule() {
     showRule.value = false
     ruleForm.value = { metric: 'cpu', op: '>', threshold: 90, level: 'warning', channels: ['browser'], enabled: true }
     await fetchAlerts()
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || '创建失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '创建失败'))
   } finally { saving.value = false }
 }
 
-async function silenceAlert(a: any) {
+async function silenceAlert(a: { id?: number; node_name?: string; metric?: string; [k: string]: unknown }) {
   if (!a.id) return
   
   dialog.warning({
@@ -233,13 +233,13 @@ async function silenceAlert(a: any) {
     positiveText: '确认',
     negativeText: '取消',
     onPositiveClick: async () => {
-      silencingId.value = a.id
+      silencingId.value = a.id ?? null
       try {
         await client.post(`/alerts/${a.id}/silence`)
         message.success('已静默')
         await fetchAlerts()
-      } catch (e: any) {
-        message.error(e?.response?.data?.error || '静默失败')
+      } catch (e: unknown) {
+        message.error(getErrorMessage(e, '静默失败'))
       } finally { silencingId.value = null }
     }
   })

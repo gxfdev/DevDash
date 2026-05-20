@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"sync"
 )
@@ -69,11 +70,10 @@ func GetAlertSettings() AlertSettings {
 }
 
 func UpdateAlertSettings(a AlertSettings) {
-	s := Get()
 	mu.Lock()
 	defer mu.Unlock()
-	s.Alert = a
-	s.saveToFile()
+	instance.Alert = a
+	instance.saveToFile()
 }
 
 func (s *SystemSettings) loadFromFile() {
@@ -81,13 +81,18 @@ func (s *SystemSettings) loadFromFile() {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, s)
+	if err := json.Unmarshal(data, s); err != nil {
+		log.Printf("[settings] failed to parse settings file: %v", err)
+	}
 }
 
 func (s *SystemSettings) saveToFile() {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
+		log.Printf("[settings] failed to marshal settings: %v", err)
 		return
 	}
-	os.WriteFile("devdash-settings.json", data, 0644)
+	if err := os.WriteFile("devdash-settings.json", data, 0600); err != nil {
+		log.Printf("[settings] failed to write settings file: %v", err)
+	}
 }

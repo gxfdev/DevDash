@@ -85,7 +85,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -110,7 +110,7 @@ const dbTestResult = ref('')
 const dbTestOk = ref(false)
 const dbForm = ref({ name: '', type: 'mysql', host: '', portNum: 3306, username: '', password: '', dbname: '' })
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
+const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
 
 const dataColumns = computed(() => {
   if (!rows.value.length) return []
@@ -122,13 +122,13 @@ async function fetchDbs() {
   try {
     const { data } = await client.get(`/node/${selectedNode.value}/databases`)
     dbConnections.value = Array.isArray(data) ? data : []
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[db] fetchDbs error:', e)
     dbConnections.value = []
   }
 }
 
-async function selectDb(db: any) {
+async function selectDb(db: Record<string, unknown>) {
   currentDb.value = db
   selectedTable.value = null
   rows.value = []
@@ -139,9 +139,9 @@ async function selectDb(db: any) {
     if (tables.value.length === 0) {
       message.info('该数据库暂无表或连接信息有误')
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[db] fetchTables error:', e)
-    const errMsg = e?.response?.data?.error || e.message || '未知错误'
+    const errMsg = getErrorMessage(e, '未知错误')
     message.error(`获取表列表失败: ${errMsg}`)
     tables.value = []
   } finally {
@@ -158,9 +158,9 @@ async function selectTable(t: string) {
       sql: `SELECT * FROM \`${t}\` LIMIT 100`,
     })
     rows.value = data?.rows || (Array.isArray(data) ? data : [])
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[db] query error:', e)
-    message.error('查询失败: ' + (e?.response?.data?.error || e.message))
+    message.error('查询失败: ' + (getErrorMessage(e)))
   } finally {
     tableLoading.value = false
   }
@@ -180,8 +180,8 @@ async function runSql() {
       sqlResultCols.value = Object.keys(resultRows[0]).map(k => ({ title: k, key: k }))
     }
     message.success(`查询成功，返回 ${resultRows.length} 行`)
-  } catch (e: any) {
-    sqlError.value = e?.response?.data?.error || e.message || '查询失败'
+  } catch (e: unknown) {
+    sqlError.value = getErrorMessage(e, '查询失败')
   } finally {
     sqlRunning.value = false
   }
@@ -209,8 +209,8 @@ async function addDb() {
     Object.assign(dbForm.value, { name: '', type: 'mysql', host: '', portNum: 3306, username: '', password: '', dbname: '' })
     dbTestResult.value = ''
     await fetchDbs()
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || e.message || '添加失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '添加失败'))
   } finally {
     dbSaving.value = false
   }
@@ -236,15 +236,15 @@ async function testDbConn() {
       dbTestOk.value = false
       dbTestResult.value = `连接失败: ${data.error || '未知错误'}`
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     dbTestOk.value = false
-    dbTestResult.value = '测试请求失败: ' + (e?.response?.data?.error || e.message || '网络错误')
+    dbTestResult.value = '测试请求失败: ' + (getErrorMessage(e, '网络错误'))
   } finally {
     dbTesting.value = false
   }
 }
 
-async function deleteDb(db: any) {
+async function deleteDb(db: Record<string, unknown>) {
   try {
     await client.delete(`/node/${selectedNode.value}/databases/${db.id}`)
     message.success('已删除')
@@ -255,8 +255,8 @@ async function deleteDb(db: any) {
       rows.value = []
     }
     await fetchDbs()
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || '删除失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '删除失败'))
   }
 }
 

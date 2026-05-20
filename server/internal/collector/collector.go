@@ -14,38 +14,87 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/net"
+	psnet "github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 )
 
 type Collector struct {
 	mu          sync.RWMutex
-	lastNet     net.IOCountersStat
+	lastNet     psnet.IOCountersStat
 	lastNetTime time.Time
 	lastRecv    uint64
 	lastSent    uint64
+	gpu         *GPUCollector
 }
 
-func NewCollector() *Collector { return &Collector{} }
+func NewCollector() *Collector {
+	return &Collector{
+		gpu: NewGPUCollector(),
+	}
+}
 
 func (c *Collector) Collect() (*model.Snapshot, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	snap := &model.Snapshot{Timestamp: time.Now()}
 	var wg sync.WaitGroup
 	wg.Add(6)
-	go func() { defer wg.Done(); snap.CPU = c.collectCPU(ctx) }()
-	go func() { defer wg.Done(); snap.Memory = c.collectMemory(ctx) }()
-	go func() { defer wg.Done(); snap.Disk = c.collectDisk(ctx) }()
-	go func() { defer wg.Done(); snap.Network = c.collectNetwork(ctx) }()
-	go func() { defer wg.Done(); snap.Load = c.collectLoad(ctx) }()
-	go func() { defer wg.Done(); snap.Host = c.collectHost(ctx) }()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.CPU = c.collectCPU(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.Memory = c.collectMemory(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.Disk = c.collectDisk(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.Network = c.collectNetwork(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.Load = c.collectLoad(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() { recover() }()
+		snap.Host = c.collectHost(ctx)
+	}()
 	wg.Wait()
-	snap.Processes = c.collectProcesses(ctx)
-	snap.Containers = c.collectContainers(ctx)
-	snap.GPU = c.collectGPU(ctx)
-	snap.Sensors = c.collectSensors(ctx)
-	snap.DiskIO = c.collectDiskIO(ctx)
-	snap.TCPConns = c.collectTCPConns(ctx)
+
+	func() {
+		defer func() { recover() }()
+		snap.Processes = c.collectProcesses(ctx)
+	}()
+	func() {
+		defer func() { recover() }()
+		snap.Containers = c.collectContainers(ctx)
+	}()
+	func() {
+		defer func() { recover() }()
+		snap.GPU = c.collectGPU(ctx)
+	}()
+	func() {
+		defer func() { recover() }()
+		snap.Sensors = c.collectSensors(ctx)
+	}()
+	func() {
+		defer func() { recover() }()
+		snap.DiskIO = c.collectDiskIO(ctx)
+	}()
+	func() {
+		defer func() { recover() }()
+		snap.TCPConns = c.collectTCPConns(ctx)
+	}()
 	return snap, nil
 }
 
@@ -79,17 +128,12 @@ func (c *Collector) collectMemory(_ context.Context) model.MemoryMetrics {
 
 func (c *Collector) collectDisk(_ context.Context) model.DiskMetrics {
 	m := model.DiskMetrics{}
-	var paths []string
-	switch runtime.GOOS {
-	case "windows":
-		paths = []string{"C:\\", "D:\\", "E:\\"}
-	case "darwin":
-		paths = []string{"/"}
-	default:
-		paths = []string{"/"}
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return m
 	}
-	for _, p := range paths {
-		if u, err := disk.Usage(p); err == nil && u.Total > 0 {
+	for _, p := range partitions {
+		if u, err := disk.Usage(p.Mountpoint); err == nil && u.Total > 0 {
 			m.TotalGB = gb(u.Total)
 			m.UsedGB = gb(u.Used)
 			m.FreeGB = gb(u.Free)
@@ -102,7 +146,7 @@ func (c *Collector) collectDisk(_ context.Context) model.DiskMetrics {
 
 func (c *Collector) collectNetwork(_ context.Context) model.NetworkMetrics {
 	m := model.NetworkMetrics{}
-	io, err := net.IOCounters(false)
+	io, err := psnet.IOCounters(false)
 	if err != nil || len(io) == 0 {
 		return m
 	}
@@ -178,19 +222,57 @@ func (c *Collector) collectProcesses(ctx context.Context) []model.ProcessInfo {
 			s = status[0]
 		}
 		result = append(result, model.ProcessInfo{
-			PID:         p.Pid,
-			Name:        name,
-			CPUPercent:  round(cpuP),
-			MemPercent:  round(float64(memP)),
-			MemMB:       round(memMB),
-			Status:      s,
+			PID:        p.Pid,
+			Name:       name,
+			CPUPercent: round(cpuP),
+			MemPercent: round(float64(memP)),
+			MemMB:      round(memMB),
+			Status:     s,
 		})
 	}
 	return result
 }
 
 func (c *Collector) collectContainers(_ context.Context) []model.ContainerInfo { return nil }
-func (c *Collector) collectGPU(_ context.Context) *model.GPUMetrics         { return nil }
+
+func (c *Collector) collectGPU(ctx context.Context) *model.GPUMetrics {
+	devices := c.gpu.Collect(ctx)
+	if len(devices) == 0 {
+		return nil
+	}
+	d := devices[0]
+	total := &model.GPUMetrics{
+		Name:         d.Name,
+		UsagePercent: d.UsagePercent,
+		MemUsedMB:    d.MemUsedMB,
+		MemTotalMB:   d.MemTotalMB,
+		Temperature:  d.TemperatureC,
+		Devices:      make([]model.GPUDevice, 0, len(devices)),
+	}
+	for _, dev := range devices {
+		total.Devices = append(total.Devices, model.GPUDevice{
+			Index:        dev.Index,
+			Name:         dev.Name,
+			UsagePercent: dev.UsagePercent,
+			MemUsedMB:    dev.MemUsedMB,
+			MemTotalMB:   dev.MemTotalMB,
+			Temperature:  dev.TemperatureC,
+		})
+	}
+	if len(devices) > 1 {
+		var totalUsage, totalMemUsed, totalMemTotal float64
+		for _, dev := range devices {
+			totalUsage += dev.UsagePercent
+			totalMemUsed += dev.MemUsedMB
+			totalMemTotal += dev.MemTotalMB
+		}
+		total.UsagePercent = round(totalUsage / float64(len(devices)))
+		total.MemUsedMB = totalMemUsed
+		total.MemTotalMB = totalMemTotal
+	}
+	return total
+}
+
 func (c *Collector) collectSensors(_ context.Context) *model.SensorInfo    { return nil }
 
 func (c *Collector) collectDiskIO(_ context.Context) *model.DiskIOMetrics {
@@ -210,7 +292,7 @@ func (c *Collector) collectDiskIO(_ context.Context) *model.DiskIOMetrics {
 }
 
 func (c *Collector) collectTCPConns(_ context.Context) *model.TCPConnectionMetrics {
-	conns, err := net.Connections("tcp")
+	conns, err := psnet.Connections("tcp")
 	if err != nil {
 		return nil
 	}

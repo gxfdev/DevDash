@@ -88,7 +88,8 @@ setup_ssl() {
         exit 1
     fi
     
-    # 更新 Nginx 配置中的域名
+    # 备份并更新 Nginx 配置中的域名
+    cp docker/nginx.ssl.conf docker/nginx.ssl.conf.bak
     sed -i "s/your-domain.com/${DOMAIN}/g" docker/nginx.ssl.conf
     
     # 选择证书类型

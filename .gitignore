@@ -2,6 +2,8 @@
 
 # === Database ===
 *.db
+*.db-shm
+*.db-wal
 data/
 devdash-data/
 

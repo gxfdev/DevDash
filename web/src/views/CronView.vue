@@ -53,7 +53,7 @@ import { ref, computed, onMounted, watch, h } from 'vue'
 import { NButton, NTag, NSwitch, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -69,7 +69,7 @@ const saving = ref(false)
 const form = ref({ name: '', cron: '', type: 'shell', command: '' })
 
 const nodeOptions = computed(() =>
-  nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname || n.ip, value: n.id }))
+  nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id }))
 )
 
 const columns = [
@@ -86,7 +86,7 @@ const columns = [
   },
   {
     title: '最近执行', key: 'last_run',
-    render: (r: any) => r.last_run ? new Date(r.last_run * 1000).toLocaleString() : '从未',
+    render: (r: any) => r.last_run ? new Date((r.last_run as number) * 1000).toLocaleString() : '从未',
   },
   {
     title: '操作', key: 'actions', width: 200,
@@ -103,7 +103,7 @@ const columns = [
 ]
 
 const logColumns = [
-  { title: '执行时间', key: 'start_time', render: (r: any) => new Date(r.start_time * 1000).toLocaleString() },
+  { title: '执行时间', key: 'start_time', render: (r: any) => new Date((r.start_time as number) * 1000).toLocaleString() },
   { title: '耗时', key: 'duration', render: (r: any) => r.duration ? r.duration + 'ms' : '--' },
   {
     title: '状态', key: 'exit_code',
@@ -120,8 +120,8 @@ async function fetchJobs() {
   try {
     const { data } = await client.get(`/node/${selectedNode.value}/cronjobs`)
     jobs.value = Array.isArray(data) ? data : []
-  } catch (e: any) {
-    message.error('获取任务列表失败: ' + (e?.response?.data?.error || e?.message || ''))
+  } catch (e: unknown) {
+    message.error('获取任务列表失败: ' + (getErrorMessage(e, '')))
     jobs.value = []
   } finally {
     loading.value = false
@@ -151,14 +151,14 @@ async function addJob() {
     showAdd.value = false
     Object.assign(form.value, { name: '', cron: '', type: 'shell', command: '' })
     fetchJobs()
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || '创建失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '创建失败'))
   } finally {
     saving.value = false
   }
 }
 
-async function toggleJob(r: any, enabled: boolean) {
+async function toggleJob(r: Record<string, unknown>, enabled: boolean) {
   try {
     await client.patch(`/node/${selectedNode.value}/cronjobs/${r.id}`, { ...r, enabled })
     r.enabled = enabled
@@ -187,7 +187,7 @@ async function runNow(r: any) {
 }
 
 async function showHistory(r: any) {
-  logJobName.value = r.name
+  logJobName.value = String(r.name || '')
   showLog.value = true
   logs.value = []
 }

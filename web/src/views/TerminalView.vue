@@ -24,7 +24,6 @@ import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
 
 const nodesStore = useNodesStore()
 
@@ -33,9 +32,11 @@ const termRef = ref<HTMLDivElement>()
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
-let dataDisposable: any = null
+let dataDisposable: { dispose(): void } | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let isConnecting = false
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
+const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
 
 function createTerminal() {
   disposeTerminal()
@@ -44,12 +45,13 @@ function createTerminal() {
 
   term = new Terminal({
     theme: { background: '#0d1117', foreground: '#e6edf3', cursor: '#e6edf3', cursorAccent: '#0d1117', selectionBackground: '#388bfd40' },
-    fontSize: 13,
-    fontFamily: 'Consolas, "Courier New", monospace',
+    fontSize: 14,
+    fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace',
     cursorBlink: true,
-    scrollback: 5000,
+    scrollback: 10000,
     allowProposedApi: true,
-    convertEol: true,
+    convertEol: false,
+    windowsMode: navigator.userAgent.indexOf('Windows') > -1,
   })
 
   fitAddon = new FitAddon()
@@ -61,12 +63,14 @@ function createTerminal() {
   } catch (e) {
     console.error('[terminal] open error:', e)
   }
-
-  term.writeln('\x1b[1;36mDevDash Web Terminal\x1b[0m')
-  term.writeln('Waiting for connection...')
 }
 
 function disposeTerminal() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
   if (dataDisposable) {
     try { dataDisposable.dispose() } catch {}
     dataDisposable = null
@@ -83,10 +87,14 @@ function disposeTerminal() {
 
 function connectWS() {
   disconnectWS()
+  isConnecting = true
 
   if (!selectedNode.value || !term) {
     createTerminal()
-    if (!selectedNode.value || !term) return
+    if (!selectedNode.value || !term) {
+      isConnecting = false
+      return
+    }
   }
 
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -96,16 +104,18 @@ function connectWS() {
 
   try {
     ws = new WebSocket(url)
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('[terminal] WebSocket create error:', e)
-    term?.write('\r\n\x1b[1;31m✗ WebSocket 创建失败: ' + (e.message || e) + '\x1b[0m\r\n')
+    term?.write('\r\n\x1b[1;31m✗ WebSocket 创建失败\x1b[0m\r\n')
+    isConnecting = false
+    scheduleReconnect()
     return
   }
 
   ws.binaryType = 'arraybuffer'
 
   ws.onopen = () => {
-    term?.write('\r\n\x1b[1;32m✓ Connected\x1b[0m\r\n')
+    isConnecting = false
     try { fitAddon?.fit() } catch {}
   }
 
@@ -118,14 +128,31 @@ function connectWS() {
   }
 
   ws.onclose = (event) => {
-    term?.write('\r\n\x1b[1;33m⚠ Disconnected' + (event.code ? ` (code=${event.code})` : '') + '\x1b[0m\r\n')
+    console.log('[terminal] closed:', event.code, event.reason)
     ws = null
+    isConnecting = false
+
+    if (event.code !== 1000 && event.code !== 1001) {
+      scheduleReconnect()
+    }
   }
 
   ws.onerror = (event) => {
     console.error('[terminal] WS error:', event)
-    term?.write('\r\n\x1b[1;31m✗ Connection Error\x1b[0m\r\n')
+    isConnecting = false
   }
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      term?.write('\r\n\x1b[1;33m⚠ 连接断开，尝试重连...\x1b[0m\r\n')
+      connectWS()
+    }
+  }, 3000)
 }
 
 function setupDataHandler() {
@@ -134,17 +161,23 @@ function setupDataHandler() {
   dataDisposable = term.onData((data: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data)
-    } else {
-      term?.write('\x1b[1;33m(未连接)\x1b[0m')
+    } else if (!isConnecting) {
+      term?.write('\r\n')
     }
   })
 }
 
 function disconnectWS() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
   if (ws) {
     try { ws.close(1000, 'User disconnected') } catch {}
     ws = null
   }
+  isConnecting = false
 }
 
 function connect() {
@@ -160,8 +193,7 @@ function disconnect() {
 function reconnect() {
   disconnectWS()
   term?.clear()
-  term?.write('\x1b[1;36mReconnecting...\x1b[0m\r\n')
-  setTimeout(() => connect(), 200)
+  connect()
 }
 
 function handleResize() { try { fitAddon?.fit() } catch {} }

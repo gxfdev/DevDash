@@ -64,8 +64,8 @@ const metricsStore = useMetricsStore()
 const nodeId = route.params.id as string
 const snap = ref<any>({})
 const info = ref<any>({})
-const topProcs = ref<any[]>([])
-const containers = ref<any[]>([])
+const topProcs = ref<Record<string, unknown>[]>([])
+const containers = ref<Record<string, unknown>[]>([])
 const procLoading = ref(false)
 const containerLoading = ref(false)
 
@@ -190,7 +190,7 @@ async function load() {
   try {
     procLoading.value = true
     const { data } = await client.get(`/node/${nodeId}/procs`)
-    topProcs.value = (data || []).sort((a: any, b: any) => (b.cpu_percent || 0) - (a.cpu_percent || 0)).slice(0, 10)
+    topProcs.value = (data || []).sort((a: { cpu_percent?: number }, b: { cpu_percent?: number }) => (b.cpu_percent || 0) - (a.cpu_percent || 0)).slice(0, 10)
   } catch {} finally { procLoading.value = false }
   try {
     containerLoading.value = true

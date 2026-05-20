@@ -4,27 +4,26 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"runtime"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Secret is set at startup via config. Must be at least 32 bytes.
 var Secret []byte
 
-// InitSecret sets the JWT secret. Call once at startup.
-// If secret is empty, generates a random 32-byte secret (useful for dev only).
 func InitSecret(secret string) error {
 	if secret == "" {
-		if runtime.GOOS != "windows" && isProduction() {
+		if isProduction() {
 			return fmt.Errorf("JWT_SECRET environment variable is required in production")
 		}
 		b := make([]byte, 32)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("failed to generate random JWT secret: %w", err)
+		}
 		Secret = b
-		fmt.Println("⚠️  WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
+		fmt.Println("WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
 		return nil
 	}
 
@@ -47,7 +46,18 @@ func InitSecret(secret string) error {
 }
 
 func isProduction() bool {
-	return false
+	return os.Getenv("GIN_MODE") == "release"
+}
+
+const (
+	AccessTokenTTL  = 24 * time.Hour
+	RefreshTokenTTL = 7 * 24 * time.Hour
+)
+
+type TokenPair struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int64  `json:"expires_in"`
 }
 
 func GenerateToken(userID int, username, role string) (string, error) {
@@ -58,8 +68,40 @@ func GenerateToken(userID int, username, role string) (string, error) {
 		"user_id":  userID,
 		"username": username,
 		"role":     role,
-		"exp":      time.Now().Add(7 * 24 * time.Hour).Unix(),
+		"type":     "access",
+		"exp":      time.Now().Add(AccessTokenTTL).Unix(),
+		"iat":      time.Now().Unix(),
 	}).SignedString(Secret)
+}
+
+func GenerateRefreshToken(userID int, username, role string) (string, error) {
+	if len(Secret) == 0 {
+		return "", errors.New("auth: Secret not initialized")
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":  userID,
+		"username": username,
+		"role":     role,
+		"type":     "refresh",
+		"exp":      time.Now().Add(RefreshTokenTTL).Unix(),
+		"iat":      time.Now().Unix(),
+	}).SignedString(Secret)
+}
+
+func GenerateTokenPair(userID int, username, role string) (*TokenPair, error) {
+	accessToken, err := GenerateToken(userID, username, role)
+	if err != nil {
+		return nil, err
+	}
+	refreshToken, err := GenerateRefreshToken(userID, username, role)
+	if err != nil {
+		return nil, err
+	}
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int64(AccessTokenTTL.Seconds()),
+	}, nil
 }
 
 func ValidateToken(token string) (jwt.MapClaims, error) {
@@ -81,11 +123,33 @@ func ValidateToken(token string) (jwt.MapClaims, error) {
 	return nil, errors.New("invalid token")
 }
 
+func ValidateAccessToken(token string) (jwt.MapClaims, error) {
+	claims, err := ValidateToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if tokenType, ok := claims["type"].(string); !ok || tokenType != "access" {
+		return nil, errors.New("not an access token")
+	}
+	return claims, nil
+}
+
+func ValidateRefreshToken(token string) (jwt.MapClaims, error) {
+	claims, err := ValidateToken(token)
+	if err != nil {
+		return nil, err
+	}
+	if tokenType, ok := claims["type"].(string); !ok || tokenType != "refresh" {
+		return nil, errors.New("not a refresh token")
+	}
+	return claims, nil
+}
+
 func CheckPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 func HashPassword(password string) string {
-	h, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	h, _ := bcrypt.GenerateFromPassword([]byte(password), 12)
 	return string(h)
 }

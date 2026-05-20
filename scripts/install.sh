@@ -51,7 +51,5 @@ echo ""
 echo "启动命令: devdash"
 echo "或使用 Docker: docker-compose up -d"
 echo ""
-echo "安装软件仓库源..."
-curl -fsSL https://get.docker.com | sh 2>/dev/null || true
-
+echo "提示: 如需安装 Docker，请手动运行: curl -fsSL https://get.docker.com | sh"
 echo "完成！"

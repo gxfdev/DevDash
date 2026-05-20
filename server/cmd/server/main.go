@@ -1,18 +1,24 @@
 package main
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"devdash/internal/agent"
 	"devdash/internal/api"
 	"devdash/internal/alert"
 	"devdash/internal/auth"
 	"devdash/internal/collector"
 	"devdash/internal/config"
+	"devdash/internal/filemgr"
 	"devdash/internal/logger"
 	"devdash/internal/model"
 	"devdash/internal/node"
@@ -23,8 +29,12 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logger.Setup()  // 初始化日志系统
-	
+	logger.Setup()
+
+	if os.Getenv("GIN_MODE") == "release" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	if err := auth.InitSecret(cfg.JWTSecret); err != nil {
 		log.Fatalf("FATAL: %v", err)
 	}
@@ -32,22 +42,44 @@ func main() {
 	s := store.NewStore(cfg)
 	defer s.Close()
 
-	nm := node.NewNodeManager(s)
-	c := collector.NewCollector()
-	alertEngine := alert.NewEngine(s)  // 初始化告警引擎
+	filemgr.SetOpCallback(func(op, path, name, ext string, size int64, isDir bool) {
+		s.RecordFileOp(map[string]interface{}{
+			"operation": op,
+			"path":      path,
+			"name":      name,
+			"ext":       ext,
+			"size":      size,
+			"is_dir":    isDir,
+		})
+	})
 
-	// Register the server itself as the "self" node for local monitoring
+	nm := node.NewNodeManager(s)
+	nm.SyncFromDB()
+
+	c := collector.NewCollector()
+	alertEngine := alert.NewEngine(s)
+	agentMgr := agent.NewAgentManager()
+
 	registerSelfNode(nm, c)
 
-	go startCollection(c, s, nm, cfg, alertEngine)  // 传入告警引擎
+	go startCollection(c, s, nm, cfg, alertEngine)
+	go startMetricsCleanup(s)
+
+	agentMgr.StartPeriodicCollection(30 * time.Second)
 
 	r := gin.Default()
 	
-	// ✅ 添加日志中间件
+	r.Use(corsMiddleware())
 	r.Use(logger.Middleware())
 	
 	handler := api.NewHandler(c, s, nm)
 	handler.RegisterRoutes(r)
+
+	agentHandler := api.NewAgentHandler(agentMgr)
+	agentHandler.RegisterRoutes(r)
+
+	agentServer := agent.NewAgentServer(nil, nil, c)
+	agentServer.RegisterRoutes(r)
 
 	// Serve frontend SPA from dist/ (supports both local dev and Docker)
 	staticDir := os.Getenv("STATIC_DIR")
@@ -65,10 +97,30 @@ func main() {
 	})
 
 	addr := ":" + cfg.ServerPort
-	log.Printf("DevDash 启动，监听 %s", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatal(err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: r,
 	}
+
+	go func() {
+		log.Printf("DevDash 启动，监听 %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("正在关闭服务器...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("服务器强制关闭: %v", err)
+	}
+
+	log.Println("服务器已优雅关闭")
 }
 
 // registerSelfNode registers the local machine as a node and triggers an initial collection
@@ -76,7 +128,7 @@ func registerSelfNode(nm *node.NodeManager, c *collector.Collector) {
 	selfNode := &model.Node{
 		ID:     "self",
 		Name:   hostname(),
-		OS:     "windows",
+		OS:     runtime.GOOS,
 		Arch:   runtimeArch(),
 		Status: "online",
 	}
@@ -110,6 +162,19 @@ func runtimeArch() string {
 	return arch
 }
 
+func startMetricsCleanup(s *store.Store) {
+	retentionDays := 30
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := s.CleanupOldMetrics(retentionDays); err != nil {
+			log.Printf("[cleanup] metrics cleanup failed: %v", err)
+		} else {
+			log.Printf("[cleanup] cleaned up metrics older than %d days", retentionDays)
+		}
+	}
+}
+
 func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine) {
 	ticker := time.NewTicker(time.Duration(cfg.CollectInterval) * time.Second)
 	defer ticker.Stop()
@@ -125,23 +190,23 @@ func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManage
 		for _, n := range nodes {
 			if n.Role == "agent" || n.Role == "full" || n.ID == "self" {
 				wg.Add(1)
-				go func(node model.Node) {
+				go func(node *model.Node) {
 					defer wg.Done()
-					
+
 					// ✅ 获取信号量（最多5个并发）
 					sem <- struct{}{}
 					defer func() { <-sem }()
-					
+
 					snap, err := c.Collect()
 					if err != nil {
 						log.Printf("采集失败 node=%s: %v", node.ID, err)
 						return
 					}
 					snap.NodeID = node.ID
-					s.SaveSnapshot(snap)
-					
+					s.SaveSnapshot(node.ID, snap)
+
 					alertEngine.Evaluate(snap)  // ✅ 评估告警规则
-					
+
 					nm.UpdateHeartbeat(node.ID)
 				}(n)
 			}
@@ -181,7 +246,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		c.Header("Content-Type", "application/json; charset=utf-8")
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.Header("Content-Type", "application/json; charset=utf-8")
+		}
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

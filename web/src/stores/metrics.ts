@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import client from '@/api/client'
 import { wsUrl } from '@/api'
+import type { GPUMetricHistoryPoint } from '@/types'
 
 export interface MetricSnapshot {
   node_id: string
@@ -19,38 +20,75 @@ export interface MetricSnapshot {
   procs: number
 }
 
+const MAX_RECONNECT_ATTEMPTS = 10
+const BASE_RECONNECT_DELAY = 1000
+const MAX_RECONNECT_DELAY = 30000
+
 export const useMetricsStore = defineStore('metrics', () => {
   const snapshot = ref<MetricSnapshot | null>(null)
   const history = ref<MetricSnapshot[]>([])
+  const gpuHistory = ref<GPUMetricHistoryPoint[]>([])
   const ws = ref<WebSocket | null>(null)
   const wsTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttempts = ref(0)
+  const isIntentionalClose = ref(false)
 
   async function fetchSnapshot(nodeId?: string) {
-    const url = '/snapshot'
-    const { data } = await client.get(url)
-    snapshot.value = data
+    try {
+      const url = '/snapshot'
+      const { data } = await client.get<MetricSnapshot>(url)
+      snapshot.value = data
+    } catch (err) {
+      console.error('[metrics] fetchSnapshot failed:', err)
+    }
   }
 
   async function fetchHistory(nodeId: string, duration = '1h') {
-    const { data } = await client.get(`/node/${nodeId}/history?duration=${duration}`)
-    history.value = data
+    try {
+      const { data } = await client.get<MetricSnapshot[]>(`/node/${nodeId}/history?duration=${duration}`)
+      history.value = data
+    } catch (err) {
+      console.error('[metrics] fetchHistory failed:', err)
+    }
+  }
+
+  async function fetchGPUHistory(nodeId: string, hours = 1) {
+    try {
+      const { data } = await client.get<GPUMetricHistoryPoint[]>(`/node/${nodeId}/gpu/history?hours=${hours}`)
+      gpuHistory.value = data
+    } catch (err) {
+      console.error('[metrics] fetchGPUHistory failed:', err)
+      gpuHistory.value = []
+    }
+  }
+
+  function getReconnectDelay(): number {
+    const delay = Math.min(
+      BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts.value),
+      MAX_RECONNECT_DELAY
+    )
+    return delay + Math.random() * 1000
   }
 
   function connectWS(_nodeId?: string) {
     disconnectWS()
+    isIntentionalClose.value = false
+
     const conn = new WebSocket(wsUrl())
 
     conn.onopen = () => {
-      // Connected, metrics will stream automatically
+      reconnectAttempts.value = 0
     }
 
     conn.onmessage = (e) => {
       try {
-        const msg = JSON.parse(e.data)
+        const msg: MetricSnapshot = JSON.parse(e.data)
         if (msg.cpu || msg.node_id) {
           snapshot.value = msg
         }
-      } catch {}
+      } catch {
+        // ignore malformed messages
+      }
     }
 
     conn.onerror = () => {
@@ -58,18 +96,27 @@ export const useMetricsStore = defineStore('metrics', () => {
     }
 
     conn.onclose = () => {
-      // auto reconnect after 3s
-      wsTimer.value = setTimeout(() => connectWS(), 3000)
+      if (isIntentionalClose.value) return
+      if (reconnectAttempts.value >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('[metrics] Max reconnect attempts reached')
+        return
+      }
+      reconnectAttempts.value++
+      const delay = getReconnectDelay()
+      wsTimer.value = setTimeout(() => connectWS(), delay)
     }
 
     ws.value = conn
   }
 
   function disconnectWS() {
+    isIntentionalClose.value = true
     if (wsTimer.value) clearTimeout(wsTimer.value)
+    wsTimer.value = null
     ws.value?.close()
     ws.value = null
+    reconnectAttempts.value = 0
   }
 
-  return { snapshot, history, fetchSnapshot, fetchHistory, connectWS, disconnectWS }
+  return { snapshot, history, gpuHistory, fetchSnapshot, fetchHistory, fetchGPUHistory, connectWS, disconnectWS }
 })

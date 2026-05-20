@@ -1,24 +1,37 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"log"
 	"os"
 	"strconv"
 )
 
+type DBType string
+
+const (
+	DBSQLite       DBType = "sqlite"
+	DBPostgreSQL   DBType = "postgres"
+)
+
 type Config struct {
 	ServerPort      string
 	CollectInterval int
+	DBType          DBType
 	DBPath          string
+	DBHost          string
+	DBPort          int
+	DBUser          string
+	DBPassword      string
+	DBName          string
+	DBSSLMode       string
 	JWTSecret       string
+	AgentToken      string
 }
 
 type AgentConfig struct {
-	NodeID         string
-	NodeToken      string
-	ServerURL      string
+	NodeID          string
+	NodeToken       string
+	ServerURL       string
 	CollectInterval int
 }
 
@@ -33,30 +46,63 @@ func Load() *Config {
 			interval = v
 		}
 	}
-	db := os.Getenv("DB_PATH")
-	if db == "" {
-		db = "./devdash.db"
+
+	dbType := DBType(os.Getenv("DB_TYPE"))
+	if dbType == "" {
+		dbType = DBSQLite
 	}
+
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "./devdash.db"
+	}
+
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := 5432
+	if p := os.Getenv("DB_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			dbPort = v
+		}
+	}
+	dbUser := os.Getenv("DB_USER")
+	if dbUser == "" && dbType == DBPostgreSQL {
+		dbUser = "devdash"
+	}
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		if dbType == DBPostgreSQL {
+			dbName = "devdash"
+		}
+	}
+
+	dbSSLMode := os.Getenv("DB_SSLMODE")
+	if dbSSLMode == "" {
+		if dbType == DBPostgreSQL {
+			dbSSLMode = "disable"
+		}
+	}
+
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		if os.Getenv("GIN_MODE") == "release" {
-			log.Fatal("FATAL: JWT_SECRET environment variable is required in production mode!")
-		}
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			log.Fatalf("FATAL: Failed to generate random JWT secret: %v", err)
-		}
-		secret = hex.EncodeToString(b)
-		log.Printf("[config] WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
-		log.Printf("[config] Auto-generated secret (save this): %s", secret)
-	} else if len(secret) < 32 {
+	if secret != "" && len(secret) < 32 {
 		log.Printf("[config] WARNING: JWT_SECRET should be at least 32 characters (current: %d)", len(secret))
 	}
+
+	agentToken := os.Getenv("AGENT_TOKEN")
+
 	return &Config{
 		ServerPort:      port,
 		CollectInterval: interval,
-		DBPath:          db,
+		DBType:          dbType,
+		DBPath:          dbPath,
+		DBHost:          dbHost,
+		DBPort:          dbPort,
+		DBUser:          dbUser,
+		DBPassword:      dbPassword,
+		DBName:          dbName,
+		DBSSLMode:       dbSSLMode,
 		JWTSecret:       secret,
+		AgentToken:      agentToken,
 	}
 }
 
@@ -68,9 +114,9 @@ func LoadAgent() *AgentConfig {
 		}
 	}
 	return &AgentConfig{
-		NodeID:         os.Getenv("NODE_ID"),
-		NodeToken:      os.Getenv("NODE_TOKEN"),
-		ServerURL:      os.Getenv("SERVER_URL"),
+		NodeID:          os.Getenv("NODE_ID"),
+		NodeToken:       os.Getenv("NODE_TOKEN"),
+		ServerURL:       os.Getenv("SERVER_URL"),
 		CollectInterval: interval,
 	}
 }

@@ -95,7 +95,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import client, { authClient } from '@/api/client'
+import client, { authClient, getErrorMessage } from '@/api/client'
 
 const message = useMessage()
 
@@ -131,7 +131,7 @@ async function changePwd() {
     await authClient.put('/auth/password', pwdForm)
     message.success('密码已修改')
     Object.assign(pwdForm, { old: '', new: '', confirm: '' })
-  } catch (e: any) { message.error(e?.response?.data?.error || '修改失败') }
+  } catch (e: unknown) { message.error(getErrorMessage(e, '修改失败')) }
   finally { pwdLoading.value = false }
 }
 

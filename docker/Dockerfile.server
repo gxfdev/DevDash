@@ -28,11 +28,13 @@ FROM alpine:3.19
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
+    musl-locales \
     && rm -rf /var/cache/apk/* \
     && addgroup -S devdash && adduser -S devdash -G devdash
 
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
+ENV MUSL_LOCPATH=/usr/share/i18n/locales/musl
 ENV TZ=Asia/Shanghai
 ENV GIN_MODE=release
 ENV PORT=9090

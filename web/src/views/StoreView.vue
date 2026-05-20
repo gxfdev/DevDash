@@ -52,7 +52,7 @@ import { ref, computed, onMounted, watch, h } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
-import client from '@/api/client'
+import client, { getErrorMessage } from '@/api/client'
 
 const nodesStore = useNodesStore()
 const message = useMessage()
@@ -91,7 +91,7 @@ const allSoft = ref<SoftwareItem[]>([
 
 const filteredSoft = computed(() => allSoft.value.filter(s => s.cat === activeCat.value))
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: any) => ({ label: n.name || n.hostname, value: n.id })))
+const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname, value: n.id })))
 
 const installedColumns = [
   { title: '软件', key: 'name' },
@@ -147,9 +147,9 @@ async function load() {
         soft.status = found.status || found.running ? 'running' : 'stopped'
       }
     })
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Failed to load software list:', e)
-    message.error(e?.response?.data?.error || '加载软件列表失败')
+    message.error(getErrorMessage(e, '加载软件列表失败'))
   } finally { loading.value = false }
 }
 
@@ -165,8 +165,8 @@ async function install(s: SoftwareItem) {
     setTimeout(() => {
       load()
     }, 3000)
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || `${s.name} 安装失败`)
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, `${s.name} 安装失败`))
   } finally { 
     installingName.value = null 
   }
@@ -185,8 +185,8 @@ function confirmUninstall(row: any) {
       message.success(`${row.name} 卸载成功`)
       load()
     })
-    .catch((e: any) => {
-      message.error(e?.response?.data?.error || `${row.name} 卸载失败`)
+    .catch((e: unknown) => {
+      message.error(getErrorMessage(e, `${row.name} 卸载失败`))
     })
     .finally(() => { 
       uninstallingName.value = null 
@@ -206,8 +206,8 @@ async function serviceCtrl(row: any, action: string) {
     setTimeout(() => {
       load()
     }, 2000)
-  } catch (e: any) {
-    message.error(e?.response?.data?.error || '操作失败')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '操作失败'))
   } finally { 
     serviceLoading.value = null 
   }

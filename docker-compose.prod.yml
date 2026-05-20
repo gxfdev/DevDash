@@ -1,39 +1,141 @@
-version: '3.8'
-
 services:
-  # DevDash 主服务
   devdash:
     build:
       context: .
       dockerfile: docker/Dockerfile.server
     container_name: devdash-app
     restart: unless-stopped
+    restart_delay: 5s
     environment:
       - PORT=9090
-      - JWT_SECRET=${JWT_SECRET:-$(openssl rand -hex 32)}
+      - INTERVAL=30
+      - "JWT_SECRET=${JWT_SECRET:?ERROR: JWT_SECRET environment variable is required. Generate one with: openssl rand -hex 32}"
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-devdash}
+      - "DB_PASSWORD=${DB_PASSWORD:?ERROR: DB_PASSWORD environment variable is required}"
+      - DB_NAME=${DB_NAME:-devdash}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - STATIC_DIR=/srv/www
       - TZ=Asia/Shanghai
-      - LANG=C.UTF-8
-      - LC_ALL=C.UTF-8
+      - LANG=zh_CN.UTF-8
+      - LC_ALL=zh_CN.UTF-8
       - GIN_MODE=release
-      - CORS_ORIGINS=https://your-domain.com
+      - "CORS_ORIGINS=${CORS_ORIGINS:?ERROR: CORS_ORIGINS required (e.g., https://your-domain.com)}"
     volumes:
       - devdash-data:/data
     networks:
       - internal-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
     expose:
       - "9090"
+    mem_limit: 512m
+    cpus: "2.0"
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/api/v1/health"]
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "http://localhost:9090/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=devdash"
 
-  # Nginx 反向代理 (HTTPS)
+  postgres:
+    image: postgres:16-alpine
+    container_name: devdash-postgres
+    restart: unless-stopped
+    restart_delay: 5s
+    user: postgres
+    environment:
+      - POSTGRES_USER=${DB_USER:-devdash}
+      - "POSTGRES_PASSWORD=${DB_PASSWORD:?ERROR: DB_PASSWORD environment variable is required}"
+      - POSTGRES_DB=${DB_NAME:-devdash}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal-net
+    expose:
+      - "5432"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "effective_cache_size=192MB"
+      - "-c"
+      - "maintenance_work_mem=32MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=32MB"
+      - "-c"
+      - "max_wal_size=64MB"
+      - "-c"
+      - "log_statement=ddl"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix='%t [%p] %u@%d '"
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 128
+    read_only: false
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/run/postgresql:size=8m,mode=1733
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-devdash} -d ${DB_NAME:-devdash}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=postgres"
+
   nginx:
     image: nginx:alpine
     container_name: devdash-nginx
     restart: unless-stopped
+    restart_delay: 5s
     ports:
       - "80:80"
       - "443:443"
@@ -41,16 +143,56 @@ services:
       - ./docker/nginx.ssl.conf:/etc/nginx/conf.d/default.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
       - nginx-logs:/var/log/nginx
+      - nginx-cache:/var/cache/nginx
     depends_on:
       devdash:
-        condition: service_healthy  # 等待devdash健康检查通过
+        condition: service_healthy
+        restart: true
     networks:
       - internal-net
+    mem_limit: 128m
+    cpus: "1.0"
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/client_temp:size=16m,mode=1733
+      - /var/cache/proxy_temp:size=32m,mode=1733
+      - /var/run:size=8m,mode=1733
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=nginx"
 
 networks:
   internal-net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   devdash-data:
+    driver: local
+  postgres-data:
+    driver: local
   nginx-logs:
+    driver: local
+  nginx-cache:
+    driver: local

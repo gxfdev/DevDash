@@ -1,6 +1,6 @@
 import client, { authClient } from './client'
+import type { NodeInfo, AlertRule, FirewallRule, DatabaseConnection, CronJob, SoftwareInfo, AlertInfo } from './client'
 
-// ── 认证（/api/auth/* 不在 v1 组，走独立 baseURL）──
 export const authAPI = {
   login: (username: string, password: string) =>
     authClient.post('/auth/login', { username, password }),
@@ -10,11 +10,10 @@ export const authAPI = {
   me: () => authClient.get('/auth/me'),
 }
 
-// ── 节点 ────────────────────────────────────────
 export const nodesAPI = {
   list: () => client.get('/nodes'),
   get: (id: string) => client.get(`/node/${id}`),
-  register: (data: any) => client.post('/node/register', data),
+  register: (data: Partial<NodeInfo>) => client.post('/node/register', data),
   delete: (id: string) => client.delete(`/node/${id}`),
   metrics: (id: string) => client.get(`/node/${id}/metrics`),
   history: (id: string, duration: string) => client.get(`/node/${id}/history?duration=${duration}`),
@@ -22,7 +21,6 @@ export const nodesAPI = {
   containers: (id: string) => client.get(`/node/${id}/containers`),
 }
 
-// ── 软件商店 ─────────────────────────────────────
 export const softwareAPI = {
   list: (nodeId: string) => client.get(`/node/${nodeId}/software`),
   install: (nodeId: string, name: string) =>
@@ -33,34 +31,30 @@ export const softwareAPI = {
     client.post(`/node/${nodeId}/software/service`, { name, action }),
 }
 
-// ── 防火墙 ───────────────────────────────────────
 export const firewallAPI = {
   list: (nodeId: string) => client.get(`/node/${nodeId}/firewall/rules`),
-  add: (nodeId: string, rule: any) => client.post(`/node/${nodeId}/firewall/rules`, rule),
-  update: (nodeId: string, id: string, patch: any) => client.patch(`/node/${nodeId}/firewall/rules/${id}`, patch),
+  add: (nodeId: string, rule: FirewallRule) => client.post(`/node/${nodeId}/firewall/rules`, rule),
+  update: (nodeId: string, id: string, patch: Partial<FirewallRule>) => client.patch(`/node/${nodeId}/firewall/rules/${id}`, patch),
   delete: (nodeId: string, id: string) => client.delete(`/node/${nodeId}/firewall/rules/${id}`),
 }
 
-// ── 计划任务 ─────────────────────────────────────
 export const cronAPI = {
   list: (nodeId: string) => client.get(`/node/${nodeId}/cronjobs`),
-  create: (nodeId: string, job: any) => client.post(`/node/${nodeId}/cronjobs`, job),
-  update: (nodeId: string, id: string, patch: any) => client.patch(`/node/${nodeId}/cronjobs/${id}`, patch),
+  create: (nodeId: string, job: Omit<CronJob, 'id'>) => client.post(`/node/${nodeId}/cronjobs`, job),
+  update: (nodeId: string, id: string, patch: Partial<CronJob>) => client.patch(`/node/${nodeId}/cronjobs/${id}`, patch),
   delete: (nodeId: string, id: string) => client.delete(`/node/${nodeId}/cronjobs/${id}`),
   run: (nodeId: string, id: string) => client.post(`/node/${nodeId}/cronjobs/${id}/run`),
   logs: (nodeId: string, id: string) => client.get(`/node/${nodeId}/cronjobs/${id}/logs`),
 }
 
-// ── 数据库 ───────────────────────────────────────
 export const dbAPI = {
   list: (nodeId: string) => client.get(`/node/${nodeId}/databases`),
-  add: (nodeId: string, cfg: any) => client.post(`/node/${nodeId}/databases`, cfg),
+  add: (nodeId: string, cfg: Omit<DatabaseConnection, 'id'>) => client.post(`/node/${nodeId}/databases`, cfg),
   tables: (nodeId: string, dbId: string) => client.get(`/node/${nodeId}/databases/${dbId}/tables`),
   query: (nodeId: string, dbId: string, sql: string) =>
     client.post(`/node/${nodeId}/databases/${dbId}/query`, { sql }),
 }
 
-// ── 文件管理 ─────────────────────────────────────
 export const fileAPI = {
   list: (nodeId: string, path: string) =>
     client.get(`/node/${nodeId}/fs/list`, { params: { path } }),
@@ -78,27 +72,24 @@ export const fileAPI = {
     `/api/v1/node/${nodeId}/fs/download?path=${encodeURIComponent(path)}`,
 }
 
-// ── 告警 ─────────────────────────────────────────
 export const alertAPI = {
-  active: (params?: any) => client.get('/alerts/active', { params }),
-  history: (params?: any) => client.get('/alerts/history', { params }),
+  active: (params?: Record<string, string>) => client.get('/alerts/active', { params }),
+  history: (params?: Record<string, string>) => client.get('/alerts/history', { params }),
   rules: () => client.get('/alert-rules'),
-  createRule: (rule: any) => client.post('/alert-rules', rule),
-  updateRule: (id: string, rule: any) => client.put(`/alert-rules/${id}`, rule),
+  createRule: (rule: Omit<AlertRule, 'id'>) => client.post('/alert-rules', rule),
+  updateRule: (id: string, rule: Partial<AlertRule>) => client.put(`/alert-rules/${id}`, rule),
   deleteRule: (id: string) => client.delete(`/alert-rules/${id}`),
   silence: (id: string) => client.post(`/alerts/${id}/silence`),
   testFeishu: (url: string) => client.post('/alert/test-feishu', { url }),
 }
 
-// ── 设置 ──────────────────────────────────────────
 export const settingsAPI = {
   get: () => client.get('/settings'),
-  update: (data: any) => client.put('/settings', data),
+  update: (data: Record<string, unknown>) => client.put('/settings', data),
   alertSettings: () => client.get('/alert-settings'),
-  saveAlertSettings: (data: any) => client.put('/alert-settings', data),
+  saveAlertSettings: (data: Record<string, unknown>) => client.put('/alert-settings', data),
 }
 
-// ── WebSocket URL（需带 token）───────────────────────────
 export function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = localStorage.getItem('token') || ''

@@ -126,9 +126,9 @@
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, GraphicComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, GraphicComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
@@ -294,16 +294,23 @@ function buildCharts() {
     if (diskRef.value) { diskChart = echarts.init(diskRef.value, 'dark'); diskChart.setOption(makeChartOpt('#d29922')) }
     if (netRef.value) { netChart = echarts.init(netRef.value, 'dark'); netChart.setOption(makeChartOpt('#58a6ff')) }
     if (fileOpRef.value) { fileOpChart = echarts.init(fileOpRef.value, 'dark'); fileOpChart.setOption({
-      ...makeChartOpt('#f0883e'),
+      grid: { top: 30, right: 20, bottom: 30, left: 50 },
+      xAxis: { type: 'category', boundaryGap: false, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10 }, splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } } },
+      yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+      tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
+      legend: { data: ['创建', '删除'], textStyle: { color: '#8b949e' }, top: 5, right: 10 },
       series: [
-        { type: 'line', smooth: true, data: [], name: '创建', lineStyle: { color: '#3fb950' }, itemStyle: { color: '#3fb950' }, symbol: 'none' },
-        { type: 'line', smooth: true, data: [], name: '删除', lineStyle: { color: '#f85149' }, itemStyle: { color: '#f85149' }, symbol: 'none' },
+        { type: 'line', smooth: 0.4, data: [], name: '创建', sampling: 'lttb', lineStyle: { width: 2.5, color: '#3fb950' }, itemStyle: { color: '#3fb950' }, symbol: 'none', areaStyle: { color: createGradientColor('rgb(63,185,80)', 0.15) } },
+        { type: 'line', smooth: 0.4, data: [], name: '删除', sampling: 'lttb', lineStyle: { width: 2.5, color: '#f85149' }, itemStyle: { color: '#f85149' }, symbol: 'none', areaStyle: { color: createGradientColor('rgb(248,81,73)', 0.15) } },
       ],
-      legend: { data: ['创建', '删除'], textStyle: { color: '#8b949e' }, top: 0 },
+      animation: true,
+      animationDuration: 500,
+      backgroundColor: 'transparent',
     }) }
     if (fileTypeRef.value) { fileTypeChart = echarts.init(fileTypeRef.value, 'dark'); fileTypeChart.setOption({
-      tooltip: { trigger: 'item' },
+      tooltip: { trigger: 'item', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
       legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: '#8b949e' } },
+      backgroundColor: 'transparent',
     }) }
     if (storageRef.value) { storageChart = echarts.init(storageRef.value, 'dark'); storageChart.setOption(makeChartOpt('#d29922')) }
     if (dirCountRef.value) { dirCountChart = echarts.init(dirCountRef.value, 'dark'); dirCountChart.setOption(makeBarChartOpt('#bc8cff')) }

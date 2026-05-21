@@ -72,10 +72,10 @@ import { NButton } from 'naive-ui'
 import { Refresh as RefreshIcon } from '@vicons/ionicons5'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, GraphicComponent } from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, UniversalTransition, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, GraphicComponent, UniversalTransition, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'

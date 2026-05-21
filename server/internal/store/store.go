@@ -655,7 +655,7 @@ func (s *Store) DeleteNode(id string) error {
 	return err
 }
 
-func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]interface{} {
+func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
@@ -667,7 +667,7 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]interface{}
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var nid string
 		var ts time.Time
@@ -677,28 +677,28 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]interface{}
 		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"node_id":   nid,
 			"timestamp": ts,
-			"cpu": map[string]interface{}{
+			"cpu": map[string]any{
 				"usage_percent": cpuUsage,
 				"cores":         cpuCores,
 			},
-			"memory": map[string]interface{}{
-				"total_gb":       memTotal,
-				"used_gb":        memUsed,
-				"usage_percent":  memUsage,
+			"memory": map[string]any{
+				"total_gb":      memTotal,
+				"used_gb":       memUsed,
+				"usage_percent": memUsage,
 			},
-			"disk": map[string]interface{}{
-				"total_gb":       diskTotal,
-				"used_gb":        diskUsed,
-				"usage_percent":  diskUsage,
+			"disk": map[string]any{
+				"total_gb":      diskTotal,
+				"used_gb":       diskUsed,
+				"usage_percent": diskUsage,
 			},
-			"network": map[string]interface{}{
+			"network": map[string]any{
 				"bytes_recv": netRecv,
 				"bytes_sent": netSent,
 			},
-			"load": map[string]interface{}{
+			"load": map[string]any{
 				"load1":  load1,
 				"load5":  load5,
 				"load15": load15,
@@ -708,7 +708,7 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]interface{}
 	return result
 }
 
-func (s *Store) ListSoftware(nodeID string) []map[string]interface{} {
+func (s *Store) ListSoftware(nodeID string) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
@@ -720,21 +720,21 @@ func (s *Store) ListSoftware(nodeID string) []map[string]interface{} {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
 		var nid, name, version, status string
 		if err := rows.Scan(&id, &nid, &name, &version, &status); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "name": name, "version": version, "status": status,
 		})
 	}
 	return result
 }
 
-func (s *Store) SaveSoftware(data map[string]interface{}) {
+func (s *Store) SaveSoftware(data map[string]any) {
 	_, err := s.db.Exec(
 		fmt.Sprintf("INSERT INTO software (node_id, name, version, status) VALUES (%s)", s.placeholder(4)),
 		data["node_id"], data["name"], data["version"], data["status"],
@@ -751,54 +751,60 @@ func (s *Store) DeleteSoftware(nodeID, name string) {
 	)
 }
 
-func (s *Store) ListCronJobs(nodeID string) []map[string]interface{} {
+func (s *Store) ListCronJobs(nodeID string) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
-		rows, err = s.db.Query("SELECT id, node_id, name, expression, command, enabled FROM cron_jobs ORDER BY name")
+		rows, err = s.db.Query("SELECT id, node_id, name, expression, command, type, enabled, last_run FROM cron_jobs ORDER BY name")
 	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, name, expression, command, enabled FROM cron_jobs WHERE node_id = %s ORDER BY name", s.placeholder(1)), nodeID)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, name, expression, command, type, enabled, last_run FROM cron_jobs WHERE node_id = %s ORDER BY name", s.placeholder(1)), nodeID)
 	}
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
-		var nid, name, expr, cmd string
+		var nid, name, expr, cmd, jobType string
 		var enabled int
-		if err := rows.Scan(&id, &nid, &name, &expr, &cmd, &enabled); err != nil {
+		var lastRun int64
+		if err := rows.Scan(&id, &nid, &name, &expr, &cmd, &jobType, &enabled, &lastRun); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
-			"id": id, "node_id": nid, "name": name, "expression": expr, "command": cmd, "enabled": enabled != 0,
+		result = append(result, map[string]any{
+			"id": id, "node_id": nid, "name": name, "expression": expr, "command": cmd, "type": jobType, "enabled": enabled != 0, "last_run": lastRun,
 		})
 	}
 	return result
 }
 
-func (s *Store) SaveCronJob(job map[string]interface{}) (int64, error) {
+func (s *Store) SaveCronJob(job map[string]any) (int64, error) {
 	id, _ := job["id"].(float64)
 	nid, _ := job["node_id"].(string)
 	name, _ := job["name"].(string)
 	expr, _ := job["expression"].(string)
 	cmd, _ := job["command"].(string)
+	jobType, _ := job["type"].(string)
+	if jobType == "" {
+		jobType = "shell"
+	}
 	enabled := 1
 	if e, ok := job["enabled"].(bool); ok && !e {
 		enabled = 0
 	}
 	if id > 0 {
 		_, err := s.db.Exec(
-			fmt.Sprintf("UPDATE cron_jobs SET name=%s, expression=%s, command=%s, enabled=%s WHERE id=%s",
-				s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5)),
-			name, expr, cmd, enabled, int(id),
+			fmt.Sprintf("UPDATE cron_jobs SET name=%s, expression=%s, command=%s, type=%s, enabled=%s WHERE id=%s",
+				s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6)),
+			name, expr, cmd, jobType, enabled, int(id),
 		)
 		return int64(int(id)), err
 	}
 	result, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO cron_jobs (node_id, name, expression, command, enabled) VALUES (%s)", s.placeholder(5)),
-		nid, name, expr, cmd, enabled,
+		fmt.Sprintf("INSERT INTO cron_jobs (node_id, name, expression, command, type, enabled) VALUES (%s, %s, %s, %s, %s, %s)",
+			s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6)),
+		nid, name, expr, cmd, jobType, enabled,
 	)
 	if err != nil {
 		return 0, err
@@ -811,7 +817,7 @@ func (s *Store) DeleteCronJob(id int) error {
 	return err
 }
 
-func (s *Store) ListDBConnections(nodeID string) []map[string]interface{} {
+func (s *Store) ListDBConnections(nodeID string) []map[string]any {
 	tableExists := s.tableExists("db_connections")
 	if !tableExists {
 		return nil
@@ -827,7 +833,7 @@ func (s *Store) ListDBConnections(nodeID string) []map[string]interface{} {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
 		var nid, name, dbType, host, user, dbname string
@@ -835,7 +841,7 @@ func (s *Store) ListDBConnections(nodeID string) []map[string]interface{} {
 		if err := rows.Scan(&id, &nid, &name, &dbType, &host, &port, &user, &dbname); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "name": name, "type": dbType,
 			"host": host, "port": port, "user": user, "dbname": dbname,
 		})
@@ -843,7 +849,7 @@ func (s *Store) ListDBConnections(nodeID string) []map[string]interface{} {
 	return result
 }
 
-func (s *Store) SaveDBConnection(conn map[string]interface{}) error {
+func (s *Store) SaveDBConnection(conn map[string]any) error {
 	s.ensureDBConnectionsTable()
 	pw, _ := conn["password"].(string)
 	encPW, err := auth.EncryptField(pw)
@@ -857,7 +863,7 @@ func (s *Store) SaveDBConnection(conn map[string]interface{}) error {
 	return err
 }
 
-func (s *Store) GetDBConnection(id int) (map[string]interface{}, error) {
+func (s *Store) GetDBConnection(id int) (map[string]any, error) {
 	s.ensureDBConnectionsTable()
 	row := s.db.QueryRow(fmt.Sprintf("SELECT id, node_id, name, type, host, port, user, password, dbname FROM db_connections WHERE id = %s", s.placeholder(1)), id)
 	var dbID int
@@ -870,7 +876,7 @@ func (s *Store) GetDBConnection(id int) (map[string]interface{}, error) {
 	if err != nil {
 		decPassword = encPassword
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"id": dbID, "node_id": nid, "name": name, "type": dbType,
 		"host": host, "port": port, "user": user, "password": decPassword, "dbname": dbname,
 	}, nil
@@ -926,7 +932,7 @@ func (s *Store) tableExists(name string) bool {
 	return count > 0
 }
 
-func (s *Store) ListAlerts(nodeID string, limit int) []map[string]interface{} {
+func (s *Store) ListAlerts(nodeID string, limit int) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
@@ -938,7 +944,7 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]interface{} {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
 		var nid, alertType, level, status string
@@ -947,7 +953,7 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]interface{} {
 		if err := rows.Scan(&id, &nid, &alertType, &level, &value, &threshold, &t, &status); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "type": alertType, "level": level,
 			"value": value, "threshold": threshold, "time": t, "status": status,
 		})
@@ -955,7 +961,7 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]interface{} {
 	return result
 }
 
-func (s *Store) ListActiveAlerts(nodeID string) []map[string]interface{} {
+func (s *Store) ListActiveAlerts(nodeID string) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
@@ -967,7 +973,7 @@ func (s *Store) ListActiveAlerts(nodeID string) []map[string]interface{} {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
 		var nid, alertType, level, status string
@@ -976,7 +982,7 @@ func (s *Store) ListActiveAlerts(nodeID string) []map[string]interface{} {
 		if err := rows.Scan(&id, &nid, &alertType, &level, &value, &threshold, &t, &status); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "type": alertType, "level": level,
 			"value": value, "threshold": threshold, "time": t, "status": status,
 		})
@@ -989,7 +995,7 @@ func (s *Store) SilenceAlert(id int) error {
 	return err
 }
 
-func (s *Store) SaveAlert(data map[string]interface{}) {
+func (s *Store) SaveAlert(data map[string]any) {
 	nodeID, _ := data["node_id"].(string)
 	alertType, _ := data["metric"].(string)
 	if alertType == "" {
@@ -1016,7 +1022,7 @@ func (s *Store) SaveAlert(data map[string]interface{}) {
 	}
 }
 
-func (s *Store) ListAlertRules() []map[string]interface{} {
+func (s *Store) ListAlertRules() []map[string]any {
 	if !s.tableExists("alert_rules") {
 		return nil
 	}
@@ -1025,7 +1031,7 @@ func (s *Store) ListAlertRules() []map[string]interface{} {
 		return nil
 	}
 	defer rows.Close()
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id int
 		var name, metric, op, level string
@@ -1034,7 +1040,7 @@ func (s *Store) ListAlertRules() []map[string]interface{} {
 		if err := rows.Scan(&id, &name, &metric, &op, &threshold, &level, &enabled); err != nil {
 			continue
 		}
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"id": id, "name": name, "metric": metric, "op": op,
 			"threshold": threshold, "level": level, "enabled": enabled != 0,
 		})
@@ -1042,7 +1048,7 @@ func (s *Store) ListAlertRules() []map[string]interface{} {
 	return result
 }
 
-func (s *Store) SaveAlertRule(rule map[string]interface{}) error {
+func (s *Store) SaveAlertRule(rule map[string]any) error {
 	s.ensureAlertRulesTable()
 	id, _ := rule["id"].(float64)
 	name, _ := rule["name"].(string)
@@ -1131,7 +1137,7 @@ func (s *Store) ensureColumn(table, column, sqliteDDL, pgDDL string) {
 	}
 }
 
-func (s *Store) RecordFileOp(op map[string]interface{}) {
+func (s *Store) RecordFileOp(op map[string]any) {
 	nodeID, _ := op["node_id"].(string)
 	if nodeID == "" {
 		nodeID = "self"
@@ -1154,7 +1160,7 @@ func (s *Store) RecordFileOp(op map[string]interface{}) {
 	}
 }
 
-func (s *Store) GetFileStats(nodeID string, hours int) []map[string]interface{} {
+func (s *Store) GetFileStats(nodeID string, hours int) []map[string]any {
 	since := time.Now().Add(-time.Duration(hours) * time.Hour)
 	rows, err := s.db.Query(
 		fmt.Sprintf(`SELECT operation, path, name, ext, size, is_dir, timestamp 
@@ -1212,17 +1218,18 @@ func (s *Store) GetFileStats(nodeID string, hours int) []map[string]interface{} 
 		}
 		if ts.After(today) {
 			ds.todayOps++
-			if op == "create" || op == "upload" {
+			switch op {
+			case "create", "upload":
 				ds.todayCreated++
-			} else if op == "delete" {
+			case "delete":
 				ds.todayDeleted++
 			}
 		}
 	}
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for _, ds := range dirMap {
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"path":          ds.path,
 			"total":         ds.total,
 			"dirs":          ds.dirs,
@@ -1236,5 +1243,3 @@ func (s *Store) GetFileStats(nodeID string, hours int) []map[string]interface{} 
 	}
 	return result
 }
-
-

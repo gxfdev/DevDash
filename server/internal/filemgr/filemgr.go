@@ -116,7 +116,7 @@ func checkDangerousPath(path string) bool {
 	return false
 }
 
-func sanitizeFileName(name string) string {
+func SanitizeFileName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == ".." {
 		return ""
@@ -248,7 +248,7 @@ func Delete(path string) error {
 }
 
 func Mkdir(path string) error {
-	safeName := sanitizeFileName(path)
+	safeName := SanitizeFileName(path)
 	if safeName == "" {
 		return fmt.Errorf("invalid directory name")
 	}
@@ -276,7 +276,7 @@ func Rename(old, new string) error {
 		return fmt.Errorf("source path validation failed: %w", err)
 	}
 
-	newName := sanitizeFileName(new)
+	newName := SanitizeFileName(new)
 	if newName == "" {
 		return fmt.Errorf("invalid destination name")
 	}
@@ -339,7 +339,7 @@ func Upload(path string, data []byte) error {
 	dangerousExts := map[string]bool{
 		".exe": true, ".bat": true, ".cmd": true, ".ps1": true,
 		".sh": true, ".php": true, ".jsp": true, ".asp": true,
-		".com": true, ".scr": true, ".vbs": true, ".js": true,
+		".com": true, ".scr": true, ".vbs": true,
 	}
 	if dangerousExts[ext] {
 		return fmt.Errorf("upload of executable files (%s) is not allowed for security reasons", ext)

@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     name TEXT,
     expression TEXT,
     command TEXT,
+    type TEXT DEFAULT 'shell',
     enabled INTEGER DEFAULT 1,
+    last_run INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

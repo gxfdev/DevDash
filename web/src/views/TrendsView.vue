@@ -12,7 +12,11 @@
 
       <n-tabs type="line" animated>
         <n-tab-pane name="system" tab="系统指标">
-          <div class="charts-row">
+          <div v-if="historyData.length === 0 && !loading" class="empty-state">
+            <div class="empty-icon">📊</div>
+            <div>暂无历史数据，请等待数据采集或调整时间范围</div>
+          </div>
+          <div v-else class="charts-row">
             <div class="chart-box">
               <div class="chart-title">CPU 趋势</div>
               <div ref="cpuRef" style="height:220px" />
@@ -56,7 +60,11 @@
         </n-tab-pane>
 
         <n-tab-pane name="files" tab="文件统计">
-          <div class="charts-row">
+          <div v-if="fileStats.length === 0 && !loading" class="empty-state">
+            <div class="empty-icon">📁</div>
+            <div>暂无文件操作数据，请先使用文件管理功能进行操作</div>
+          </div>
+          <div v-else class="charts-row">
             <div class="chart-box">
               <div class="chart-title">文件操作趋势</div>
               <div ref="fileOpRef" style="height:220px" />
@@ -116,7 +124,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
@@ -223,22 +235,53 @@ const topDir = computed(() => {
   return (sorted[0]?.path || '--').split(/[/\\]/).pop() || '--'
 })
 
+function createGradientColor(color: string, opacity: number = 0.2): any {
+  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: color.replace(')', `, ${opacity})`).replace('rgb', 'rgba') },
+    { offset: 1, color: color.replace(')', ', 0)').replace('rgb', 'rgba') },
+  ])
+}
+
 function makeChartOpt(color: string) {
   return {
-    grid: { top: 8, right: 20, bottom: 30, left: 50 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 11 } },
-    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d' } } },
-    series: [{ type: 'line', smooth: true, data: [], lineStyle: { color }, itemStyle: { color }, symbol: 'none', areaStyle: { color: color + '22' } }],
+    grid: { top: 20, right: 20, bottom: 30, left: 50 },
+    xAxis: { type: 'time', boundaryGap: false, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{HH}:{mm}' }, splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } } },
+    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#1f242c',
+      borderColor: '#30363d',
+      borderWidth: 1,
+      textStyle: { color: '#e6edf3', fontSize: 12 },
+      axisPointer: { type: 'cross', lineStyle: { color: '#484f58' } }
+    },
+    series: [{
+      type: 'line',
+      smooth: 0.4,
+      sampling: 'lttb',
+      data: [],
+      lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: `${color}4D` },
+      itemStyle: { color },
+      symbol: 'none',
+      areaStyle: { color: createGradientColor(color) },
+      emphasis: { focus: 'series', lineStyle: { width: 3 } }
+    }],
+    animation: true,
+    animationDuration: 500,
+    animationEasing: 'cubicOut',
     backgroundColor: 'transparent',
   }
 }
 
 function makeBarChartOpt(color: string) {
   return {
-    grid: { top: 8, right: 20, bottom: 40, left: 50 },
+    grid: { top: 20, right: 20, bottom: 40, left: 50 },
     xAxis: { type: 'category', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, rotate: 30 } },
-    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d' } } },
-    series: [{ type: 'bar', data: [], itemStyle: { color } }],
+    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+    tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
+    series: [{ type: 'bar', data: [], itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color}, {offset: 1, `${color}33`}]), borderRadius: [4, 4, 0, 0] } }],
+    animation: true,
+    animationDuration: 500,
     backgroundColor: 'transparent',
   }
 }
@@ -449,6 +492,8 @@ h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .stat-label { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
 .stat-val { font-size: 24px; font-weight: 700; }
 .stat-sub { font-size: 11px; color: #6e7681; margin-top: 4px; }
+.empty-state { text-align: center; padding: 60px 20px; color: #6e7681; }
+.empty-icon { font-size: 48px; margin-bottom: 12px; }
 .report-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
 .report-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
 .report-content p { margin: 0 0 6px; font-size: 13px; color: #8b949e; line-height: 1.8; }

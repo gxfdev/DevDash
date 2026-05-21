@@ -161,7 +161,7 @@ async function fetchDir() {
   loading.value = true
   try {
     const path = normalizePath(currentDir.value)
-    const { data } = await client.get(`/node/${selectedNode.value}/fs/list`, { params: { path } })
+    const { data } = await client.get(`/node/${selectedNode.value}/fs/list`, { params: { path: path.replace(/\\/g, '/') } })
     files.value = Array.isArray(data) ? data : []
 
     if (isWindows && !dirs.value.some(d => d === 'C:\\')) {
@@ -241,8 +241,21 @@ async function delFile(f: any) {
 }
 
 function downloadFile(f: any) {
-  const fpath = encodeURIComponent(f.path || joinPath(currentDir.value, f.name))
-  window.open(`/api/v1/node/${selectedNode.value}/fs/download?path=${fpath}`, '_blank')
+  const fpath = f.path || joinPath(currentDir.value, f.name)
+  client.get(`/node/${selectedNode.value}/fs/download`, {
+    params: { path: fpath },
+    responseType: 'blob',
+  }).then((resp) => {
+    const blob = new Blob([resp.data])
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = f.name || 'download'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }).catch(() => { message.error('下载失败') })
 }
 
 function uploadFile() { fileInput.value?.click() }

@@ -75,7 +75,7 @@ func Create(job *CronJob, s *store.Store) error {
 	if err := validateJobInput(job); err != nil {
 		return err
 	}
-	jobID, err := s.SaveCronJob(map[string]interface{}{
+	jobID, err := s.SaveCronJob(map[string]any{
 		"node_id":    job.NodeID,
 		"name":       job.Name,
 		"expression": job.Expression,
@@ -99,7 +99,7 @@ func Update(job *CronJob, s *store.Store) error {
 	if err := validateJobInput(job); err != nil {
 		return err
 	}
-	_, err := s.SaveCronJob(map[string]interface{}{
+	_, err := s.SaveCronJob(map[string]any{
 		"id":         float64(job.ID),
 		"node_id":    job.NodeID,
 		"name":       job.Name,

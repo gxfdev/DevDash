@@ -27,13 +27,13 @@ type K8sMonitor struct {
 }
 
 type K8sClusterConnection struct {
-	ID          string
-	Name        string
-	ClientSet   *kubernetes.Clientset
+	ID            string
+	Name          string
+	ClientSet     *kubernetes.Clientset
 	MetricsClient *metricsv.Clientset
-	Config      *rest.Config
-	Status      string
-	LastSync    time.Time
+	Config        *rest.Config
+	Status        string
+	LastSync      time.Time
 }
 
 func NewK8sMonitor() (*K8sMonitor, error) {
@@ -65,13 +65,13 @@ func (km *K8sMonitor) AddCluster(kubeconfigPath, name string) error {
 	clusterID := fmt.Sprintf("%s-%d", name, time.Now().Unix())
 
 	connection := &K8sClusterConnection{
-		ID:           clusterID,
-		Name:         name,
-		ClientSet:    clientSet,
+		ID:            clusterID,
+		Name:          name,
+		ClientSet:     clientSet,
 		MetricsClient: metricsClient,
-		Config:       config,
-		Status:       "connected",
-		LastSync:     time.Now(),
+		Config:        config,
+		Status:        "connected",
+		LastSync:      time.Now(),
 	}
 
 	km.clusterMutex.Lock()
@@ -410,7 +410,7 @@ func getContainerState(status *corev1.ContainerStatus) string {
 	if status == nil {
 		return "Unknown"
 	}
-	
+
 	switch {
 	case status.State.Running != nil:
 		return "Running"
@@ -600,18 +600,18 @@ func (km *K8sMonitor) ListDeployments(clusterID, namespace string) ([]model.K8sD
 		}
 
 		result = append(result, model.K8sDeployment{
-			Name:               dep.Name,
-			Namespace:          dep.Namespace,
-			Replicas:           *dep.Spec.Replicas,
-			ReadyReplicas:      dep.Status.ReadyReplicas,
-			UpdatedReplicas:    dep.Status.UpdatedReplicas,
-			AvailableReplicas:  dep.Status.AvailableReplicas,
+			Name:                dep.Name,
+			Namespace:           dep.Namespace,
+			Replicas:            *dep.Spec.Replicas,
+			ReadyReplicas:       dep.Status.ReadyReplicas,
+			UpdatedReplicas:     dep.Status.UpdatedReplicas,
+			AvailableReplicas:   dep.Status.AvailableReplicas,
 			UnavailableReplicas: dep.Status.UnavailableReplicas,
-			Strategy:          string(dep.Spec.Strategy.Type),
-			Selector:          dep.Spec.Selector.MatchLabels,
-			Conditions:        conditions,
-			CreatedAt:         dep.CreationTimestamp.Time,
-			Labels:            dep.Labels,
+			Strategy:            string(dep.Spec.Strategy.Type),
+			Selector:            dep.Spec.Selector.MatchLabels,
+			Conditions:          conditions,
+			CreatedAt:           dep.CreationTimestamp.Time,
+			Labels:              dep.Labels,
 		})
 	}
 

@@ -70,7 +70,12 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { NButton } from 'naive-ui'
 import { Refresh as RefreshIcon } from '@vicons/ionicons5'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { UniversalTransition } from 'echarts/features'
+import { CanvasRenderer } from 'echarts/renderers'
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, UniversalTransition, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'
@@ -144,12 +149,28 @@ function formatTime(ts: string) {
   catch { return ts }
 }
 
+function createGradientColor(color: string, opacity: number = 0.15): any {
+  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: color.replace(')', `, ${opacity})`).replace('rgb', 'rgba') },
+    { offset: 1, color: color.replace(')', ', 0)').replace('rgb', 'rgba') },
+  ])
+}
+
 function makeBaseOpt(): Record<string, unknown> {
   return {
-    grid: { top: 25, right: 16, bottom: 28, left: 48 },
-    legend: { top: 2, right: 8, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 14, itemHeight: 2 },
-    tooltip: { trigger: 'axis', backgroundColor: '#161b22', borderColor: '#30363d', textStyle: { color: '#e6edf3', fontSize: 11 } },
-    animation: false,
+    grid: { top: 30, right: 20, bottom: 30, left: 50 },
+    legend: { top: 5, right: 10, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 16, itemHeight: 3 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#1f242c',
+      borderColor: '#30363d',
+      borderWidth: 1,
+      textStyle: { color: '#e6edf3', fontSize: 12 },
+      axisPointer: { type: 'cross', lineStyle: { color: '#484f58', width: 1 } },
+    },
+    animation: true,
+    animationDuration: 300,
+    animationEasing: 'cubicOut',
     backgroundColor: 'transparent',
   }
 }
@@ -160,11 +181,46 @@ function initCharts() {
     if (chartRef.value) {
       chart = echarts.init(chartRef.value, 'dark')
       const opt = makeBaseOpt()
-      opt.xAxis = { type: 'time', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10 }, splitLine: { show: true, lineStyle: { color: '#21262d' } } }
-      opt.yAxis = { type: 'value', min: 0, max: 100, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d' } } }
+      opt.xAxis = {
+        type: 'time',
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
+        splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } }
+      }
+      opt.yAxis = {
+        type: 'value',
+        min: 0,
+        max: 100,
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } }
+      }
       opt.series = [
-        { name: 'CPU', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#3fb950' }, itemStyle: { color: '#3fb950' }, areaStyle: { color: 'rgba(63,185,80,0.08)' }, data: [] },
-        { name: '内存', type: 'line', smooth: true, showSymbol: false, lineStyle: { width: 1.5, color: '#bc8cff' }, itemStyle: { color: '#bc8cff' }, areaStyle: { color: 'rgba(188,140,255,0.08)' }, data: [] },
+        {
+          name: 'CPU',
+          type: 'line',
+          smooth: 0.4,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { width: 2.5, color: '#3fb950', shadowBlur: 10, shadowColor: 'rgba(63,185,80,0.3)' },
+          itemStyle: { color: '#3fb950' },
+          areaStyle: { color: createGradientColor('rgb(63,185,80)', 0.2) },
+          data: [],
+          emphasis: { focus: 'series', lineStyle: { width: 3 } }
+        },
+        {
+          name: '内存',
+          type: 'line',
+          smooth: 0.4,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { width: 2.5, color: '#bc8cff', shadowBlur: 10, shadowColor: 'rgba(188,140,255,0.3)' },
+          itemStyle: { color: '#bc8cff' },
+          areaStyle: { color: createGradientColor('rgb(188,140,255)', 0.2) },
+          data: [],
+          emphasis: { focus: 'series', lineStyle: { width: 3 } }
+        },
       ]
       chart.setOption(opt)
     }
@@ -172,15 +228,72 @@ function initCharts() {
     if (chart2Ref.value) {
       chart2 = echarts.init(chart2Ref.value, 'dark')
       const opt = makeBaseOpt()
-      opt.xAxis = { type: 'time', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10 }, splitLine: { show: true, lineStyle: { color: '#21262d' } } }
+      opt.xAxis = {
+        type: 'time',
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#30363d' } },
+        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
+        splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } }
+      }
       opt.yAxis = [
-        { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d' } } },
-        { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}' }, splitLine: { show: false } },
+        {
+          type: 'value',
+          min: 0,
+          max: 100,
+          position: 'left',
+          axisLine: { lineStyle: { color: '#30363d' } },
+          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
+          splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } }
+        },
+        {
+          type: 'value',
+          min: 0,
+          position: 'right',
+          axisLine: { show: false },
+          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}' },
+          splitLine: { show: false }
+        },
       ]
       opt.series = [
-        { name: '磁盘', type: 'line', smooth: true, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 1.5, color: '#d29922' }, itemStyle: { color: '#d29922' }, areaStyle: { color: 'rgba(210,153,34,0.06)' }, data: [] },
-        { name: '\u2193入流量', type: 'line', smooth: true, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 1.5, color: '#58a6ff' }, itemStyle: { color: '#58a6ff' }, data: [] },
-        { name: '\u2191出流量', type: 'line', smooth: true, yAxisIndex: 1, showSymbol: false, lineStyle: { width: 1.5, color: '#f0883e' }, itemStyle: { color: '#f0883e' }, data: [] },
+        {
+          name: '磁盘',
+          type: 'line',
+          smooth: 0.4,
+          yAxisIndex: 0,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { width: 2.5, color: '#d29922', shadowBlur: 10, shadowColor: 'rgba(210,153,34,0.3)' },
+          itemStyle: { color: '#d29922' },
+          areaStyle: { color: createGradientColor('rgb(210,153,34)', 0.15) },
+          data: [],
+          emphasis: { focus: 'series', lineStyle: { width: 3 } }
+        },
+        {
+          name: '\u2193入流量',
+          type: 'line',
+          smooth: 0.4,
+          yAxisIndex: 1,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { width: 2.5, color: '#58a6ff', shadowBlur: 10, shadowColor: 'rgba(88,166,255,0.3)' },
+          itemStyle: { color: '#58a6ff' },
+          areaStyle: { color: createGradientColor('rgb(88,166,255)', 0.12) },
+          data: [],
+          emphasis: { focus: 'series', lineStyle: { width: 3 } }
+        },
+        {
+          name: '\u2191出流量',
+          type: 'line',
+          smooth: 0.4,
+          yAxisIndex: 1,
+          showSymbol: false,
+          sampling: 'lttb',
+          lineStyle: { width: 2.5, color: '#f0883e', shadowBlur: 10, shadowColor: 'rgba(240,136,62,0.3)' },
+          itemStyle: { color: '#f0883e' },
+          areaStyle: { color: createGradientColor('rgb(240,136,62)', 0.12) },
+          data: [],
+          emphasis: { focus: 'series', lineStyle: { width: 3 } }
+        },
       ]
       chart2.setOption(opt)
     }
@@ -196,7 +309,7 @@ function disposeCharts() {
 
 function pushData() {
   const cur = snap.current
-  if (!cur || !chart || !chart2) return
+  if (!cur) return
 
   const now = Date.now()
   const cpuVal = typeof cur.cpu?.usage_percent === 'number' ? cur.cpu.usage_percent : 0
@@ -214,19 +327,19 @@ function pushData() {
   while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
 
   try {
-    chart.setOption({
+    chart?.setOption({
       series: [
         { data: cpuData.map(d => [...d]) },
         { data: memData.map(d => [...d]) },
       ],
-    })
-    chart2.setOption({
+    }, true)
+    chart2?.setOption({
       series: [
         { data: diskData.map(d => [...d]) },
         { data: netRecvData.map(d => [...d]) },
         { data: netSentData.map(d => [...d]) },
       ],
-    })
+    }, true)
   } catch (e) {
     console.warn('[dashboard] setOption error:', e)
   }
@@ -244,9 +357,10 @@ function handleResize() {
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  await refresh()
-  await nextTick()
+  await nodesStore.fetchNodes()
   initCharts()
+  await snap.fetchLatest()
+  pushData()
   pollTimer = setInterval(refresh, 30000)
 })
 

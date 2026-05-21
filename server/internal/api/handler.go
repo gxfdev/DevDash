@@ -497,18 +497,41 @@ func (h *Handler) getNodeHistory(c *gin.Context) {
 		}
 	}
 
+	data := h.store.ListSnapshots(nodeID, limit)
+	if data == nil {
+		data = h.store.ListSnapshots("", limit)
+		if data == nil {
+			data = []map[string]any{}
+		}
+	}
+
+	if nodeID != "" {
+		filtered := make([]map[string]any, 0, len(data))
+		for _, item := range data {
+			if nid, ok := item["node_id"]; ok && nid == nodeID {
+				filtered = append(filtered, item)
+			}
+		}
+		data = filtered
+	}
+
 	if duration != "" {
 		hours := parseDuration(duration)
 		if hours > 0 {
-			data, err := h.store.GetMetricsHistory(nodeID, hours)
-			if err == nil {
-				result := convertSnapshotsToMap(data)
-				c.JSON(200, result)
-				return
+			since := time.Now().Add(-time.Duration(hours) * time.Hour)
+			filtered := make([]map[string]any, 0, len(data))
+			for _, item := range data {
+				if ts, ok := item["timestamp"]; ok {
+					if t, ok := ts.(time.Time); ok && t.After(since) {
+						filtered = append(filtered, item)
+					}
+				}
 			}
+			data = filtered
 		}
 	}
-	c.JSON(200, h.store.ListSnapshots(nodeID, limit))
+
+	c.JSON(200, data)
 }
 
 func parseDuration(d string) int {

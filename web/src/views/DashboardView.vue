@@ -347,7 +347,7 @@ function pushData() {
           { data: cpuData.map(d => [...d]) },
           { data: memData.map(d => [...d]) },
         ],
-      }, true)
+      })
     } catch (e) {
       console.warn('[dashboard] chart1 error:', e)
     }
@@ -361,7 +361,7 @@ function pushData() {
           { data: netRecvData.map(d => [...d]) },
           { data: netSentData.map(d => [...d]) },
         ],
-      }, true)
+      })
     } catch (e) {
       console.warn('[dashboard] chart2 error:', e)
     }
@@ -369,9 +369,13 @@ function pushData() {
 }
 
 async function refresh() {
-  await snap.fetchLatest()
-  await nodesStore.fetchNodes()
-  pushData()
+  try {
+    await snap.fetchLatest()
+    await nodesStore.fetchNodes()
+    pushData()
+  } catch (e) {
+    console.warn('[dashboard] refresh error:', (e as Error)?.message || e)
+  }
 }
 
 function handleResize() {
@@ -400,10 +404,10 @@ onMounted(async () => {
       }
       while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
       if (chart) {
-        try { chart.setOption({ series: [{ data: cpuData.map(d => [...d]) }, { data: memData.map(d => [...d]) }] }, true) } catch {}
+        try { chart.setOption({ series: [{ data: cpuData.map(d => [...d]) }, { data: memData.map(d => [...d]) }] }) } catch {}
       }
       if (chart2) {
-        try { chart2.setOption({ series: [{ data: diskData.map(d => [...d]) }, { data: netRecvData.map(d => [...d]) }, { data: netSentData.map(d => [...d]) }] }, true) } catch {}
+        try { chart2.setOption({ series: [{ data: diskData.map(d => [...d]) }, { data: netRecvData.map(d => [...d]) }, { data: netSentData.map(d => [...d]) }] }) } catch {}
       }
     }
   } catch (e) {

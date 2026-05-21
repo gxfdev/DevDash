@@ -466,10 +466,10 @@ func (s *Store) SaveSnapshotBatch(nodeID string, snaps []*model.Snapshot) error 
 	return tx.Commit()
 }
 
-func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]model.Snapshot, error) {
-	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]map[string]any, error) {
+	since := time.Now().Add(-time.Duration(hours) * time.Hour).UTC()
 	rows, err := s.db.Query(
-		fmt.Sprintf("SELECT timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15 FROM metrics WHERE node_id = %s AND timestamp >= %s ORDER BY timestamp ASC", s.placeholder(1), s.placeholder(2)),
+		fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15 FROM metrics WHERE node_id = %s AND timestamp >= %s ORDER BY timestamp ASC", s.placeholder(1), s.placeholder(2)),
 		nodeID, since,
 	)
 	if err != nil {
@@ -477,19 +477,43 @@ func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]model.Snapshot, e
 	}
 	defer rows.Close()
 
-	var result []model.Snapshot
+	var result []map[string]any
 	for rows.Next() {
-		var snap model.Snapshot
-		snap.NodeID = nodeID
-		if err := rows.Scan(&snap.Timestamp, &snap.CPU.UsagePercent, &snap.CPU.Cores,
-			&snap.Memory.TotalGB, &snap.Memory.UsedGB, &snap.Memory.UsagePercent,
-			&snap.Disk.TotalGB, &snap.Disk.UsedGB, &snap.Disk.UsagePercent,
-			&snap.Network.BytesRecv, &snap.Network.BytesSent,
-			&snap.Load.Load1, &snap.Load.Load5, &snap.Load.Load15,
-		); err != nil {
+		var nid string
+		var ts time.Time
+		var cpuUsage, cpuCores, memTotal, memUsed, memUsage, diskTotal, diskUsed, diskUsage float64
+		var netRecv, netSent int64
+		var load1, load5, load15 float64
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
 			continue
 		}
-		result = append(result, snap)
+		result = append(result, map[string]any{
+			"node_id":   nid,
+			"timestamp": ts,
+			"cpu": map[string]any{
+				"usage_percent": cpuUsage,
+				"cores":         cpuCores,
+			},
+			"memory": map[string]any{
+				"total_gb":      memTotal,
+				"used_gb":       memUsed,
+				"usage_percent": memUsage,
+			},
+			"disk": map[string]any{
+				"total_gb":      diskTotal,
+				"used_gb":       diskUsed,
+				"usage_percent": diskUsage,
+			},
+			"network": map[string]any{
+				"bytes_recv": netRecv,
+				"bytes_sent": netSent,
+			},
+			"load": map[string]any{
+				"load1":  load1,
+				"load5":  load5,
+				"load15": load15,
+			},
+		})
 	}
 	return result, nil
 }

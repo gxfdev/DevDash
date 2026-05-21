@@ -149,14 +149,23 @@ function formatTime(ts: string) {
   catch { return ts }
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 function createGradientColor(color: string, opacity: number = 0.15): any {
-  const c = color.replace('rgb', 'rgba')
+  const topColor = color.startsWith('#') ? hexToRgba(color, opacity) : color.replace('rgb', 'rgba').replace(')', `, ${opacity})`)
+  const bottomColor = color.startsWith('#') ? hexToRgba(color, 0) : color.replace('rgb', 'rgba').replace(')', ', 0)')
   return {
     type: 'linear',
     x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
-      { offset: 0, color: c.replace(')', `, ${opacity})`) },
-      { offset: 1, color: c.replace(')', ', 0)') },
+      { offset: 0, color: topColor },
+      { offset: 1, color: bottomColor },
     ]
   }
 }
@@ -373,9 +382,37 @@ onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await nodesStore.fetchNodes()
   initCharts()
+
+  try {
+    await snap.fetchHistory(60)
+    const hist = snap.history
+    if (hist && hist.length > 0) {
+      for (const h of hist) {
+        const t = new Date(h.timestamp).getTime()
+        if (isNaN(t)) continue
+        cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
+        memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
+        diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
+        const nr = (h.network?.bytes_recv ?? 0) / 1024 / 1024
+        const ns = (h.network?.bytes_sent ?? 0) / 1024 / 1024
+        netRecvData.push([t, parseFloat(nr.toFixed(2))])
+        netSentData.push([t, parseFloat(ns.toFixed(2))])
+      }
+      while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
+      if (chart) {
+        try { chart.setOption({ series: [{ data: cpuData.map(d => [...d]) }, { data: memData.map(d => [...d]) }] }, true) } catch {}
+      }
+      if (chart2) {
+        try { chart2.setOption({ series: [{ data: diskData.map(d => [...d]) }, { data: netRecvData.map(d => [...d]) }, { data: netSentData.map(d => [...d]) }] }, true) } catch {}
+      }
+    }
+  } catch (e) {
+    console.warn('[dashboard] load history failed:', e)
+  }
+
   await snap.fetchLatest()
   pushData()
-  pollTimer = setInterval(refresh, 30000)
+  pollTimer = setInterval(refresh, 5000)
 })
 
 onUnmounted(() => {

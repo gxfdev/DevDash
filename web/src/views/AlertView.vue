@@ -160,22 +160,22 @@ async function fetchAlerts() {
     
     activeAlerts.value = newAlerts
   } catch (e: unknown) {
-    console.error('Failed to fetch active alerts:', e)
+    console.warn('Alerts service unavailable:', (e as Error)?.message || e)
     message.error('加载活跃告警失败')
   }
-  
+
   try {
     const { data } = await client.get('/alerts/history', { params })
     historyList.value = Array.isArray(data) ? data : []
   } catch (e: unknown) {
-    console.error('Failed to fetch alert history:', e)
+    console.warn('Alert history unavailable:', (e as Error)?.message || e)
   }
-  
+
   try {
     const { data } = await client.get('/alert-rules')
     rules.value = Array.isArray(data) ? data : []
   } catch (e: unknown) {
-    console.error('Failed to fetch alert rules:', e)
+    console.warn('Alert rules unavailable:', (e as Error)?.message || e)
   } finally { loading.value = false }
 }
 

@@ -522,7 +522,7 @@ async function checkDockerStatus() {
       }
     }
   } catch (error) {
-    console.error('Failed to check Docker status:', error)
+    console.warn('Docker service unavailable:', (error as Error)?.message || error)
     dockerStatus.value.connected = false
   }
 }
@@ -567,7 +567,7 @@ async function refreshContainers() {
       }
     }
   } catch (error) {
-    console.error('Failed to load containers:', error)
+    console.warn('Docker containers unavailable:', (error as Error)?.message || error)
   } finally {
     loading.value = false
   }
@@ -696,7 +696,7 @@ async function loadComposeProjects() {
       composeProjects.value = response.data
     }
   } catch (error) {
-    console.error('Failed to load compose projects:', error)
+    console.warn('Docker compose unavailable:', (error as Error)?.message || error)
   }
 }
 

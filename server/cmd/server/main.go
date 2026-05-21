@@ -176,27 +176,23 @@ func startMetricsCleanup(s *store.Store) {
 }
 
 func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine) {
-	ticker := time.NewTicker(time.Duration(cfg.CollectInterval) * time.Second)
-	defer ticker.Stop()
+	interval := time.Duration(cfg.CollectInterval) * time.Second
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
+	}
 
-	// ✅ 限制并发数，防止资源耗尽
 	sem := make(chan struct{}, 5)
 
-	first := true
-	for range ticker.C {
+	collectOnce := func() {
 		nodes := nm.ListNodes()
 		var wg sync.WaitGroup
-		
 		for _, n := range nodes {
 			if n.Role == "agent" || n.Role == "full" || n.ID == "self" {
 				wg.Add(1)
 				go func(node *model.Node) {
 					defer wg.Done()
-
-					// ✅ 获取信号量（最多5个并发）
 					sem <- struct{}{}
 					defer func() { <-sem }()
-
 					snap, err := c.Collect()
 					if err != nil {
 						log.Printf("采集失败 node=%s: %v", node.ID, err)
@@ -204,20 +200,21 @@ func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManage
 					}
 					snap.NodeID = node.ID
 					s.SaveSnapshot(node.ID, snap)
-
-					alertEngine.Evaluate(snap)  // ✅ 评估告警规则
-
+					alertEngine.Evaluate(snap)
 					nm.UpdateHeartbeat(node.ID)
 				}(n)
 			}
 		}
-		
-		wg.Wait()  // 等待所有采集完成
-		
-		if first {
-			first = false
-			log.Println("首次采集完成")
-		}
+		wg.Wait()
+	}
+
+	collectOnce()
+	log.Println("首次采集完成")
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		collectOnce()
 	}
 }
 

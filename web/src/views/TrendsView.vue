@@ -235,14 +235,23 @@ const topDir = computed(() => {
   return (sorted[0]?.path || '--').split(/[/\\]/).pop() || '--'
 })
 
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.substring(0, 2), 16)
+  const g = parseInt(h.substring(2, 4), 16)
+  const b = parseInt(h.substring(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 function createGradientColor(color: string, opacity: number = 0.2): any {
-  const c = color.replace('rgb', 'rgba')
+  const topColor = color.startsWith('#') ? hexToRgba(color, opacity) : color.replace('rgb', 'rgba').replace(')', `, ${opacity})`)
+  const bottomColor = color.startsWith('#') ? hexToRgba(color, 0) : color.replace('rgb', 'rgba').replace(')', ', 0)')
   return {
     type: 'linear',
     x: 0, y: 0, x2: 0, y2: 1,
     colorStops: [
-      { offset: 0, color: c.replace(')', `, ${opacity})`) },
-      { offset: 1, color: c.replace(')', ', 0)') },
+      { offset: 0, color: topColor },
+      { offset: 1, color: bottomColor },
     ]
   }
 }
@@ -265,7 +274,7 @@ function makeChartOpt(color: string) {
       smooth: 0.4,
       sampling: 'lttb',
       data: [],
-      lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: `${color}4D` },
+      lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: hexToRgba(color, 0.3) },
       itemStyle: { color },
       symbol: 'none',
       areaStyle: { color: createGradientColor(color) },
@@ -284,7 +293,7 @@ function makeBarChartOpt(color: string) {
     xAxis: { type: 'category', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, rotate: 30 } },
     yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
     tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
-    series: [{ type: 'bar', data: [], itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color}, {offset: 1, color: `${color}33`}] }, borderRadius: [4, 4, 0, 0] } }],
+    series: [{ type: 'bar', data: [], itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color}, {offset: 1, color: hexToRgba(color, 0.2)}] }, borderRadius: [4, 4, 0, 0] } }],
     animation: true,
     animationDuration: 500,
     backgroundColor: 'transparent',
@@ -305,8 +314,8 @@ function buildCharts() {
       tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
       legend: { data: ['创建', '删除'], textStyle: { color: '#8b949e' }, top: 5, right: 10 },
       series: [
-        { type: 'line', smooth: 0.4, data: [], name: '创建', sampling: 'lttb', lineStyle: { width: 2.5, color: '#3fb950' }, itemStyle: { color: '#3fb950' }, symbol: 'none', areaStyle: { color: createGradientColor('rgb(63,185,80)', 0.15) } },
-        { type: 'line', smooth: 0.4, data: [], name: '删除', sampling: 'lttb', lineStyle: { width: 2.5, color: '#f85149' }, itemStyle: { color: '#f85149' }, symbol: 'none', areaStyle: { color: createGradientColor('rgb(248,81,73)', 0.15) } },
+        { type: 'bar', data: [], name: '创建', itemStyle: { color: '#3fb950', borderRadius: [4, 4, 0, 0] } },
+        { type: 'bar', data: [], name: '删除', itemStyle: { color: '#f85149', borderRadius: [4, 4, 0, 0] } },
       ],
       animation: true,
       animationDuration: 500,
@@ -317,7 +326,7 @@ function buildCharts() {
       legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: '#8b949e' } },
       backgroundColor: 'transparent',
     }) }
-    if (storageRef.value) { storageChart = echarts.init(storageRef.value, 'dark'); storageChart.setOption(makeChartOpt('#d29922')) }
+    if (storageRef.value) { storageChart = echarts.init(storageRef.value, 'dark'); storageChart.setOption(makeBarChartOpt('#d29922')) }
     if (dirCountRef.value) { dirCountChart = echarts.init(dirCountRef.value, 'dark'); dirCountChart.setOption(makeBarChartOpt('#bc8cff')) }
   })
 }
@@ -417,7 +426,7 @@ async function loadHistory() {
       console.warn('[trends] no history data for', selectedNode.value)
     }
   } catch (e: unknown) {
-    console.error('[trends] load error:', e)
+    console.warn('[trends] load error:', (e as Error)?.message || e)
     historyData.value = []
   }
 }

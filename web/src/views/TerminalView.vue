@@ -61,7 +61,7 @@ function createTerminal() {
     term.open(termRef.value)
     fitAddon.fit()
   } catch (e) {
-    console.error('[terminal] open error:', e)
+    console.warn('[terminal] open error:', (e as Error)?.message || e)
   }
 }
 
@@ -105,7 +105,7 @@ function connectWS() {
   try {
     ws = new WebSocket(url)
   } catch (e: unknown) {
-    console.error('[terminal] WebSocket create error:', e)
+    console.warn('[terminal] WebSocket create error:', (e as Error)?.message || e)
     term?.write('\r\n\x1b[1;31m✗ WebSocket 创建失败\x1b[0m\r\n')
     isConnecting = false
     scheduleReconnect()
@@ -137,8 +137,7 @@ function connectWS() {
     }
   }
 
-  ws.onerror = (event) => {
-    console.error('[terminal] WS error:', event)
+  ws.onerror = () => {
     isConnecting = false
   }
 }

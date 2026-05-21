@@ -370,7 +370,7 @@ function pushData() {
 
 async function refresh() {
   try {
-    await snap.fetchLatest()
+    await snap.triggerCollect()
     await nodesStore.fetchNodes()
     pushData()
   } catch (e) {

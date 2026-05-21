@@ -306,7 +306,12 @@ function buildCharts() {
     if (cpuRef.value) { cpuChart = echarts.init(cpuRef.value, 'dark'); cpuChart.setOption(makeChartOpt('#3fb950')) }
     if (memRef.value) { memChart = echarts.init(memRef.value, 'dark'); memChart.setOption(makeChartOpt('#bc8cff')) }
     if (diskRef.value) { diskChart = echarts.init(diskRef.value, 'dark'); diskChart.setOption(makeChartOpt('#d29922')) }
-    if (netRef.value) { netChart = echarts.init(netRef.value, 'dark'); netChart.setOption(makeChartOpt('#58a6ff')) }
+    if (netRef.value) {
+      netChart = echarts.init(netRef.value, 'dark')
+      const opt = makeChartOpt('#58a6ff')
+      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      netChart.setOption(opt)
+    }
     if (fileOpRef.value) { fileOpChart = echarts.init(fileOpRef.value, 'dark'); fileOpChart.setOption({
       grid: { top: 30, right: 20, bottom: 30, left: 50 },
       xAxis: { type: 'category', boundaryGap: false, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10 }, splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } } },
@@ -346,10 +351,15 @@ function pushData() {
   const netSeries = historyData.value.map((h: any, i: number) => {
     const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
     const sent = getVal(h, ['network.bytes_sent', 'bytes_sent'])
-    const prevRecv = i > 0 ? getVal(historyData.value[i - 1], ['network.bytes_recv', 'bytes_recv']) : recv
-    const prevSent = i > 0 ? getVal(historyData.value[i - 1], ['network.bytes_sent', 'bytes_sent']) : sent
-    const rate = ((recv + sent - prevRecv - prevSent) / 1048576)
-    return [toTs(h.timestamp), Math.max(0, rate)]
+    const ts = toTs(h.timestamp)
+    if (i === 0) return [ts, 0]
+    const prevRecv = getVal(historyData.value[i - 1], ['network.bytes_recv', 'bytes_recv'])
+    const prevSent = getVal(historyData.value[i - 1], ['network.bytes_sent', 'bytes_sent'])
+    const prevTs = toTs(historyData.value[i - 1].timestamp)
+    const dt = (ts - prevTs) / 1000
+    if (dt <= 0) return [ts, 0]
+    const rateMBps = ((recv + sent - prevRecv - prevSent) / 1048576) / dt
+    return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
 
   cpuChart?.setOption({ series: [{ data: cpuData }] })

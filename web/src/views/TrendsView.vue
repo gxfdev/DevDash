@@ -26,11 +26,11 @@
               <div ref="memRef" style="height:220px" />
             </div>
             <div class="chart-box">
-              <div class="chart-title">磁盘趋势</div>
+              <div class="chart-title">磁盘 I/O</div>
               <div ref="diskRef" style="height:220px" />
             </div>
             <div class="chart-box">
-              <div class="chart-title">网络趋势 (MB/s)</div>
+              <div class="chart-title">网络趋势 (KB/s)</div>
               <div ref="netRef" style="height:220px" />
             </div>
           </div>
@@ -305,11 +305,16 @@ function buildCharts() {
   nextTick(() => {
     if (cpuRef.value) { cpuChart = echarts.init(cpuRef.value, 'dark'); cpuChart.setOption(makeChartOpt('#3fb950')) }
     if (memRef.value) { memChart = echarts.init(memRef.value, 'dark'); memChart.setOption(makeChartOpt('#bc8cff')) }
-    if (diskRef.value) { diskChart = echarts.init(diskRef.value, 'dark'); diskChart.setOption(makeChartOpt('#d29922')) }
+    if (diskRef.value) {
+      diskChart = echarts.init(diskRef.value, 'dark')
+      const opt = makeChartOpt('#d29922')
+      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      diskChart.setOption(opt)
+    }
     if (netRef.value) {
       netChart = echarts.init(netRef.value, 'dark')
       const opt = makeChartOpt('#58a6ff')
-      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} KB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
       netChart.setOption(opt)
     }
     if (fileOpRef.value) { fileOpChart = echarts.init(fileOpRef.value, 'dark'); fileOpChart.setOption({
@@ -346,7 +351,20 @@ function disposeCharts() {
 function pushData() {
   const cpuData = historyData.value.map((h: any) => [toTs(h.timestamp), getVal(h, ['cpu.usage_percent', 'cpu_usage'])])
   const memData = historyData.value.map((h: any) => [toTs(h.timestamp), getVal(h, ['memory.usage_percent', 'mem_usage_percent'])])
-  const diskData = historyData.value.map((h: any) => [toTs(h.timestamp), getVal(h, ['disk.usage_percent', 'disk_usage_percent'])])
+
+  const diskIOSeries = historyData.value.map((h: any, i: number) => {
+    const readMB = getVal(h, ['disk_io.read_mb', 'read_mb'])
+    const writeMB = getVal(h, ['disk_io.write_mb', 'write_mb'])
+    const ts = toTs(h.timestamp)
+    if (i === 0) return [ts, 0]
+    const prevReadMB = getVal(historyData.value[i - 1], ['disk_io.read_mb', 'read_mb'])
+    const prevWriteMB = getVal(historyData.value[i - 1], ['disk_io.write_mb', 'write_mb'])
+    const prevTs = toTs(historyData.value[i - 1].timestamp)
+    const dt = (ts - prevTs) / 1000
+    if (dt <= 0) return [ts, 0]
+    const rateMBps = ((readMB + writeMB - prevReadMB - prevWriteMB) / dt)
+    return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
+  })
 
   const netSeries = historyData.value.map((h: any, i: number) => {
     const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
@@ -358,13 +376,13 @@ function pushData() {
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
     if (dt <= 0) return [ts, 0]
-    const rateMBps = ((recv + sent - prevRecv - prevSent) / 1048576) / dt
-    return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
+    const rateKBps = ((recv + sent - prevRecv - prevSent) / 1024) / dt
+    return [ts, parseFloat(Math.max(0, rateKBps).toFixed(2))]
   })
 
   cpuChart?.setOption({ series: [{ data: cpuData }] })
   memChart?.setOption({ series: [{ data: memData }] })
-  diskChart?.setOption({ series: [{ data: diskData }] })
+  diskChart?.setOption({ series: [{ data: diskIOSeries }] })
   netChart?.setOption({ series: [{ data: netSeries }] })
 
   pushFileStats()

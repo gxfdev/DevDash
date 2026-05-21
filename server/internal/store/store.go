@@ -134,6 +134,9 @@ func (s *Store) runMigrations() {
 				disk_total_gb REAL DEFAULT 0,
 				disk_used_gb REAL DEFAULT 0,
 				disk_usage_percent REAL DEFAULT 0,
+				disk_read_mb REAL DEFAULT 0,
+				disk_write_mb REAL DEFAULT 0,
+				disk_iops REAL DEFAULT 0,
 				net_bytes_recv INTEGER DEFAULT 0,
 				net_bytes_sent INTEGER DEFAULT 0,
 				load1 REAL DEFAULT 0,
@@ -153,6 +156,9 @@ func (s *Store) runMigrations() {
 				disk_total_gb REAL DEFAULT 0,
 				disk_used_gb REAL DEFAULT 0,
 				disk_usage_percent REAL DEFAULT 0,
+				disk_read_mb REAL DEFAULT 0,
+				disk_write_mb REAL DEFAULT 0,
+				disk_iops REAL DEFAULT 0,
 				net_bytes_recv BIGINT DEFAULT 0,
 				net_bytes_sent BIGINT DEFAULT 0,
 				load1 REAL DEFAULT 0,
@@ -330,6 +336,17 @@ func (s *Store) runMigrations() {
 		}
 	}
 
+	alterCols := []string{
+		"ALTER TABLE metrics ADD COLUMN disk_read_mb REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN disk_write_mb REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN disk_iops REAL DEFAULT 0",
+		"ALTER TABLE cron_jobs ADD COLUMN type TEXT DEFAULT 'shell'",
+		"ALTER TABLE cron_jobs ADD COLUMN last_run INTEGER DEFAULT 0",
+	}
+	for _, col := range alterCols {
+		s.db.Exec(col)
+	}
+
 	s.createIndexes()
 	s.seedDefaultUser()
 }
@@ -388,11 +405,18 @@ func (s *Store) SaveSnapshot(nodeID string, snap *model.Snapshot) error {
 	if !snap.Timestamp.IsZero() {
 		now = snap.Timestamp
 	}
+	var diskReadMB, diskWriteMB, diskIOPS float64
+	if snap.DiskIO != nil {
+		diskReadMB = snap.DiskIO.ReadMB
+		diskWriteMB = snap.DiskIO.WriteMB
+		diskIOPS = snap.DiskIO.IOPS
+	}
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15) VALUES (%s)", s.placeholder(15)),
+		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, net_bytes_recv, net_bytes_sent, load1, load5, load15) VALUES (%s)", s.placeholder(18)),
 		nodeID, now, snap.CPU.UsagePercent, snap.CPU.Cores,
 		snap.Memory.TotalGB, snap.Memory.UsedGB, snap.Memory.UsagePercent,
 		snap.Disk.TotalGB, snap.Disk.UsedGB, snap.Disk.UsagePercent,
+		diskReadMB, diskWriteMB, diskIOPS,
 		snap.Network.BytesRecv, snap.Network.BytesSent,
 		snap.Load.Load1, snap.Load.Load5, snap.Load.Load15,
 	)
@@ -682,10 +706,11 @@ func (s *Store) DeleteNode(id string) error {
 func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 	var rows *sql.Rows
 	var err error
+	cols := "node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, net_bytes_recv, net_bytes_sent, load1, load5, load15"
 	if nodeID == "" {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15 FROM metrics ORDER BY timestamp DESC LIMIT %s", s.placeholder(1)), limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM metrics ORDER BY timestamp DESC LIMIT %s", cols, s.placeholder(1)), limit)
 	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15 FROM metrics WHERE node_id = %s ORDER BY timestamp DESC LIMIT %s", s.placeholder(1), s.placeholder(2)), nodeID, limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM metrics WHERE node_id = %s ORDER BY timestamp DESC LIMIT %s", cols, s.placeholder(1), s.placeholder(2)), nodeID, limit)
 	}
 	if err != nil {
 		return nil
@@ -696,9 +721,10 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 		var nid string
 		var ts time.Time
 		var cpuUsage, cpuCores, memTotal, memUsed, memUsage, diskTotal, diskUsed, diskUsage float64
+		var diskReadMB, diskWriteMB, diskIOPS float64
 		var netRecv, netSent int64
 		var load1, load5, load15 float64
-		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
@@ -717,6 +743,11 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 				"total_gb":      diskTotal,
 				"used_gb":       diskUsed,
 				"usage_percent": diskUsage,
+			},
+			"disk_io": map[string]any{
+				"read_mb":  diskReadMB,
+				"write_mb": diskWriteMB,
+				"iops":     diskIOPS,
 			},
 			"network": map[string]any{
 				"bytes_recv": netRecv,

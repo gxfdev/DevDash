@@ -126,9 +126,9 @@
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, GraphicComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, GraphicComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
@@ -236,10 +236,15 @@ const topDir = computed(() => {
 })
 
 function createGradientColor(color: string, opacity: number = 0.2): any {
-  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-    { offset: 0, color: color.replace(')', `, ${opacity})`).replace('rgb', 'rgba') },
-    { offset: 1, color: color.replace(')', ', 0)').replace('rgb', 'rgba') },
-  ])
+  const c = color.replace('rgb', 'rgba')
+  return {
+    type: 'linear',
+    x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [
+      { offset: 0, color: c.replace(')', `, ${opacity})`) },
+      { offset: 1, color: c.replace(')', ', 0)') },
+    ]
+  }
 }
 
 function makeChartOpt(color: string) {
@@ -279,7 +284,7 @@ function makeBarChartOpt(color: string) {
     xAxis: { type: 'category', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, rotate: 30 } },
     yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
     tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
-    series: [{ type: 'bar', data: [], itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color}, {offset: 1, `${color}33`}]), borderRadius: [4, 4, 0, 0] } }],
+    series: [{ type: 'bar', data: [], itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color}, {offset: 1, color: `${color}33`}] }, borderRadius: [4, 4, 0, 0] } }],
     animation: true,
     animationDuration: 500,
     backgroundColor: 'transparent',

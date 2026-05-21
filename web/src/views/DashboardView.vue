@@ -72,10 +72,10 @@ import { NButton } from 'naive-ui'
 import { Refresh as RefreshIcon } from '@vicons/ionicons5'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, GraphicComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, GraphicComponent, UniversalTransition, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, UniversalTransition, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'
@@ -150,10 +150,15 @@ function formatTime(ts: string) {
 }
 
 function createGradientColor(color: string, opacity: number = 0.15): any {
-  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-    { offset: 0, color: color.replace(')', `, ${opacity})`).replace('rgb', 'rgba') },
-    { offset: 1, color: color.replace(')', ', 0)').replace('rgb', 'rgba') },
-  ])
+  const c = color.replace('rgb', 'rgba')
+  return {
+    type: 'linear',
+    x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [
+      { offset: 0, color: c.replace(')', `, ${opacity})`) },
+      { offset: 1, color: c.replace(')', ', 0)') },
+    ]
+  }
 }
 
 function makeBaseOpt(): Record<string, unknown> {
@@ -326,22 +331,31 @@ function pushData() {
 
   while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
 
-  try {
-    chart?.setOption({
-      series: [
-        { data: cpuData.map(d => [...d]) },
-        { data: memData.map(d => [...d]) },
-      ],
-    }, true)
-    chart2?.setOption({
-      series: [
-        { data: diskData.map(d => [...d]) },
-        { data: netRecvData.map(d => [...d]) },
-        { data: netSentData.map(d => [...d]) },
-      ],
-    }, true)
-  } catch (e) {
-    console.warn('[dashboard] setOption error:', e)
+  if (chart) {
+    try {
+      chart.setOption({
+        series: [
+          { data: cpuData.map(d => [...d]) },
+          { data: memData.map(d => [...d]) },
+        ],
+      }, true)
+    } catch (e) {
+      console.warn('[dashboard] chart1 error:', e)
+    }
+  }
+
+  if (chart2) {
+    try {
+      chart2.setOption({
+        series: [
+          { data: diskData.map(d => [...d]) },
+          { data: netRecvData.map(d => [...d]) },
+          { data: netSentData.map(d => [...d]) },
+        ],
+      }, true)
+    } catch (e) {
+      console.warn('[dashboard] chart2 error:', e)
+    }
   }
 }
 

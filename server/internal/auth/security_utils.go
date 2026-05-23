@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -110,15 +111,33 @@ func getEncryptionKey() []byte {
 		}
 		if len(key) >= 32 {
 			encKey = []byte(key[:32])
+		} else if isProductionMode() {
+			log.Println("[auth] WARNING: ENCRYPTION_KEY/JWT_SECRET too short for production, generating random key")
+			encKey = generateRandomKey(32)
 		} else if len(key) >= 16 {
-			encKey = []byte(key[:16])
+			padded := make([]byte, 32)
+			copy(padded, key)
+			copy(padded[len(key):], key)
+			encKey = padded
+			log.Println("[auth] WARNING: encryption key shorter than 32 bytes, key was padded - set ENCRYPTION_KEY for production")
 		} else {
-			k := make([]byte, 32)
-			copy(k, key)
-			encKey = k
+			encKey = generateRandomKey(32)
+			log.Println("[auth] WARNING: no valid encryption key found, using random key - data encrypted with this key will not survive restart")
 		}
 	})
 	return encKey
+}
+
+func isProductionMode() bool {
+	return os.Getenv("GIN_MODE") == "release"
+}
+
+func generateRandomKey(size int) []byte {
+	key := make([]byte, size)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		log.Fatalf("[auth] failed to generate random key: %v", err)
+	}
+	return key
 }
 
 func EncryptField(plaintext string) (string, error) {

@@ -85,6 +85,31 @@ func (s *Store) Close() {
 	}
 }
 
+func (s *Store) Reopen() error {
+	if s.dbType == config.DBPostgreSQL || s.dbPath == "" {
+		return fmt.Errorf("reopen only supported for SQLite")
+	}
+	if s.db != nil {
+		s.db.Close()
+	}
+	db, err := sql.Open("sqlite", s.dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	if err != nil {
+		return fmt.Errorf("reopen sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	if err = db.Ping(); err != nil {
+		return fmt.Errorf("ping after reopen: %w", err)
+	}
+	db.Exec("PRAGMA journal_mode=WAL")
+	db.Exec("PRAGMA busy_timeout=5000")
+	db.Exec("PRAGMA synchronous=NORMAL")
+	s.db = db
+	log.Println("[store] database reopened after restore")
+	return nil
+}
+
 func (s *Store) DB() *sql.DB { return s.db }
 
 func (s *Store) IsPostgreSQL() bool { return s.dbType == config.DBPostgreSQL }
@@ -1306,6 +1331,10 @@ func (s *Store) ensureAlertRulesTable() {
 }
 
 func (s *Store) ensureColumn(table, column, sqliteDDL, pgDDL string) {
+	if !isValidIdentifier(table) || !isValidIdentifier(column) {
+		log.Printf("[store] warning: invalid table/column name in ensureColumn: %s.%s", table, column)
+		return
+	}
 	var colExists bool
 	if s.IsPostgreSQL() {
 		var count int
@@ -1321,11 +1350,33 @@ func (s *Store) ensureColumn(table, column, sqliteDDL, pgDDL string) {
 		if s.IsPostgreSQL() {
 			ddl = pgDDL
 		}
-		_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, ddl))
+		_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", s.quoteIdentifier(table), s.quoteIdentifier(column), ddl))
 		if err != nil {
 			log.Printf("[store] warning: add column %s.%s: %v", table, column, err)
 		}
 	}
+}
+
+func isValidIdentifier(name string) bool {
+	if len(name) == 0 || len(name) > 64 {
+		return false
+	}
+	for i, c := range name {
+		if i == 0 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+			return false
+		}
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) quoteIdentifier(name string) string {
+	if s.IsPostgreSQL() {
+		return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	}
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 func (s *Store) RecordFileOp(op map[string]any) {

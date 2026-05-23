@@ -141,18 +141,23 @@ func (s *TerminalSession) createCommand() (*exec.Cmd, io.WriteCloser, io.Reader,
 
 func (s *TerminalSession) resolvedShell() string {
 	if s.Shell != "" {
-		if _, err := os.Stat(s.Shell); err == nil {
-			return s.Shell
+		if !isAllowedShell(s.Shell) {
+			log.Printf("[terminal] rejected disallowed shell: %s", s.Shell)
+			s.Shell = ""
 		}
-		if s.Shell == "cmd.exe" {
+	}
+	if s.Shell != "" {
+		if _, err := os.Stat(s.Shell); err == nil {
 			return s.Shell
 		}
 	}
 
 	shell := os.Getenv("DEVDASH_SHELL")
 	if shell != "" {
-		if _, err := os.Stat(shell); err == nil {
-			return shell
+		if isAllowedShell(shell) {
+			if _, err := os.Stat(shell); err == nil {
+				return shell
+			}
 		}
 	}
 
@@ -183,6 +188,30 @@ func (s *TerminalSession) resolvedShell() string {
 	}
 
 	return "/bin/sh"
+}
+
+func isAllowedShell(shell string) bool {
+	allowed := []string{
+		"/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/fish", "/bin/csh", "/bin/tcsh", "/bin/ksh",
+		"/usr/bin/sh", "/usr/bin/bash", "/usr/bin/zsh", "/usr/bin/dash", "/usr/bin/fish", "/usr/bin/csh", "/usr/bin/tcsh", "/usr/bin/ksh",
+		"/usr/local/bin/fish", "/usr/local/bin/zsh", "/usr/local/bin/bash",
+		"cmd.exe", "powershell.exe", "pwsh.exe",
+	}
+	lower := strings.ToLower(shell)
+	for _, a := range allowed {
+		if lower == strings.ToLower(a) {
+			return true
+		}
+	}
+	if runtime.GOOS == "windows" {
+		lowerShell := strings.ToLower(shell)
+		if strings.HasSuffix(lowerShell, `\powershell.exe`) ||
+			strings.HasSuffix(lowerShell, `\pwsh.exe`) ||
+			lowerShell == "cmd.exe" {
+			return true
+		}
+	}
+	return false
 }
 
 func findWindowsShell(candidates []string) string {

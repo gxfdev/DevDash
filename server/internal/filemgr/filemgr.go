@@ -27,9 +27,10 @@ var (
 	opCallback      FileOpCallback
 	dangerousPaths  = map[string]bool{
 		"/etc": true, "/root": true, "/boot": true, "/sys": true,
-		"/proc": true, "/dev": true, "bin": true, "sbin": true,
-		"\\Windows": true, "\\System32": true, "\\Program Files": true,
-		"\\Program Files (x86)": true, "\\ProgramData": true,
+		"/proc": true, "/dev": true, "/bin": true, "/sbin": true,
+		"c:\\windows": true, "c:\\system32": true,
+		"c:\\program files": true, "c:\\program files (x86)": true,
+		"c:\\programdata": true,
 	}
 )
 
@@ -138,7 +139,7 @@ func ListDir(path string) ([]FileInfo, error) {
 		return nil, fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) && runtime.GOOS != "windows" {
+	if checkDangerousPath(validatedPath) {
 		return nil, fmt.Errorf("access to system directory is restricted")
 	}
 

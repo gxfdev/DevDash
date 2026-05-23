@@ -1,6 +1,10 @@
 package software
 
-import "runtime"
+import (
+	"fmt"
+	"os"
+	"runtime"
+)
 
 type OSInfo struct {
 	Name    string
@@ -32,16 +36,73 @@ var Catalog = []SoftwareCatalog{
 	{Name: "caddy", Category: "web_server", Versions: []string{"2"}, InstallCmd: map[string]map[string]string{"linux": {"amd64": "curl -fsSL https://get.caddyserver.com | sh", "arm64": "curl -fsSL https://get.caddyserver.com | sh"}, "windows": {"amd64": "choco install caddy -y"}}},
 }
 
-func GetInstallCommand(name, version, os, arch string) string {
+func detectPackageManager() string {
+	checks := []struct {
+		path string
+		name string
+	}{
+		{"/usr/bin/apt-get", "apt"},
+		{"/usr/bin/dnf", "dnf"},
+		{"/usr/bin/yum", "yum"},
+		{"/usr/bin/pacman", "pacman"},
+		{"/usr/bin/zypper", "zypper"},
+		{"/usr/bin/apk", "apk"},
+	}
+	for _, c := range checks {
+		if _, err := os.Stat(c.path); err == nil {
+			return c.name
+		}
+	}
+	return "apt"
+}
+
+func GetInstallCommand(name, version, osName, arch string) string {
 	for _, s := range Catalog {
 		if s.Name == name {
-			if arches, ok := s.InstallCmd[os]; ok {
-				if cmd, ok := arches[arch]; ok { return cmd }
-				if cmd, ok := arches["amd64"]; ok { return cmd }
+			if arches, ok := s.InstallCmd[osName]; ok {
+				if cmd, ok := arches[arch]; ok {
+					return cmd
+				}
+				if cmd, ok := arches["amd64"]; ok {
+					return cmd
+				}
 			}
 		}
 	}
-	return ""
+
+	safeName := sanitizeString(name, 64)
+	versionFlag := ""
+	if version != "" {
+		safeVer := sanitizeString(version, 32)
+		versionFlag = fmt.Sprintf("--version=%s", safeVer)
+	}
+
+	switch osName {
+	case "linux":
+		pm := detectPackageManager()
+		switch pm {
+		case "apt":
+			return fmt.Sprintf("apt-get install -y %s %s 2>&1", safeName, versionFlag)
+		case "dnf":
+			return fmt.Sprintf("dnf install -y %s %s 2>&1", safeName, versionFlag)
+		case "yum":
+			return fmt.Sprintf("yum install -y %s %s 2>&1", safeName, versionFlag)
+		case "pacman":
+			return fmt.Sprintf("pacman -S --noconfirm %s %s 2>&1", safeName, versionFlag)
+		case "zypper":
+			return fmt.Sprintf("zypper install -y %s %s 2>&1", safeName, versionFlag)
+		case "apk":
+			return fmt.Sprintf("apk add %s %s 2>&1", safeName, versionFlag)
+		default:
+			return fmt.Sprintf("apt-get install -y %s %s 2>&1", safeName, versionFlag)
+		}
+	case "windows":
+		return fmt.Sprintf("choco install %s %s -y 2>&1", safeName, versionFlag)
+	case "darwin":
+		return fmt.Sprintf("brew install %s %s 2>&1", safeName, versionFlag)
+	default:
+		return ""
+	}
 }
 
 func ListByCategory(category string) []SoftwareCatalog {

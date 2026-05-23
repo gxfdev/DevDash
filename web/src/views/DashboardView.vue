@@ -17,7 +17,8 @@
         <metric-card label="内存使用率" :value="memLabel" :sub="memSubLabel" color="#bc8cff" />
         <metric-card label="磁盘使用率" :value="diskLabel" :sub="diskSubLabel" color="#d29922" />
         <metric-card label="网络收发" :value="netLabel" :sub="netSubLabel" color="#f0883e" />
-        <metric-card label="负载(1m)" :value="loadLabel" :sub="loadSubLabel" color="#f85149" />
+        <metric-card v-if="!isWindows" label="负载(1m)" :value="loadLabel" :sub="loadSubLabel" color="#f85149" />
+        <metric-card v-else label="负载(1m)" value="--" sub="Windows 不支持此指标" color="#6e7681" />
       </div>
 
       <div class="monitor-grid">
@@ -136,6 +137,10 @@ const netSentData: [number, number][] = []
 
 const onlineCount = computed(() => nodesStore.nodes.filter((n: any) => n.status === 'online').length)
 const onlineSummary = computed(() => `在线 ${onlineCount.value} / 离线 ${nodesStore.nodes.length - onlineCount.value}`)
+const isWindows = computed(() => {
+  const platform = snap.current?.host?.platform || ''
+  return platform.toLowerCase().includes('windows')
+})
 
 const cpuLabel = computed(() => snap.cpuPercent.toFixed(1) + '%')
 const coresLabel = computed(() => `核心数 ${snap.cpuCores}`)

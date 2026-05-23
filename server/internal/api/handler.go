@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -82,16 +83,19 @@ type Handler struct {
 	nm             *node.NodeManager
 	mu             sync.RWMutex
 	cachedSnapshot interface{}
+	nodeSnapshots  map[string]interface{}
+	nodeMu         sync.RWMutex
 	dbConns        map[int]*sql.DB
 	dbMu           sync.RWMutex
 }
 
 func NewHandler(c *collector.Collector, s *store.Store, nm *node.NodeManager) *Handler {
 	return &Handler{
-		collector: c,
-		store:     s,
-		nm:        nm,
-		dbConns:   make(map[int]*sql.DB),
+		collector:     c,
+		store:         s,
+		nm:            nm,
+		dbConns:       make(map[int]*sql.DB),
+		nodeSnapshots: make(map[string]interface{}),
 	}
 }
 
@@ -227,19 +231,25 @@ func securityHeaders() gin.HandlerFunc {
 
 func apiRateLimit() gin.HandlerFunc {
 	type visitor struct {
-		count    int
-		lastSeen time.Time
+		count       int
+		windowStart time.Time
+		lastSeen    time.Time
 	}
 	var (
 		visitors = make(map[string]*visitor)
 		mu       sync.Mutex
 	)
+	const (
+		windowSize  = time.Minute
+		maxRequests = 600
+	)
 	go func() {
 		for {
-			time.Sleep(time.Minute)
+			time.Sleep(2 * time.Minute)
 			mu.Lock()
+			now := time.Now()
 			for ip, v := range visitors {
-				if time.Since(v.lastSeen) > 2*time.Minute {
+				if now.Sub(v.lastSeen) > 2*windowSize {
 					delete(visitors, ip)
 				}
 			}
@@ -249,17 +259,24 @@ func apiRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		mu.Lock()
+		now := time.Now()
 		v, exists := visitors[ip]
 		if !exists {
-			visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
+			visitors[ip] = &visitor{count: 1, windowStart: now, lastSeen: now}
 			mu.Unlock()
 			c.Next()
 			return
 		}
-		v.count++
-		v.lastSeen = time.Now()
-		if v.count > 600 {
+		v.lastSeen = now
+		if now.Sub(v.windowStart) > windowSize {
+			v.count = 1
+			v.windowStart = now
+		} else {
+			v.count++
+		}
+		if v.count > maxRequests {
 			mu.Unlock()
+			c.Header("Retry-After", fmt.Sprintf("%d", int(windowSize.Seconds())))
 			c.AbortWithStatusJSON(429, gin.H{"error": "rate limit exceeded"})
 			return
 		}
@@ -296,7 +313,13 @@ func (h *Handler) login(c *gin.Context) {
 	}
 
 	user, err := h.store.GetUserByUsername(req.Username)
-	if err != nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
+	if err != nil || user == nil {
+		auth.CheckPassword("", req.Password)
+		log.Printf("[auth] login failed for user %s from %s", auth.SanitizeLog(req.Username), c.ClientIP())
+		c.JSON(401, gin.H{"error": "invalid credentials"})
+		return
+	}
+	if !auth.CheckPassword(user.PasswordHash, req.Password) {
 		log.Printf("[auth] login failed for user %s from %s", auth.SanitizeLog(req.Username), c.ClientIP())
 		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
@@ -438,18 +461,12 @@ func (h *Handler) changeUsername(c *gin.Context) {
 }
 
 func (h *Handler) refreshToken(c *gin.Context) {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid request"})
-		return
-	}
-	if req.RefreshToken == "" {
+	refreshToken, err := c.Cookie("refresh_token")
+	if err != nil || refreshToken == "" {
 		c.JSON(400, gin.H{"error": "refresh_token is required"})
 		return
 	}
-	claims, err := auth.ValidateRefreshToken(req.RefreshToken)
+	claims, err := auth.ValidateRefreshToken(refreshToken)
 	if err != nil {
 		c.JSON(401, gin.H{"error": "invalid or expired refresh token"})
 		return
@@ -462,11 +479,12 @@ func (h *Handler) refreshToken(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to generate token"})
 		return
 	}
+	secure := os.Getenv("GIN_MODE") == "release"
+	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*86400, "/", "", secure, true)
 	c.JSON(200, gin.H{
-		"access_token":  tokenPair.AccessToken,
-		"refresh_token": tokenPair.RefreshToken,
-		"expires_in":    tokenPair.ExpiresIn,
-		"token_type":    "Bearer",
+		"access_token": tokenPair.AccessToken,
+		"expires_in":   tokenPair.ExpiresIn,
+		"token_type":   "Bearer",
 	})
 }
 
@@ -509,6 +527,11 @@ func (h *Handler) persistAndCache(snap *model.Snapshot) {
 	h.mu.Lock()
 	h.cachedSnapshot = snap
 	h.mu.Unlock()
+	if snap.NodeID != "" {
+		h.nodeMu.Lock()
+		h.nodeSnapshots[snap.NodeID] = snap
+		h.nodeMu.Unlock()
+	}
 }
 
 func (h *Handler) UpdateCache(snap *model.Snapshot) {
@@ -621,12 +644,21 @@ func (h *Handler) getNodeMetrics(c *gin.Context) {
 		c.AbortWithStatusJSON(403, gin.H{"error": "access denied to this node"})
 		return
 	}
-	h.mu.RLock()
-	cs := h.cachedSnapshot
-	h.mu.RUnlock()
-	if cs != nil {
+	h.nodeMu.RLock()
+	cs, exists := h.nodeSnapshots[nodeID]
+	h.nodeMu.RUnlock()
+	if exists && cs != nil {
 		c.JSON(200, cs)
 		return
+	}
+	if nodeID == "self" {
+		h.mu.RLock()
+		cs := h.cachedSnapshot
+		h.mu.RUnlock()
+		if cs != nil {
+			c.JSON(200, cs)
+			return
+		}
 	}
 	snap, err := h.collector.Collect()
 	if err != nil {
@@ -1033,6 +1065,18 @@ func (h *Handler) createNodeCronJob(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	if name, ok := job["name"].(string); !ok || strings.TrimSpace(name) == "" {
+		c.JSON(400, gin.H{"error": "name is required"})
+		return
+	}
+	if expr, ok := job["expression"].(string); !ok || strings.TrimSpace(expr) == "" {
+		c.JSON(400, gin.H{"error": "expression is required"})
+		return
+	}
+	if cmd, ok := job["command"].(string); !ok || strings.TrimSpace(cmd) == "" {
+		c.JSON(400, gin.H{"error": "command is required"})
+		return
+	}
 	job["node_id"] = nodeID
 	if _, err := h.store.SaveCronJob(job); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -1089,6 +1133,18 @@ func (h *Handler) createCronJob(c *gin.Context) {
 	var job map[string]interface{}
 	if err := c.ShouldBindJSON(&job); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if name, ok := job["name"].(string); !ok || strings.TrimSpace(name) == "" {
+		c.JSON(400, gin.H{"error": "name is required"})
+		return
+	}
+	if expr, ok := job["expression"].(string); !ok || strings.TrimSpace(expr) == "" {
+		c.JSON(400, gin.H{"error": "expression is required"})
+		return
+	}
+	if cmd, ok := job["command"].(string); !ok || strings.TrimSpace(cmd) == "" {
+		c.JSON(400, gin.H{"error": "command is required"})
 		return
 	}
 	if _, err := h.store.SaveCronJob(job); err != nil {
@@ -1196,7 +1252,7 @@ func (h *Handler) testDatabaseConnection(c *gin.Context) {
 		Password: req.Password,
 		Name:     req.Dbname,
 	}
-	log.Printf("[db] test connection %s@%s:%d/%s", dbConn.Type, dbConn.Host, dbConn.Port, dbConn.Name)
+	log.Printf("[db] test connection type=%s host=%s:%d dbname=%s", dbConn.Type, dbConn.Host, dbConn.Port, dbConn.Name)
 	db, err := dbmgr.Connect(dbConn)
 	if err != nil {
 		log.Printf("[db] test connection failed: %v", auth.SanitizeLog(err.Error()))
@@ -1286,7 +1342,11 @@ func (h *Handler) executeDatabaseQuery(c *gin.Context) {
 		return
 	}
 	defer closeFn()
-	rows, err := dbmgr.ExecuteQuery(db, req.SQL)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	rows, err := dbmgr.ExecuteQueryWithContext(ctx, db, req.SQL)
 	if err != nil {
 		log.Printf("[db] ExecuteQuery error: %v", auth.SanitizeLog(err.Error()))
 		c.JSON(500, gin.H{"error": "SQL执行失败"})
@@ -1337,9 +1397,18 @@ func (h *Handler) getDBConnection(id int) (*sql.DB, string, func(), error) {
 // ── File Manager ──────────────────────────────────────────────
 
 func isPathSafe(p string) bool {
+	if strings.ContainsRune(p, 0) {
+		return false
+	}
 	cleaned := filepath.Clean(p)
 	if strings.Contains(cleaned, "..") {
 		return false
+	}
+	if !filepath.IsAbs(cleaned) {
+		absPath, err := filepath.Abs(cleaned)
+		if err != nil || strings.Contains(absPath, "..") {
+			return false
+		}
 	}
 	return true
 }
@@ -1527,6 +1596,17 @@ func (h *Handler) uploadFile(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "no files uploaded"})
 		return
 	}
+	if len(files) > 10 {
+		c.JSON(400, gin.H{"error": "too many files (max 10)"})
+		return
+	}
+	const maxFileSize = 50 * 1024 * 1024
+	for _, f := range files {
+		if f.Size > maxFileSize {
+			c.JSON(400, gin.H{"error": fmt.Sprintf("file %s exceeds 50MB limit", f.Filename)})
+			return
+		}
+	}
 	allowedDirs := []string{path, filemgr.GetDefaultRoot(), filemgr.GetHomeDir()}
 	if runtime.GOOS == "windows" {
 		allowedDirs = append(allowedDirs, filemgr.GetDriveLetters()...)
@@ -1536,16 +1616,23 @@ func (h *Handler) uploadFile(c *gin.Context) {
 	filemgr.InitAllowedDirs(allowedDirs)
 
 	for _, f := range files {
+		safeFilename := filemgr.SanitizeFileName(f.Filename)
+		if safeFilename == "" {
+			continue
+		}
 		src, err := f.Open()
 		if err != nil {
 			continue
 		}
-		data, err := io.ReadAll(src)
+		data, err := io.ReadAll(io.LimitReader(src, maxFileSize+1))
 		src.Close()
 		if err != nil {
 			continue
 		}
-		destPath := filepath.Join(path, f.Filename)
+		if len(data) > maxFileSize {
+			continue
+		}
+		destPath := filepath.Join(path, safeFilename)
 		filemgr.Upload(destPath, data)
 	}
 	c.JSON(200, gin.H{"status": "ok", "count": len(files)})
@@ -1629,6 +1716,10 @@ func (h *Handler) createAlertRule(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	if err := validateAlertRule(rule); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	if err := h.store.SaveAlertRule(rule); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -1647,12 +1738,40 @@ func (h *Handler) updateAlertRule(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+	if err := validateAlertRule(rule); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	rule["id"] = float64(id)
 	if err := h.store.SaveAlertRule(rule); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func validateAlertRule(rule map[string]interface{}) error {
+	validMetrics := map[string]bool{"cpu": true, "mem": true, "disk": true, "load": true}
+	validOps := map[string]bool{">": true, ">=": true, "<": true, "<=": true}
+	validLevels := map[string]bool{"info": true, "warning": true, "critical": true}
+
+	metric, _ := rule["metric"].(string)
+	if !validMetrics[metric] {
+		return fmt.Errorf("metric must be one of: cpu, mem, disk, load")
+	}
+	op, _ := rule["op"].(string)
+	if !validOps[op] {
+		return fmt.Errorf("op must be one of: >, >=, <, <=")
+	}
+	threshold, _ := rule["threshold"].(float64)
+	if threshold <= 0 {
+		return fmt.Errorf("threshold must be a positive number")
+	}
+	level, _ := rule["level"].(string)
+	if level != "" && !validLevels[level] {
+		return fmt.Errorf("level must be one of: info, warning, critical")
+	}
+	return nil
 }
 
 func (h *Handler) deleteAlertRule(c *gin.Context) {
@@ -1944,13 +2063,18 @@ func (h *Handler) restoreBackup(c *gin.Context) {
 	}
 
 	bm := ha.NewBackupManager("")
+	bm.OnRestore(func() {
+		if err := h.store.Reopen(); err != nil {
+			log.Printf("[ha] failed to reopen database after restore: %v", err)
+		}
+	})
 	if err := bm.RestoreBackup(req.Name, dbPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	h.auditLog(c, "restore_backup", req.Name, "success")
-	c.JSON(http.StatusOK, gin.H{"message": "backup restored, restart required"})
+	c.JSON(http.StatusOK, gin.H{"message": "backup restored successfully"})
 }
 
 func (h *Handler) deleteBackup(c *gin.Context) {

@@ -1,6 +1,7 @@
 package dbmgr
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -149,7 +150,11 @@ func ListTables(db *sql.DB, dbType string) ([]string, error) {
 const maxQueryRows = 1000
 
 func ExecuteQuery(db *sql.DB, query string) ([]map[string]interface{}, error) {
-	rows, err := db.Query(query)
+	return ExecuteQueryWithContext(context.Background(), db, query)
+}
+
+func ExecuteQueryWithContext(ctx context.Context, db *sql.DB, query string) ([]map[string]interface{}, error) {
+	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,8 @@
         <metric-card label="内存" :value="(snap.mem_pct || 0) + '%'" :sub="`${memUsed} / ${memTotal} GB`" color="#bc8cff" />
         <metric-card label="磁盘" :value="(snap.disk_pct || 0) + '%'" :sub="`${diskUsed} / ${diskTotal} GB`" color="#d29922" />
         <metric-card label="网络" :value="netRate" :sub="`↓ ${netIn}  ↑ ${netOut}`" color="#58a6ff" />
-        <metric-card label="负载" :value="snap.load_1 || '--'" :sub="`1m / ${snap.load_5 || '--'} / ${snap.load_15 || '--'}`" color="#f85149" />
+        <metric-card v-if="!isWindowsNode" label="负载" :value="snap.load_1 || '--'" :sub="`1m / ${snap.load_5 || '--'} / ${snap.load_15 || '--'}`" color="#f85149" />
+        <metric-card v-else label="负载" value="--" sub="Windows 不支持此指标" color="#6e7681" />
         <metric-card label="进程数" :value="snap.procs || '--'" sub="运行中" color="#f0883e" />
       </div>
 
@@ -76,6 +77,10 @@ let chart2: echarts.ECharts
 let timer: ReturnType<typeof setInterval>
 
 const nodeName = computed(() => info.value?.name || info.value?.hostname || '主机详情')
+const isWindowsNode = computed(() => {
+  const os = info.value?.os || ''
+  return os.toLowerCase().includes('windows')
+})
 const statusText = computed(() => snap.value?.status === 'online' ? '在线' : '离线')
 const statusType = computed(() => snap.value?.status === 'online' ? 'success' : 'error')
 const memUsed = computed(() => ((snap.value?.mem_used || 0) / 1024).toFixed(1))

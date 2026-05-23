@@ -165,17 +165,16 @@ func (c *Collector) collectMemory(_ context.Context) model.MemoryMetrics {
 
 func (c *Collector) collectDisk(_ context.Context) model.DiskMetrics {
 	m := model.DiskMetrics{}
-	if runtime.GOOS == "windows" {
-		if u, err := disk.Usage("C:"); err == nil && u.Total > 0 {
-			m.TotalGB = gb(u.Total)
-			m.UsedGB = gb(u.Used)
-			m.FreeGB = gb(u.Free)
-			m.UsagePercent = round(u.UsedPercent)
-		}
-		return m
-	}
 	partitions, err := disk.Partitions(false)
 	if err != nil || len(partitions) == 0 {
+		if runtime.GOOS == "windows" {
+			if u, err := disk.Usage("C:"); err == nil && u.Total > 0 {
+				m.TotalGB = gb(u.Total)
+				m.UsedGB = gb(u.Used)
+				m.FreeGB = gb(u.Free)
+				m.UsagePercent = round(u.UsedPercent)
+			}
+		}
 		return m
 	}
 	var best disk.UsageStat
@@ -234,6 +233,9 @@ func (c *Collector) collectNetwork(_ context.Context) model.NetworkMetrics {
 
 func (c *Collector) collectLoad(_ context.Context) model.LoadMetrics {
 	m := model.LoadMetrics{}
+	if runtime.GOOS == "windows" {
+		return m
+	}
 	if l, err := load.Avg(); err == nil {
 		m.Load1 = round(l.Load1)
 		m.Load5 = round(l.Load5)

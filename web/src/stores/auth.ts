@@ -55,6 +55,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function refreshToken() {
+    try {
+      const { data } = await authClient.post('/auth/refresh')
+      if (data.access_token) {
+        token.value = data.access_token
+        localStorage.setItem('token', data.access_token)
+        client.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`
+        return true
+      }
+    } catch {
+      logout()
+    }
+    return false
+  }
+
   function logout() {
     token.value = ''
     username.value = ''
@@ -68,5 +83,5 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn.value = false
   }
 
-  return { token, username, role, mustChangePwd, isLoggedIn, login, fetchMe, logout }
+  return { token, username, role, mustChangePwd, isLoggedIn, login, fetchMe, refreshToken, logout }
 })

@@ -25,7 +25,7 @@ function getCsrfToken(): string | null {
   return match ? match[2] : null
 }
 
-const client = axios.create({ baseURL: '/api/v1' })
+const client = axios.create({ baseURL: '/api/v1', withCredentials: true })
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
@@ -41,14 +41,51 @@ client.interceptors.request.use((config) => {
   return config
 })
 
+let isRefreshing = false
+let refreshSubscribers: Array<(token: string) => void> = []
+
+function onTokenRefreshed(token: string) {
+  refreshSubscribers.forEach((cb) => cb(token))
+  refreshSubscribers = []
+}
+
+function addRefreshSubscriber(cb: (token: string) => void) {
+  refreshSubscribers.push(cb)
+}
+
 client.interceptors.response.use(
   (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem('token')
-      const path = window.location.pathname
-      if (!path.includes('/login') && !path.includes('/force-change-password')) {
-        window.location.href = '/login'
+  async (err) => {
+    const originalRequest = err.config
+    if (err.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      if (isRefreshing) {
+        return new Promise((resolve) => {
+          addRefreshSubscriber((newToken: string) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`
+            resolve(client(originalRequest))
+          })
+        })
+      }
+      isRefreshing = true
+      try {
+        const { data } = await authClient.post('/auth/refresh')
+        const newToken = data.access_token
+        if (newToken) {
+          localStorage.setItem('token', newToken)
+          client.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+          onTokenRefreshed(newToken)
+          originalRequest.headers.Authorization = `Bearer ${newToken}`
+          return client(originalRequest)
+        }
+      } catch {
+        localStorage.removeItem('token')
+        const path = window.location.pathname
+        if (!path.includes('/login') && !path.includes('/force-change-password')) {
+          window.location.href = '/login'
+        }
+      } finally {
+        isRefreshing = false
       }
     }
     if (err.response?.status === 403 && err.response?.data?.error?.includes('CSRF')) {
@@ -60,7 +97,7 @@ client.interceptors.response.use(
 
 export default client
 
-export const authClient = axios.create({ baseURL: '/api' })
+export const authClient = axios.create({ baseURL: '/api', withCredentials: true })
 
 authClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')

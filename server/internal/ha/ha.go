@@ -67,8 +67,9 @@ func GetSystemInfo() SystemInfo {
 }
 
 type BackupManager struct {
-	backupDir string
-	mu        sync.Mutex
+	backupDir   string
+	mu          sync.Mutex
+	onRestoreCb func()
 }
 
 func NewBackupManager(backupDir string) *BackupManager {
@@ -76,6 +77,10 @@ func NewBackupManager(backupDir string) *BackupManager {
 		backupDir = filepath.Join(".", "backups")
 	}
 	return &BackupManager{backupDir: backupDir}
+}
+
+func (bm *BackupManager) OnRestore(cb func()) {
+	bm.onRestoreCb = cb
 }
 
 type BackupInfo struct {
@@ -94,46 +99,36 @@ func (bm *BackupManager) CreateBackup(dbPath string) (*BackupInfo, error) {
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
-	backupName := fmt.Sprintf("backup_%s.json", timestamp)
+	backupName := fmt.Sprintf("backup_%s.db", timestamp)
 	backupPath := filepath.Join(bm.backupDir, backupName)
 
-	backupData := map[string]interface{}{
-		"version":   "1.0",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"source":    dbPath,
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil, fmt.Errorf("source db not found: %w", err)
 	}
 
-	if _, err := os.Stat(dbPath); err == nil {
-		src, err := os.Open(dbPath)
-		if err != nil {
-			return nil, fmt.Errorf("open source db: %w", err)
-		}
-		defer src.Close()
-
-		content, err := io.ReadAll(src)
-		if err != nil {
-			return nil, fmt.Errorf("read source db: %w", err)
-		}
-
-		backupData["db_size"] = len(content)
-		backupData["db_content_b64"] = encodeContent(content)
-	}
-
-	jsonData, err := json.MarshalIndent(backupData, "", "  ")
+	src, err := os.Open(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("marshal backup: %w", err)
+		return nil, fmt.Errorf("open source db: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(backupPath)
+	if err != nil {
+		return nil, fmt.Errorf("create backup file: %w", err)
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, src)
+	if err != nil {
+		os.Remove(backupPath)
+		return nil, fmt.Errorf("copy db: %w", err)
 	}
 
-	if err := os.WriteFile(backupPath, jsonData, 0644); err != nil {
-		return nil, fmt.Errorf("write backup: %w", err)
-	}
-
-	fi, _ := os.Stat(backupPath)
-	log.Printf("[ha] backup created: %s (%d bytes)", backupName, fi.Size())
+	log.Printf("[ha] backup created: %s (%d bytes)", backupName, written)
 
 	return &BackupInfo{
 		Name:      backupName,
-		Size:      fi.Size(),
+		Size:      written,
 		CreatedAt: time.Now().Format(time.RFC3339),
 		Type:      "full",
 	}, nil
@@ -177,24 +172,8 @@ func (bm *BackupManager) RestoreBackup(name string, targetPath string) error {
 	defer bm.mu.Unlock()
 
 	backupPath := filepath.Join(bm.backupDir, name)
-	jsonData, err := os.ReadFile(backupPath)
-	if err != nil {
-		return fmt.Errorf("read backup: %w", err)
-	}
-
-	var backupData map[string]interface{}
-	if err := json.Unmarshal(jsonData, &backupData); err != nil {
-		return fmt.Errorf("parse backup: %w", err)
-	}
-
-	contentB64, ok := backupData["db_content_b64"].(string)
-	if !ok {
-		return fmt.Errorf("invalid backup format: missing db content")
-	}
-
-	content, err := decodeContent(contentB64)
-	if err != nil {
-		return fmt.Errorf("decode backup content: %w", err)
+	if _, err := os.Stat(backupPath); err != nil {
+		return fmt.Errorf("backup file not found: %w", err)
 	}
 
 	if targetPath == "" {
@@ -209,11 +188,46 @@ func (bm *BackupManager) RestoreBackup(name string, targetPath string) error {
 		log.Printf("[ha] existing db renamed to: %s", renamePath)
 	}
 
-	if err := os.WriteFile(targetPath, content, 0644); err != nil {
-		return fmt.Errorf("write restored db: %w", err)
+	if strings.HasSuffix(name, ".json") {
+		jsonData, err := os.ReadFile(backupPath)
+		if err != nil {
+			return fmt.Errorf("read backup: %w", err)
+		}
+		var backupData map[string]interface{}
+		if err := json.Unmarshal(jsonData, &backupData); err != nil {
+			return fmt.Errorf("parse backup: %w", err)
+		}
+		contentB64, ok := backupData["db_content_b64"].(string)
+		if !ok {
+			return fmt.Errorf("invalid backup format: missing db content")
+		}
+		content, err := decodeContent(contentB64)
+		if err != nil {
+			return fmt.Errorf("decode backup content: %w", err)
+		}
+		if err := os.WriteFile(targetPath, content, 0644); err != nil {
+			return fmt.Errorf("write restored db: %w", err)
+		}
+	} else {
+		src, err := os.Open(backupPath)
+		if err != nil {
+			return fmt.Errorf("open backup: %w", err)
+		}
+		defer src.Close()
+		dst, err := os.Create(targetPath)
+		if err != nil {
+			return fmt.Errorf("create target: %w", err)
+		}
+		defer dst.Close()
+		if _, err := io.Copy(dst, src); err != nil {
+			return fmt.Errorf("copy backup: %w", err)
+		}
 	}
 
 	log.Printf("[ha] backup restored: %s -> %s", name, targetPath)
+	if bm.onRestoreCb != nil {
+		bm.onRestoreCb()
+	}
 	return nil
 }
 
@@ -235,10 +249,34 @@ func (bm *BackupManager) DeleteBackup(name string) error {
 }
 
 func (bm *BackupManager) CleanupOldBackups(maxBackups int) {
-	backups := bm.ListBackups()
-	if len(backups) <= maxBackups {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+
+	entries, err := os.ReadDir(bm.backupDir)
+	if err != nil {
 		return
 	}
+
+	var backups []BackupInfo
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "backup_") {
+			continue
+		}
+		fi, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		backups = append(backups, BackupInfo{
+			Name:      entry.Name(),
+			Size:      fi.Size(),
+			CreatedAt: fi.ModTime().Format(time.RFC3339),
+			Type:      "full",
+		})
+	}
+
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].CreatedAt > backups[j].CreatedAt
+	})
 
 	for i := maxBackups; i < len(backups); i++ {
 		backupPath := filepath.Join(bm.backupDir, backups[i].Name)

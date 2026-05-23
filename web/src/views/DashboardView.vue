@@ -15,8 +15,8 @@
         <metric-card label="主机数" :value="String(nodesStore.nodes.length)" :sub="onlineSummary" color="#58a6ff" />
         <metric-card label="CPU 使用率" :value="cpuLabel" :sub="coresLabel" color="#3fb950" />
         <metric-card label="内存使用率" :value="memLabel" :sub="memSubLabel" color="#bc8cff" />
-        <metric-card label="磁盘使用率" :value="diskLabel" :sub="diskSubLabel" color="#d29922" />
-        <metric-card label="网络收发" :value="netLabel" :sub="netSubLabel" color="#f0883e" />
+        <metric-card label="磁盘使用率" :value="diskLabel" :sub="diskSubLabel" color="#f0883e" />
+        <metric-card label="网络收发" :value="netLabel" :sub="netSubLabel" color="#d29922" />
         <metric-card v-if="!isWindows" label="负载(1m)" :value="loadLabel" :sub="loadSubLabel" color="#f85149" />
         <metric-card v-else label="负载(1m)" value="--" sub="Windows 不支持此指标" color="#6e7681" />
       </div>
@@ -44,9 +44,9 @@
 
         <div class="monitor-panel">
           <div class="panel-header">
-            <span class="panel-dot" style="background:#d29922"></span>
+            <span class="panel-dot" style="background:#f0883e"></span>
             <span class="panel-title">磁盘状态</span>
-            <span class="panel-value" style="color:#d29922">{{ diskLabel }}</span>
+            <span class="panel-value" style="color:#f0883e">{{ diskLabel }}</span>
           </div>
           <div class="panel-sub">{{ diskSubLabel }}</div>
           <div ref="diskChartRef" class="panel-chart" />
@@ -54,9 +54,9 @@
 
         <div class="monitor-panel">
           <div class="panel-header">
-            <span class="panel-dot" style="background:#f0883e"></span>
+            <span class="panel-dot" style="background:#d29922"></span>
             <span class="panel-title">网络流量</span>
-            <span class="panel-value" style="color:#f0883e">{{ netLabel }}</span>
+            <span class="panel-value" style="color:#d29922">{{ netLabel }}</span>
           </div>
           <div class="panel-sub">{{ netSubLabel }}</div>
           <div ref="netChartRef" class="panel-chart" />
@@ -342,9 +342,9 @@ function initCharts(): Promise<void> {
           },
         ]
         opt.series = [
-          makeLineSeries('磁盘使用', '#d29922', 0.15, 0),
+          makeLineSeries('磁盘使用', '#f0883e', 0.15, 0),
           makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
-          makeLineSeries('写入速率', '#f0883e', 0.08, 1),
+          makeLineSeries('写入速率', '#d29922', 0.08, 1),
         ]
         opt.series[0].markLine = {
           silent: true,
@@ -369,7 +369,7 @@ function initCharts(): Promise<void> {
         }
         opt.series = [
           makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
-          makeLineSeries('\u2191 出流量', '#f0883e', 0.12),
+          makeLineSeries('\u2191 出流量', '#d29922', 0.12),
         ]
         netChart.setOption(opt)
       }

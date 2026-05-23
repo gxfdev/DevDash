@@ -753,27 +753,33 @@ async function refreshAll() {
 async function fetchOverview() {
   try {
     const response = await apiClient.get('/monitor/overview')
-    overview.value = response.data.data
-  } catch (error) {
-    console.error('Failed to fetch overview:', error)
+    overview.value = response.data.data || {}
+  } catch (error: any) {
+    console.warn('Monitor overview unavailable:', error?.response?.status || error?.message)
+    overview.value = {}
   }
 }
 
 async function fetchDockerMetrics() {
   try {
     const response = await apiClient.get('/monitor/docker/containers/realtime')
-    containers.value = Object.values(response.data.data) as ContainerMetrics[]
-  } catch (error) {
-    console.error('Failed to fetch Docker metrics:', error)
+    const data = response.data.data
+    containers.value = data ? Object.values(data) as ContainerMetrics[] : []
+  } catch (error: any) {
+    if (error?.response?.status !== 503) {
+      console.warn('Docker metrics unavailable:', error?.response?.status || error?.message)
+    }
+    containers.value = []
   }
 }
 
 async function fetchK8sClusters() {
   try {
     const response = await apiClient.get('/monitor/kubernetes/clusters')
-    k8sClusters.value = response.data.data
-  } catch (error) {
-    console.error('Failed to fetch K8s clusters:', error)
+    k8sClusters.value = response.data.data || []
+  } catch (error: any) {
+    console.warn('K8s clusters unavailable:', error?.response?.status || error?.message)
+    k8sClusters.value = []
   }
 }
 
@@ -973,9 +979,10 @@ async function loadHistory() {
 async function fetchHostOverview() {
   try {
     const response = await apiClient.get('/hosts/overview')
-    hostOverview.value = response.data.data
-  } catch (error) {
-    console.error('Failed to fetch host overview:', error)
+    hostOverview.value = response.data.data || null
+  } catch (error: any) {
+    console.warn('Host overview unavailable:', error?.response?.status || error?.message)
+    hostOverview.value = null
   }
 }
 

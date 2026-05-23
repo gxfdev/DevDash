@@ -22,7 +22,7 @@ func NewAgentHandler(agentMgr *agent.AgentManager) *AgentHandler {
 }
 
 func (h *AgentHandler) RegisterRoutes(r *gin.Engine) {
-	agentGroup := r.Group("/api/hosts", auth.Middleware())
+	agentGroup := r.Group("/api/v1/hosts", auth.Middleware())
 	{
 		agentGroup.GET("", h.ListHosts)
 		agentGroup.GET("/overview", h.GetOverview)

@@ -14,11 +14,11 @@
       <div class="summary-row">
         <metric-card label="CPU" :value="(snap.cpu || 0) + '%'" :sub="`核心数 ${info.cpu_cores || '--'}`" color="#3fb950" />
         <metric-card label="内存" :value="(snap.mem_pct || 0) + '%'" :sub="`${memUsed} / ${memTotal} GB`" color="#bc8cff" />
-        <metric-card label="磁盘" :value="(snap.disk_pct || 0) + '%'" :sub="`${diskUsed} / ${diskTotal} GB`" color="#d29922" />
+        <metric-card label="磁盘" :value="(snap.disk_pct || 0) + '%'" :sub="`${diskUsed} / ${diskTotal} GB`" color="#f0883e" />
         <metric-card label="网络" :value="netRate" :sub="`↓ ${netIn}  ↑ ${netOut}`" color="#58a6ff" />
         <metric-card v-if="!isWindowsNode" label="负载" :value="snap.load_1 || '--'" :sub="`1m / ${snap.load_5 || '--'} / ${snap.load_15 || '--'}`" color="#f85149" />
         <metric-card v-else label="负载" value="--" sub="Windows 不支持此指标" color="#6e7681" />
-        <metric-card label="进程数" :value="snap.procs || '--'" sub="运行中" color="#f0883e" />
+        <metric-card label="进程数" :value="snap.procs || '--'" sub="运行中" color="#d29922" />
       </div>
 
       <!-- 图表区 -->
@@ -132,7 +132,7 @@ function initCharts() {
       yAxis: { axisLabel: { color: '#6e7681', formatter: (v: number) => (v / 1024 / 1024).toFixed(1) + 'MB/s' }, splitLine: { lineStyle: { color: '#21262d' } } },
       series: [
         { name: '入', type: 'line', smooth: true, data: [], lineStyle: { color: '#58a6ff' }, itemStyle: { color: '#58a6ff' } },
-        { name: '出', type: 'line', smooth: true, data: [], lineStyle: { color: '#f0883e' }, itemStyle: { color: '#f0883e' } },
+        { name: '出', type: 'line', smooth: true, data: [], lineStyle: { color: '#d29922' }, itemStyle: { color: '#d29922' } },
       ],
       backgroundColor: 'transparent',
     })

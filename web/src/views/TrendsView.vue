@@ -52,7 +52,7 @@
             </div>
             <div class="stat-box">
               <div class="stat-label">磁盘均值</div>
-              <div class="stat-val" :style="{color: avgDisk > 90 ? '#f85149' : '#d29922'}">{{ avgDisk }}%</div>
+              <div class="stat-val" :style="{color: avgDisk > 90 ? '#f85149' : '#f0883e'}">{{ avgDisk }}%</div>
               <div class="stat-sub">峰值 {{ maxDisk }}% · 低谷 {{ minDisk }}%</div>
             </div>
             <div class="stat-box">
@@ -468,9 +468,9 @@ async function buildCharts() {
         { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
       ]
       opt.series = [
-        makeLineSeries('磁盘使用率', '#d29922', 0.15, 0),
+        makeLineSeries('磁盘使用率', '#f0883e', 0.15, 0),
         makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
-        makeLineSeries('写入速率', '#f0883e', 0.08, 1),
+        makeLineSeries('写入速率', '#d29922', 0.08, 1),
       ]
       diskChart.setOption(opt)
     }
@@ -482,7 +482,7 @@ async function buildCharts() {
       opt.yAxis = { type: 'value', min: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
       opt.series = [
         makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
-        makeLineSeries('\u2191 出流量', '#f0883e', 0.12),
+        makeLineSeries('\u2191 出流量', '#d29922', 0.12),
       ]
       netChart.setOption(opt)
     }
@@ -513,12 +513,12 @@ async function buildCharts() {
       ]
       opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
       opt.series = [
-        makeLineSeries('当前磁盘', '#d29922', 0.1, 0),
+        makeLineSeries('当前磁盘', '#f0883e', 0.1, 0),
         makeLineSeries('当前↓入', '#58a6ff', 0.08, 1),
-        makeLineSeries('当前↑出', '#f0883e', 0.08, 1),
-        makeLineSeries('前期磁盘', '#d2992280', 0, 0, 'dashed'),
+        makeLineSeries('当前↑出', '#d29922', 0.08, 1),
+        makeLineSeries('前期磁盘', '#f0883e80', 0, 0, 'dashed'),
         makeLineSeries('前期↓入', '#58a6ff80', 0, 1, 'dashed'),
-        makeLineSeries('前期↑出', '#f0883e80', 0, 1, 'dashed'),
+        makeLineSeries('前期↑出', '#d2992280', 0, 1, 'dashed'),
       ]
       compareDiskNetChart.setOption(opt)
     }

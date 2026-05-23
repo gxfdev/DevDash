@@ -22,6 +22,7 @@ type ContainerMonitor struct {
 	stopChan        chan struct{}
 	subscribers     map[chan *model.ContainerMetrics]bool
 	subMutex        sync.RWMutex
+	consecFailures  int
 }
 
 func NewContainerMonitor(dm *DockerManager) *ContainerMonitor {
@@ -63,9 +64,13 @@ func (cm *ContainerMonitor) collectAllMetrics() {
 	ctx := context.Background()
 	containers, err := cm.dm.ListContainers(false)
 	if err != nil {
-		logger.ErrorLogger(err, "Failed to list containers for metrics collection")
+		cm.consecFailures++
+		if cm.consecFailures <= 1 || cm.consecFailures%12 == 0 {
+			logger.ErrorLogger(err, "Failed to list containers for metrics collection")
+		}
 		return
 	}
+	cm.consecFailures = 0
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 10)

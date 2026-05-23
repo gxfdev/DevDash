@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -149,4 +151,41 @@ func generateRequestID() string {
 	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+func SecureHeadersMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "SAMEORIGIN")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Header("X-Request-ID", generateRequestID())
+		c.Next()
+	}
+}
+
+var auditLog *log.Logger
+
+func InitAuditLog(w io.Writer) {
+	auditLog = log.New(w, "[AUDIT] ", log.LstdFlags|log.LUTC)
+}
+
+func AuditLogMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "GET" || c.Request.Method == "HEAD" || c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
+		start := time.Now()
+		c.Next()
+		latency := time.Since(start)
+
+		if auditLog != nil {
+			userID, _ := c.Get("user_id")
+			auditLog.Printf("method=%s path=%s status=%d latency=%v ip=%s user=%v",
+				c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency, c.ClientIP(), userID)
+		}
+	}
 }

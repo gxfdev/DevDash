@@ -26,6 +26,10 @@ func NewDockerHandler() (*DockerHandler, error) {
 	}, nil
 }
 
+func (h *DockerHandler) DockerManager() *docker.DockerManager {
+	return h.dm
+}
+
 func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	docker := r.Group("/docker")
 	{

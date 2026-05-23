@@ -1,12 +1,20 @@
 <template>
   <app-layout>
     <div class="page">
-      <h2>全局设置</h2>
+      <h2>{{ activeTab === 'profile' ? '个人设置' : '系统设置' }}</h2>
 
-      <n-tabs type="line" animated>
-        <!-- 个人设置 -->
+      <n-tabs v-model:value="activeTab" type="line" animated @update:value="onTabSwitch">
         <n-tab-pane name="profile" tab="👤 个人设置">
           <div class="section-card">
+            <div class="section-title">修改用户名</div>
+            <n-form :model="usernameForm" label-placement="top" style="max-width:400px">
+              <n-form-item label="当前用户名"><n-input :value="authStore.username" disabled /></n-form-item>
+              <n-form-item label="新用户名"><n-input v-model:value="usernameForm.newUsername" placeholder="输入新用户名（2-32位）" /></n-form-item>
+              <n-button type="primary" :loading="usernameLoading" @click="changeUsername">保存</n-button>
+            </n-form>
+          </div>
+
+          <div class="section-card" style="margin-top:16px">
             <div class="section-title">修改密码</div>
             <n-form :model="pwdForm" label-placement="top" style="max-width:400px">
               <n-form-item label="当前密码"><n-input v-model:value="pwdForm.old" type="password" show-password-on="mousedown" /></n-form-item>
@@ -15,66 +23,80 @@
               <n-button type="primary" :loading="pwdLoading" @click="changePwd">保存</n-button>
             </n-form>
           </div>
+
+          <div class="section-card" style="margin-top:16px">
+            <div class="section-title">个人偏好</div>
+            <n-space vertical style="max-width:500px">
+              <div class="threshold-row">
+                <span>主题色</span>
+                <div class="color-swatches">
+                  <div v-for="c in colors" :key="c.value" class="swatch" :style="{ background: c.value }" :class="{ active: themeColor === c.value }" @click="setColor(c.value)" />
+                </div>
+              </div>
+              <div class="threshold-row">
+                <span>显示密度</span>
+                <n-radio-group v-model:value="density" size="small">
+                  <n-radio value="compact">紧凑</n-radio>
+                  <n-radio value="default">默认</n-radio>
+                  <n-radio value="comfortable">宽松</n-radio>
+                </n-radio-group>
+              </div>
+            </n-space>
+          </div>
         </n-tab-pane>
 
-        <!-- 告警设置 -->
-        <n-tab-pane name="alert" tab="🔔 告警设置">
+        <n-tab-pane name="system" tab="⚙️ 系统设置">
           <div class="section-card">
-            <div class="section-title">通知渠道</div>
-            <n-space vertical>
-              <n-checkbox v-model:checked="alertSettings.browser">浏览器通知</n-checkbox>
-              <n-checkbox v-model:checked="alertSettings.feishu">飞书机器人</n-checkbox>
+            <div class="section-title">采集配置</div>
+            <n-space vertical style="max-width:500px">
+              <div class="threshold-row">
+                <span>采集间隔</span>
+                <n-input-number v-model:value="systemSettings.collectInterval" :min="3" :max="60" size="small" style="width:120px" />
+                <span>秒</span>
+              </div>
+              <div class="threshold-row">
+                <span>数据保留天数</span>
+                <n-input-number v-model:value="systemSettings.retentionDays" :min="1" :max="365" size="small" style="width:120px" />
+                <span>天</span>
+              </div>
             </n-space>
-            <div v-if="alertSettings.feishu" style="margin-top:16px;max-width:500px">
-              <n-form-item label="飞书 Webhook URL">
-                <n-input v-model:value="alertSettings.feishuUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" />
-              </n-form-item>
-              <n-button type="primary" size="small" @click="testFeishu">测试</n-button>
-            </div>
+            <n-button type="primary" style="margin-top:16px" :loading="saving" @click="saveSystemSettings">保存采集配置</n-button>
           </div>
 
           <div class="section-card" style="margin-top:16px">
-            <div class="section-title">告警阈值（默认）</div>
+            <div class="section-title">告警配置</div>
             <n-space vertical style="max-width:500px">
+              <div class="section-subtitle">通知渠道</div>
+              <n-checkbox v-model:checked="alertSettings.browser">浏览器通知</n-checkbox>
+              <n-checkbox v-model:checked="alertSettings.feishu">飞书机器人</n-checkbox>
+              <div v-if="alertSettings.feishu" style="margin-top:8px;max-width:500px">
+                <n-form-item label="飞书 Webhook URL">
+                  <n-input v-model:value="alertSettings.feishuUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" />
+                </n-form-item>
+                <n-button type="primary" size="small" @click="testFeishu">测试</n-button>
+              </div>
+              <div class="section-subtitle" style="margin-top:16px">告警阈值</div>
               <div class="threshold-row">
                 <span>CPU 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.cpuThreshold" :min="0" :max="100" /> %
+                <n-input-number v-model:value="alertSettings.cpuThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
               </div>
               <div class="threshold-row">
                 <span>内存 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.memThreshold" :min="0" :max="100" /> %
+                <n-input-number v-model:value="alertSettings.memThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
               </div>
               <div class="threshold-row">
                 <span>磁盘 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.diskThreshold" :min="0" :max="100" /> %
+                <n-input-number v-model:value="alertSettings.diskThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
               </div>
               <div class="threshold-row">
                 <span>告警冷却时间</span>
-                <n-input-number v-model:value="alertSettings.cooldownMin" :min="1" :max="60" /> 分钟
+                <n-input-number v-model:value="alertSettings.cooldownMin" :min="1" :max="60" size="small" style="width:100px" /> 分钟
               </div>
             </n-space>
             <n-button type="primary" style="margin-top:16px" :loading="saving" @click="saveAlertSettings">保存设置</n-button>
           </div>
         </n-tab-pane>
 
-        <!-- 主题设置 -->
-        <n-tab-pane name="theme" tab="🎨 界面">
-          <div class="section-card">
-            <div class="section-title">主题色</div>
-            <div class="color-swatches">
-              <div v-for="c in colors" :key="c.value" class="swatch" :style="{ background: c.value }" :class="{ active: themeColor === c.value }" @click="setColor(c.value)" />
-            </div>
-          </div>
-
-          <div class="section-card" style="margin-top:16px">
-            <div class="section-title">显示密度</div>
-            <n-radio-group v-model:value="density">
-              <n-space><n-radio value="compact">紧凑</n-radio><n-radio value="default">默认</n-radio><n-radio value="comfortable">宽松</n-radio></n-space>
-            </n-radio-group>
-          </div>
-        </n-tab-pane>
-
-        <!-- 系统信息 -->
         <n-tab-pane name="about" tab="ℹ️ 关于">
           <div class="section-card">
             <div class="section-title">DevDash</div>
@@ -92,18 +114,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import client, { authClient, getErrorMessage } from '@/api/client'
+import { authAPI } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/composables/useTheme'
 
+const route = useRoute()
+const router = useRouter()
 const message = useMessage()
+const authStore = useAuthStore()
+const { themeColor: currentThemeColor, setColor: setThemeColor, densityMode, setDensity } = useTheme()
 
+const activeTab = ref((route.query.tab as string) || 'profile')
+
+watch(() => route.query.tab, (tab) => {
+  if (tab === 'system' || tab === 'profile') {
+    activeTab.value = tab
+  }
+})
+
+const usernameLoading = ref(false)
+const usernameForm = reactive({ newUsername: '' })
 const pwdLoading = ref(false)
 const pwdForm = reactive({ old: '', new: '', confirm: '' })
 const saving = ref(false)
-const themeColor = ref('#58a6ff')
-const density = ref('default')
+const themeColor = ref(currentThemeColor.value)
+const density = ref(densityMode.value)
+
+watch(density, (v) => { setDensity(v) })
+
+const systemSettings = reactive({
+  collectInterval: 5,
+  retentionDays: 30,
+})
 
 const alertSettings = reactive({
   browser: true,
@@ -123,6 +170,29 @@ const colors = [
   { label: '红色', value: '#f85149' },
   { label: '金色', value: '#d29922' },
 ]
+
+function onTabSwitch(tab: string) {
+  router.replace({ name: 'settings', query: { tab } })
+}
+
+async function changeUsername() {
+  const name = usernameForm.newUsername.trim()
+  if (!name || name.length < 2 || name.length > 32) {
+    message.warning('用户名长度需在2-32位之间')
+    return
+  }
+  usernameLoading.value = true
+  try {
+    await authAPI.changeUsername(name)
+    authStore.username = name
+    message.success('用户名已修改')
+    usernameForm.newUsername = ''
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '修改失败，用户名可能已存在'))
+  } finally {
+    usernameLoading.value = false
+  }
+}
 
 async function changePwd() {
   if (!pwdForm.new || pwdForm.new !== pwdForm.confirm) { message.warning('两次密码不一致'); return }
@@ -144,6 +214,15 @@ async function saveAlertSettings() {
   finally { saving.value = false }
 }
 
+async function saveSystemSettings() {
+  saving.value = true
+  try {
+    await client.put('/system-settings', systemSettings)
+    message.success('已保存')
+  } catch { message.error('保存失败') }
+  finally { saving.value = false }
+}
+
 async function testFeishu() {
   if (!alertSettings.feishuUrl) { message.warning('请先填写飞书 Webhook URL'); return }
   try {
@@ -154,13 +233,31 @@ async function testFeishu() {
 
 function setColor(c: string) {
   themeColor.value = c
-  document.documentElement.style.setProperty('--primary-color', c)
-  localStorage.setItem('theme-color', c)
+  setThemeColor(c)
 }
 
-onMounted(() => {
-  const saved = localStorage.getItem('theme-color')
-  if (saved) { themeColor.value = saved; setColor(saved) }
+onMounted(async () => {
+  try {
+    const { data } = await client.get('/alert-settings')
+    if (data) {
+      Object.assign(alertSettings, {
+        browser: data.browser ?? true,
+        feishu: data.feishu ?? false,
+        feishuUrl: data.feishuUrl ?? '',
+        cpuThreshold: data.cpuThreshold ?? 90,
+        memThreshold: data.memThreshold ?? 90,
+        diskThreshold: data.diskThreshold ?? 90,
+        cooldownMin: data.cooldownMin ?? 5,
+      })
+    }
+  } catch {}
+  try {
+    const { data } = await client.get('/system-settings')
+    if (data) {
+      systemSettings.collectInterval = data.collect_interval ?? 5
+      systemSettings.retentionDays = data.retention_days ?? 30
+    }
+  } catch {}
 })
 </script>
 
@@ -169,9 +266,11 @@ onMounted(() => {
 h2 { font-size: 20px; font-weight: 600; margin: 0 0 20px; }
 .section-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
 .section-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: #e6edf3; }
-.threshold-row { display: flex; align-items: center; justify-content: space-between; max-width: 300px; }
-.color-swatches { display: flex; gap: 12px; }
-.swatch { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; }
+.section-subtitle { font-size: 13px; font-weight: 500; margin-bottom: 8px; color: #8b949e; }
+.threshold-row { display: flex; align-items: center; gap: 12px; max-width: 400px; }
+.threshold-row > span:first-child { min-width: 100px; color: #8b949e; font-size: 13px; }
+.color-swatches { display: flex; gap: 8px; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s; }
 .swatch:hover, .swatch.active { border-color: #fff; }
 .about-info p { margin: 0 0 6px; font-size: 13px; color: #8b949e; }
 .about-info strong { color: #e6edf3; }

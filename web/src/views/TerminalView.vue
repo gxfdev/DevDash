@@ -4,7 +4,8 @@
       <div class="page-header">
         <h2>Web 终端</h2>
         <n-space>
-          <n-select v-model:value="selectedNode" :options="nodeOptions" style="width:180px" />
+          <n-select v-model:value="selectedNode" :options="nodeOptions" style="width:180px" placeholder="选择节点" />
+          <n-select v-model:value="selectedShell" :options="shellOptions" style="width:180px" placeholder="选择 Shell" />
           <n-button size="small" @click="reconnect">重连</n-button>
           <n-button size="small" type="error" @click="disconnect">断开</n-button>
         </n-space>
@@ -24,10 +25,12 @@ import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
+import client from '@/api/client'
 
 const nodesStore = useNodesStore()
 
 const selectedNode = ref<string | null>(null)
+const selectedShell = ref('')
 const termRef = ref<HTMLDivElement>()
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
@@ -36,7 +39,28 @@ let dataDisposable: { dispose(): void } | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let isConnecting = false
 
+interface ShellOption {
+  name: string
+  path: string
+}
+
+const shellList = ref<ShellOption[]>([])
+
 const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
+
+const shellOptions = computed(() => {
+  const opts = shellList.value.map(s => ({ label: `${s.name} (${s.path})`, value: s.path }))
+  return [{ label: '默认 Shell', value: '' }, ...opts]
+})
+
+async function fetchShells() {
+  try {
+    const { data } = await client.get<ShellOption[]>('/terminal/shells')
+    shellList.value = Array.isArray(data) ? data : []
+  } catch {
+    shellList.value = []
+  }
+}
 
 function createTerminal() {
   disposeTerminal()
@@ -85,6 +109,17 @@ function disposeTerminal() {
   }
 }
 
+function buildWSUrl(): string {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const token = localStorage.getItem('token') || ''
+  const nodeId = encodeURIComponent(selectedNode.value || 'self')
+  let url = `${proto}//${location.host}/ws/terminal/${nodeId}?token=${encodeURIComponent(token)}`
+  if (selectedShell.value) {
+    url += `&shell=${encodeURIComponent(selectedShell.value)}`
+  }
+  return url
+}
+
 function connectWS() {
   disconnectWS()
   isConnecting = true
@@ -97,10 +132,8 @@ function connectWS() {
     }
   }
 
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const token = localStorage.getItem('token') || ''
-  const url = `${proto}//${location.host}/ws/terminal/${encodeURIComponent(selectedNode.value)}?token=${encodeURIComponent(token)}`
-  console.log('[terminal] connecting to', url.replace(token, '[REDACTED]'))
+  const url = buildWSUrl()
+  console.log('[terminal] connecting to', url.replace(/token=[^&]+/, 'token=[REDACTED]'))
 
   try {
     ws = new WebSocket(url)
@@ -199,6 +232,7 @@ function handleResize() { try { fitAddon?.fit() } catch {} }
 
 onMounted(async () => {
   await nodesStore.fetchNodes()
+  await fetchShells()
   await nextTick()
 
   createTerminal()
@@ -216,6 +250,14 @@ watch(selectedNode, async () => {
   if (termRef.value) connect()
 })
 
+watch(selectedShell, () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    disconnectWS()
+    term?.clear()
+    connect()
+  }
+})
+
 onUnmounted(() => {
   disconnectWS()
   window.removeEventListener('resize', handleResize)
@@ -225,7 +267,7 @@ onUnmounted(() => {
 
 <style scoped>
 .page { padding: 24px; height: 100%; display: flex; flex-direction: column; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-shrink: 0; flex-wrap: wrap; gap: 8px; }
 h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .terminal-box { flex: 1; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; padding: 8px; min-height: 500px; position: relative; }
 .terminal-screen { width: 100%; height: 100%; }

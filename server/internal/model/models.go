@@ -131,9 +131,11 @@ type SensorInfo struct {
 }
 
 type DiskIOMetrics struct {
-	ReadMB  float64 `json:"read_mb"`
-	WriteMB float64 `json:"write_mb"`
-	IOPS    float64 `json:"iops"`
+	ReadMB      float64 `json:"read_mb"`
+	WriteMB     float64 `json:"write_mb"`
+	IOPS        float64 `json:"iops"`
+	ReadRateMB  float64 `json:"read_rate_mb"`
+	WriteRateMB float64 `json:"write_rate_mb"`
 }
 
 type TCPConnectionMetrics struct {
@@ -146,12 +148,14 @@ type TCPConnectionMetrics struct {
 type Alert struct {
 	ID        int       `json:"id"`
 	NodeID    string    `json:"node_id"`
+	NodeName  string    `json:"node_name"`
 	Type      string    `json:"type"`
 	Level     string    `json:"level"`
 	Value     float64   `json:"value"`
 	Threshold float64   `json:"threshold"`
 	Time      time.Time `json:"time"`
 	Status    string    `json:"status"`
+	Message   string    `json:"message"`
 }
 
 type User struct {

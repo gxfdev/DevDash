@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -18,12 +19,32 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
+func init() {
+	if hp := os.Getenv("HOST_PROC"); hp != "" {
+		os.Setenv("HOST_PROC", hp)
+	}
+	if hs := os.Getenv("HOST_SYS"); hs != "" {
+		os.Setenv("HOST_SYS", hs)
+	}
+	if hd := os.Getenv("HOST_DEV"); hd != "" {
+		os.Setenv("HOST_DEV", hd)
+	}
+	if he := os.Getenv("HOST_ETC"); he != "" {
+		os.Setenv("HOST_ETC", he)
+	}
+}
+
 type Collector struct {
 	mu          sync.RWMutex
 	lastNet     psnet.IOCountersStat
 	lastNetTime time.Time
 	lastRecv    uint64
 	lastSent    uint64
+	prevCPUPer  float64
+	prevCPUTime time.Time
+	lastDiskRead  uint64
+	lastDiskWrite uint64
+	lastDiskTime  time.Time
 	gpu         *GPUCollector
 }
 
@@ -100,10 +121,26 @@ func (c *Collector) Collect() (*model.Snapshot, error) {
 
 func (c *Collector) collectCPU(_ context.Context) model.CPUMetrics {
 	m := model.CPUMetrics{Cores: runtime.NumCPU()}
-	if p, err := cpu.Percent(time.Second, false); err == nil && len(p) > 0 {
-		m.UsagePercent = round(p[0])
+	if p, err := cpu.Percent(0, false); err == nil && len(p) > 0 {
+		c.mu.Lock()
+		now := time.Now()
+		if c.prevCPUTime.IsZero() {
+			c.prevCPUPer = p[0]
+			c.prevCPUTime = now
+			m.UsagePercent = round(p[0])
+		} else {
+			elapsed := now.Sub(c.prevCPUTime).Seconds()
+			if elapsed > 0 && elapsed < 30 {
+				m.UsagePercent = round(p[0])
+			} else {
+				m.UsagePercent = round(c.prevCPUPer)
+			}
+			c.prevCPUPer = p[0]
+			c.prevCPUTime = now
+		}
+		c.mu.Unlock()
 	}
-	if p, err := cpu.Percent(time.Second, true); err == nil {
+	if p, err := cpu.Percent(0, true); err == nil {
 		for _, v := range p {
 			m.PerCoreUsage = append(m.PerCoreUsage, round(v))
 		}
@@ -128,18 +165,36 @@ func (c *Collector) collectMemory(_ context.Context) model.MemoryMetrics {
 
 func (c *Collector) collectDisk(_ context.Context) model.DiskMetrics {
 	m := model.DiskMetrics{}
-	partitions, err := disk.Partitions(false)
-	if err != nil {
-		return m
-	}
-	for _, p := range partitions {
-		if u, err := disk.Usage(p.Mountpoint); err == nil && u.Total > 0 {
+	if runtime.GOOS == "windows" {
+		if u, err := disk.Usage("C:"); err == nil && u.Total > 0 {
 			m.TotalGB = gb(u.Total)
 			m.UsedGB = gb(u.Used)
 			m.FreeGB = gb(u.Free)
 			m.UsagePercent = round(u.UsedPercent)
-			break
 		}
+		return m
+	}
+	partitions, err := disk.Partitions(false)
+	if err != nil || len(partitions) == 0 {
+		return m
+	}
+	var best disk.UsageStat
+	var found bool
+	for _, p := range partitions {
+		u, err := disk.Usage(p.Mountpoint)
+		if err != nil || u.Total == 0 {
+			continue
+		}
+		if !found || u.Total > best.Total {
+			best = *u
+			found = true
+		}
+	}
+	if found {
+		m.TotalGB = gb(best.Total)
+		m.UsedGB = gb(best.Used)
+		m.FreeGB = gb(best.Free)
+		m.UsagePercent = round(best.UsedPercent)
 	}
 	return m
 }
@@ -165,8 +220,10 @@ func (c *Collector) collectNetwork(_ context.Context) model.NetworkMetrics {
 	}
 	elapsed := now.Sub(c.lastNetTime).Seconds()
 	if elapsed > 0 {
-		m.RecvRateMB = round(float64(cur.BytesRecv-c.lastRecv) / elapsed / 1024 / 1024)
-		m.SentRateMB = round(float64(cur.BytesSent-c.lastSent) / elapsed / 1024 / 1024)
+		recvDiff := cur.BytesRecv - c.lastRecv
+		sentDiff := cur.BytesSent - c.lastSent
+		m.RecvRateMB = round4(float64(recvDiff) / elapsed / 1024 / 1024)
+		m.SentRateMB = round4(float64(sentDiff) / elapsed / 1024 / 1024)
 	}
 	c.lastNet = cur
 	c.lastNetTime = now
@@ -285,10 +342,24 @@ func (c *Collector) collectDiskIO(_ context.Context) *model.DiskIOMetrics {
 		rB += v.ReadBytes
 		wB += v.WriteBytes
 	}
-	return &model.DiskIOMetrics{
+	m := &model.DiskIOMetrics{
 		ReadMB:  round(float64(rB) / 1024 / 1024),
 		WriteMB: round(float64(wB) / 1024 / 1024),
 	}
+	c.mu.Lock()
+	now := time.Now()
+	if !c.lastDiskTime.IsZero() {
+		elapsed := now.Sub(c.lastDiskTime).Seconds()
+		if elapsed > 0 {
+			m.ReadRateMB = round4(float64(rB-c.lastDiskRead) / 1024 / 1024 / elapsed)
+			m.WriteRateMB = round4(float64(wB-c.lastDiskWrite) / 1024 / 1024 / elapsed)
+		}
+	}
+	c.lastDiskRead = rB
+	c.lastDiskWrite = wB
+	c.lastDiskTime = now
+	c.mu.Unlock()
+	return m
 }
 
 func (c *Collector) collectTCPConns(_ context.Context) *model.TCPConnectionMetrics {
@@ -315,6 +386,13 @@ func (c *Collector) collectTCPConns(_ context.Context) *model.TCPConnectionMetri
 func gb(b uint64) float64 { return round(float64(b) / 1024 / 1024 / 1024) }
 func round(v float64) float64 {
 	s := fmt.Sprintf("%.2f", v)
+	var r float64
+	fmt.Sscanf(s, "%f", &r)
+	return r
+}
+
+func round4(v float64) float64 {
+	s := fmt.Sprintf("%.4f", v)
 	var r float64
 	fmt.Sscanf(s, "%f", &r)
 	return r

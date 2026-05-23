@@ -7,14 +7,16 @@
         <span class="logo-text">DevDash</span>
       </div>
 
-      <n-menu
-        v-model:value="activeKey"
-        :options="menuOptions"
-        :collapsed="sidebarCollapsed"
-        :collapsed-width="64"
-        :collapsed-icon-size="22"
-        @update:value="onMenu"
-      />
+      <div class="menu-scroll">
+        <n-menu
+          v-model:value="activeKey"
+          :options="menuOptions"
+          :collapsed="sidebarCollapsed"
+          :collapsed-width="64"
+          :collapsed-icon-size="22"
+          @update:value="onMenu"
+        />
+      </div>
 
       <div class="sidebar-footer">
         <n-button text style="width:100%;color:#6e7681;font-size:12px" @click="sidebarCollapsed = !sidebarCollapsed">
@@ -139,9 +141,13 @@ const menuOptions = [
   },
   { type: 'divider', key: 'd2' },
   {
-    label: 'Docker管理',
-    key: 'docker',
+    label: '容器',
+    key: 'container-group',
     icon: renderIcon('🐳'),
+    children: [
+      { label: 'Docker管理', key: 'docker', icon: renderIcon('📦') },
+      { label: '容器监控', key: 'container-monitor', icon: renderIcon('📊') },
+    ],
   },
   {
     label: '系统设置',
@@ -162,6 +168,8 @@ const labelMap: Record<string, string> = {
   terminal: 'Web终端',
   alerts: '告警中心',
   trends: '趋势分析',
+  docker: 'Docker管理',
+  'container-monitor': '容器监控',
   settings: '系统设置',
 }
 
@@ -177,6 +185,8 @@ const groupMap: Record<string, string> = {
   terminal: '工具',
   alerts: '运维',
   trends: '运维',
+  docker: '容器',
+  'container-monitor': '容器',
   settings: '系统',
 }
 
@@ -205,8 +215,10 @@ function onUserMenu(key: string) {
         router.push('/login')
       },
     })
-  } else if (key === 'profile' || key === 'settings') {
-    router.push({ name: key })
+  } else if (key === 'profile') {
+    router.push({ name: 'settings', query: { tab: 'profile' } })
+  } else if (key === 'settings') {
+    router.push({ name: 'settings', query: { tab: 'system' } })
   }
 }
 </script>
@@ -237,6 +249,14 @@ function onUserMenu(key: string) {
 }
 .logo-icon { font-size: 24px; }
 .logo-text { font-size: 18px; font-weight: 700; color: #3fb950; }
+
+.menu-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.menu-scroll::-webkit-scrollbar { width: 4px; }
+.menu-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
 .sidebar-footer {
   margin-top: auto;

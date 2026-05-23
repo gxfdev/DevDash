@@ -13,14 +13,17 @@ RUN npx vite build --outDir dist
 
 FROM golang:1.23-alpine AS server-builder
 
-RUN apk add --no-cache git ca-certificates
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 
-WORKDIR /build/server
-COPY go.mod go.sum ./
+RUN apk add --no-cache git ca-certificates gcc musl-dev
+
+WORKDIR /build
+COPY server/go.mod server/go.sum ./
 RUN go mod download
 
-COPY server/ ./server/
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=dev" -o /build/devdash ./cmd/server
+COPY server/ ./
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w -X main.version=dev" -trimpath -o /build/devdash ./cmd/server
 
 
 FROM alpine:3.19
@@ -28,17 +31,20 @@ FROM alpine:3.19
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
-    musl-locales \
+    curl \
     && rm -rf /var/cache/apk/* \
     && addgroup -S devdash && adduser -S devdash -G devdash
 
-ENV LANG=zh_CN.UTF-8
-ENV LC_ALL=zh_CN.UTF-8
-ENV MUSL_LOCPATH=/usr/share/i18n/locales/musl
+ENV LANG=C.UTF-8
 ENV TZ=Asia/Shanghai
 ENV GIN_MODE=release
 ENV PORT=9090
 ENV DB_PATH=/data/devdash.db
+ENV STATIC_DIR=/srv/www
+ENV HOST_PROC=/host/proc
+ENV HOST_SYS=/host/sys
+ENV HOST_DEV=/host/dev
+ENV HOST_ETC=/host/etc
 
 COPY --from=server-builder /build/devdash /usr/local/bin/devdash
 COPY --from=web-builder /build/web/dist /srv/www
@@ -50,6 +56,6 @@ USER devdash
 EXPOSE 9090
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:9090/api/v1/health || exit 1
+    CMD curl -sf http://localhost:9090/api/v1/health || exit 1
 
 ENTRYPOINT ["devdash"]

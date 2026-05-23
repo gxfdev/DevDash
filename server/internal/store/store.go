@@ -1,4 +1,4 @@
-package store
+﻿package store
 
 import (
 	"database/sql"
@@ -21,6 +21,7 @@ import (
 type Store struct {
 	db     *sql.DB
 	dbType config.DBType
+	dbPath string
 }
 
 func NewStore(cfg *config.Config) *Store {
@@ -50,6 +51,7 @@ func NewStore(cfg *config.Config) *Store {
 		if dbPath == "" {
 			dbPath = "devdash.db"
 		}
+		s.dbPath = dbPath
 		db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
 		if err != nil {
 			log.Fatalf("[store] failed to open SQLite: %v", err)
@@ -197,24 +199,26 @@ func (s *Store) runMigrations() {
 			sql: `CREATE TABLE IF NOT EXISTS alerts (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				node_id TEXT NOT NULL,
+				node_name TEXT DEFAULT '',
 				type TEXT NOT NULL,
 				level TEXT DEFAULT 'warning',
 				value REAL DEFAULT 0,
 				threshold REAL DEFAULT 0,
 				time DATETIME DEFAULT CURRENT_TIMESTAMP,
 				status TEXT DEFAULT 'active',
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				message TEXT DEFAULT ''
 			)`,
 			pg: `CREATE TABLE IF NOT EXISTS alerts (
 				id SERIAL PRIMARY KEY,
 				node_id TEXT NOT NULL,
+				node_name TEXT DEFAULT '',
 				type TEXT NOT NULL,
 				level TEXT DEFAULT 'warning',
 				value REAL DEFAULT 0,
 				threshold REAL DEFAULT 0,
 				time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 				status TEXT DEFAULT 'active',
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				message TEXT DEFAULT ''
 			)`,
 		},
 		{
@@ -340,6 +344,10 @@ func (s *Store) runMigrations() {
 		"ALTER TABLE metrics ADD COLUMN disk_read_mb REAL DEFAULT 0",
 		"ALTER TABLE metrics ADD COLUMN disk_write_mb REAL DEFAULT 0",
 		"ALTER TABLE metrics ADD COLUMN disk_iops REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN net_recv_rate_mb REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN net_sent_rate_mb REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN disk_read_rate_mb REAL DEFAULT 0",
+		"ALTER TABLE metrics ADD COLUMN disk_write_rate_mb REAL DEFAULT 0",
 		"ALTER TABLE cron_jobs ADD COLUMN type TEXT DEFAULT 'shell'",
 		"ALTER TABLE cron_jobs ADD COLUMN last_run INTEGER DEFAULT 0",
 	}
@@ -387,9 +395,18 @@ func (s *Store) seedDefaultUser() {
 		}
 	}
 	s.ensureColumn("users", "must_change_pwd", "INTEGER DEFAULT 0", "BOOLEAN DEFAULT FALSE")
+	s.ensureColumn("alerts", "node_name", "TEXT DEFAULT ''", "TEXT DEFAULT ''")
+	s.ensureColumn("alerts", "message", "TEXT DEFAULT ''", "TEXT DEFAULT ''")
 }
 
 func (s *Store) placeholder(n int) string {
+	if s.IsPostgreSQL() {
+		return fmt.Sprintf("$%d", n)
+	}
+	return "?"
+}
+
+func (s *Store) placeholders(n int) string {
 	if s.IsPostgreSQL() {
 		parts := make([]string, n)
 		for i := 0; i < n; i++ {
@@ -406,18 +423,23 @@ func (s *Store) SaveSnapshot(nodeID string, snap *model.Snapshot) error {
 		now = snap.Timestamp
 	}
 	var diskReadMB, diskWriteMB, diskIOPS float64
+	var diskReadRateMB, diskWriteRateMB float64
 	if snap.DiskIO != nil {
 		diskReadMB = snap.DiskIO.ReadMB
 		diskWriteMB = snap.DiskIO.WriteMB
 		diskIOPS = snap.DiskIO.IOPS
+		diskReadRateMB = snap.DiskIO.ReadRateMB
+		diskWriteRateMB = snap.DiskIO.WriteRateMB
 	}
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, net_bytes_recv, net_bytes_sent, load1, load5, load15) VALUES (%s)", s.placeholder(18)),
+		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, net_bytes_recv, net_bytes_sent, net_recv_rate_mb, net_sent_rate_mb, disk_read_rate_mb, disk_write_rate_mb, load1, load5, load15) VALUES (%s)", s.placeholders(22)),
 		nodeID, now, snap.CPU.UsagePercent, snap.CPU.Cores,
 		snap.Memory.TotalGB, snap.Memory.UsedGB, snap.Memory.UsagePercent,
 		snap.Disk.TotalGB, snap.Disk.UsedGB, snap.Disk.UsagePercent,
 		diskReadMB, diskWriteMB, diskIOPS,
 		snap.Network.BytesRecv, snap.Network.BytesSent,
+		snap.Network.RecvRateMB, snap.Network.SentRateMB,
+		diskReadRateMB, diskWriteRateMB,
 		snap.Load.Load1, snap.Load.Load5, snap.Load.Load15,
 	)
 	if err != nil {
@@ -427,7 +449,7 @@ func (s *Store) SaveSnapshot(nodeID string, snap *model.Snapshot) error {
 	if snap.GPU != nil {
 		for _, dev := range snap.GPU.Devices {
 			_, gErr := s.db.Exec(
-				fmt.Sprintf("INSERT INTO metrics_gpu (node_id, timestamp, gpu_index, usage_percent, mem_used_mb, mem_total_mb, temperature_celsius) VALUES (%s)", s.placeholder(7)),
+				fmt.Sprintf("INSERT INTO metrics_gpu (node_id, timestamp, gpu_index, usage_percent, mem_used_mb, mem_total_mb, temperature_celsius) VALUES (%s)", s.placeholders(7)),
 				nodeID, now, dev.Index, dev.UsagePercent, dev.MemUsedMB, dev.MemTotalMB, dev.Temperature,
 			)
 			if gErr != nil {
@@ -446,7 +468,7 @@ func (s *Store) SaveSnapshotBatch(nodeID string, snaps []*model.Snapshot) error 
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15) VALUES (%s)", s.placeholder(15)),
+		fmt.Sprintf("INSERT INTO metrics (node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15) VALUES (%s)", s.placeholders(15)),
 	)
 	if err != nil {
 		return fmt.Errorf("prepare stmt: %w", err)
@@ -455,7 +477,7 @@ func (s *Store) SaveSnapshotBatch(nodeID string, snaps []*model.Snapshot) error 
 
 	var gpuStmt *sql.Stmt
 	gpuStmt, err = tx.Prepare(
-		fmt.Sprintf("INSERT INTO metrics_gpu (node_id, timestamp, gpu_index, usage_percent, mem_used_mb, mem_total_mb, temperature_celsius) VALUES (%s)", s.placeholder(7)),
+		fmt.Sprintf("INSERT INTO metrics_gpu (node_id, timestamp, gpu_index, usage_percent, mem_used_mb, mem_total_mb, temperature_celsius) VALUES (%s)", s.placeholders(7)),
 	)
 	if err != nil {
 		log.Printf("[store] warning: prepare GPU stmt: %v", err)
@@ -491,9 +513,9 @@ func (s *Store) SaveSnapshotBatch(nodeID string, snaps []*model.Snapshot) error 
 }
 
 func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]map[string]any, error) {
-	since := time.Now().Add(-time.Duration(hours) * time.Hour).UTC()
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
 	rows, err := s.db.Query(
-		fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, net_bytes_recv, net_bytes_sent, load1, load5, load15 FROM metrics WHERE node_id = %s AND timestamp >= %s ORDER BY timestamp ASC", s.placeholder(1), s.placeholder(2)),
+		fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, disk_read_rate_mb, disk_write_rate_mb, net_bytes_recv, net_bytes_sent, net_recv_rate_mb, net_sent_rate_mb, load1, load5, load15 FROM metrics WHERE node_id = %s AND timestamp >= %s ORDER BY timestamp ASC", s.placeholder(1), s.placeholder(2)),
 		nodeID, since,
 	)
 	if err != nil {
@@ -505,10 +527,14 @@ func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]map[string]any, e
 	for rows.Next() {
 		var nid string
 		var ts time.Time
-		var cpuUsage, cpuCores, memTotal, memUsed, memUsage, diskTotal, diskUsed, diskUsage float64
+		var cpuUsage, cpuCores, memTotal, memUsed, memUsage float64
+		var diskTotal, diskUsed, diskUsage float64
+		var diskReadMB, diskWriteMB, diskIOPS float64
+		var diskReadRateMB, diskWriteRateMB float64
 		var netRecv, netSent int64
+		var netRecvRate, netSentRate float64
 		var load1, load5, load15 float64
-		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &diskReadRateMB, &diskWriteRateMB, &netRecv, &netSent, &netRecvRate, &netSentRate, &load1, &load5, &load15); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
@@ -528,9 +554,82 @@ func (s *Store) GetMetricsHistory(nodeID string, hours int) ([]map[string]any, e
 				"used_gb":       diskUsed,
 				"usage_percent": diskUsage,
 			},
+			"disk_io": map[string]any{
+				"read_mb":       diskReadMB,
+				"write_mb":      diskWriteMB,
+				"iops":          diskIOPS,
+				"read_rate_mb":  diskReadRateMB,
+				"write_rate_mb": diskWriteRateMB,
+			},
 			"network": map[string]any{
-				"bytes_recv": netRecv,
-				"bytes_sent": netSent,
+				"bytes_recv":   netRecv,
+				"bytes_sent":   netSent,
+				"recv_rate_mb": netRecvRate,
+				"sent_rate_mb": netSentRate,
+			},
+			"load": map[string]any{
+				"load1":  load1,
+				"load5":  load5,
+				"load15": load15,
+			},
+		})
+	}
+	return result, nil
+}
+
+func (s *Store) GetMetricsHistoryRange(nodeID string, start, end time.Time) ([]map[string]any, error) {
+	rows, err := s.db.Query(
+		fmt.Sprintf("SELECT node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, disk_read_rate_mb, disk_write_rate_mb, net_bytes_recv, net_bytes_sent, net_recv_rate_mb, net_sent_rate_mb, load1, load5, load15 FROM metrics WHERE node_id = %s AND timestamp >= %s AND timestamp < %s ORDER BY timestamp ASC", s.placeholder(1), s.placeholder(2), s.placeholder(3)),
+		nodeID, start, end,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]any
+	for rows.Next() {
+		var nid string
+		var ts time.Time
+		var cpuUsage, cpuCores, memTotal, memUsed, memUsage float64
+		var diskTotal, diskUsed, diskUsage float64
+		var diskReadMB, diskWriteMB, diskIOPS float64
+		var diskReadRateMB, diskWriteRateMB float64
+		var netRecv, netSent int64
+		var netRecvRate, netSentRate float64
+		var load1, load5, load15 float64
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &diskReadRateMB, &diskWriteRateMB, &netRecv, &netSent, &netRecvRate, &netSentRate, &load1, &load5, &load15); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"node_id":   nid,
+			"timestamp": ts,
+			"cpu": map[string]any{
+				"usage_percent": cpuUsage,
+				"cores":         cpuCores,
+			},
+			"memory": map[string]any{
+				"total_gb":      memTotal,
+				"used_gb":       memUsed,
+				"usage_percent": memUsage,
+			},
+			"disk": map[string]any{
+				"total_gb":      diskTotal,
+				"used_gb":       diskUsed,
+				"usage_percent": diskUsage,
+			},
+			"disk_io": map[string]any{
+				"read_mb":       diskReadMB,
+				"write_mb":      diskWriteMB,
+				"iops":          diskIOPS,
+				"read_rate_mb":  diskReadRateMB,
+				"write_rate_mb": diskWriteRateMB,
+			},
+			"network": map[string]any{
+				"bytes_recv":   netRecv,
+				"bytes_sent":   netSent,
+				"recv_rate_mb": netRecvRate,
+				"sent_rate_mb": netSentRate,
 			},
 			"load": map[string]any{
 				"load1":  load1,
@@ -633,7 +732,7 @@ func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 
 func (s *Store) GetAlerts(nodeID string, limit int) ([]model.Alert, error) {
 	rows, err := s.db.Query(
-		fmt.Sprintf("SELECT id, node_id, type, level, value, threshold, time, status FROM alerts WHERE node_id = %s ORDER BY time DESC LIMIT %s", s.placeholder(1), s.placeholder(2)),
+		fmt.Sprintf("SELECT id, node_id, node_name, type, level, value, threshold, time, status, message FROM alerts WHERE node_id = %s ORDER BY time DESC LIMIT %s", s.placeholder(1), s.placeholder(2)),
 		nodeID, limit,
 	)
 	if err != nil {
@@ -643,7 +742,7 @@ func (s *Store) GetAlerts(nodeID string, limit int) ([]model.Alert, error) {
 	var alerts []model.Alert
 	for rows.Next() {
 		var a model.Alert
-		if err := rows.Scan(&a.ID, &a.NodeID, &a.Type, &a.Level, &a.Value, &a.Threshold, &a.Time, &a.Status); err != nil {
+		if err := rows.Scan(&a.ID, &a.NodeID, &a.NodeName, &a.Type, &a.Level, &a.Value, &a.Threshold, &a.Time, &a.Status, &a.Message); err != nil {
 			continue
 		}
 		alerts = append(alerts, a)
@@ -653,7 +752,7 @@ func (s *Store) GetAlerts(nodeID string, limit int) ([]model.Alert, error) {
 
 func (s *Store) SaveAuditLog(a *model.AuditLog) error {
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO audit_logs (user_id, node_id, action, detail, result, time) VALUES (%s)", s.placeholder(6)),
+		fmt.Sprintf("INSERT INTO audit_logs (user_id, node_id, action, detail, result, time) VALUES (%s)", s.placeholders(6)),
 		a.UserID, a.NodeID, a.Action, a.Detail, a.Result, a.Time,
 	)
 	return err
@@ -706,11 +805,11 @@ func (s *Store) DeleteNode(id string) error {
 func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 	var rows *sql.Rows
 	var err error
-	cols := "node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, net_bytes_recv, net_bytes_sent, load1, load5, load15"
+	cols := "node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, disk_read_rate_mb, disk_write_rate_mb, net_bytes_recv, net_bytes_sent, net_recv_rate_mb, net_sent_rate_mb, load1, load5, load15"
 	if nodeID == "" {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM metrics ORDER BY timestamp DESC LIMIT %s", cols, s.placeholder(1)), limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM (SELECT %s FROM metrics ORDER BY timestamp DESC LIMIT %s) sub ORDER BY timestamp ASC", cols, cols, s.placeholder(1)), limit)
 	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM metrics WHERE node_id = %s ORDER BY timestamp DESC LIMIT %s", cols, s.placeholder(1), s.placeholder(2)), nodeID, limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM (SELECT %s FROM metrics WHERE node_id = %s ORDER BY timestamp DESC LIMIT %s) sub ORDER BY timestamp ASC", cols, cols, s.placeholder(1), s.placeholder(2)), nodeID, limit)
 	}
 	if err != nil {
 		return nil
@@ -720,11 +819,14 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 	for rows.Next() {
 		var nid string
 		var ts time.Time
-		var cpuUsage, cpuCores, memTotal, memUsed, memUsage, diskTotal, diskUsed, diskUsage float64
+		var cpuUsage, cpuCores, memTotal, memUsed, memUsage float64
+		var diskTotal, diskUsed, diskUsage float64
 		var diskReadMB, diskWriteMB, diskIOPS float64
+		var diskReadRateMB, diskWriteRateMB float64
 		var netRecv, netSent int64
+		var netRecvRate, netSentRate float64
 		var load1, load5, load15 float64
-		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &netRecv, &netSent, &load1, &load5, &load15); err != nil {
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &diskReadRateMB, &diskWriteRateMB, &netRecv, &netSent, &netRecvRate, &netSentRate, &load1, &load5, &load15); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
@@ -745,13 +847,17 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 				"usage_percent": diskUsage,
 			},
 			"disk_io": map[string]any{
-				"read_mb":  diskReadMB,
-				"write_mb": diskWriteMB,
-				"iops":     diskIOPS,
+				"read_mb":       diskReadMB,
+				"write_mb":      diskWriteMB,
+				"iops":          diskIOPS,
+				"read_rate_mb":  diskReadRateMB,
+				"write_rate_mb": diskWriteRateMB,
 			},
 			"network": map[string]any{
-				"bytes_recv": netRecv,
-				"bytes_sent": netSent,
+				"bytes_recv":   netRecv,
+				"bytes_sent":   netSent,
+				"recv_rate_mb": netRecvRate,
+				"sent_rate_mb": netSentRate,
 			},
 			"load": map[string]any{
 				"load1":  load1,
@@ -761,6 +867,25 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 		})
 	}
 	return result
+}
+
+func (s *Store) Ping() error {
+	return s.db.Ping()
+}
+
+func (s *Store) DBPath() string {
+	if s.dbType == "sqlite" {
+		return s.dbPath
+	}
+	return ""
+}
+
+func (s *Store) UpdateUsername(oldName, newName string) error {
+	_, err := s.db.Exec(
+		fmt.Sprintf("UPDATE users SET username = %s WHERE username = %s", s.placeholder(1), s.placeholder(2)),
+		newName, oldName,
+	)
+	return err
 }
 
 func (s *Store) ListSoftware(nodeID string) []map[string]any {
@@ -791,7 +916,7 @@ func (s *Store) ListSoftware(nodeID string) []map[string]any {
 
 func (s *Store) SaveSoftware(data map[string]any) {
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO software (node_id, name, version, status) VALUES (%s)", s.placeholder(4)),
+		fmt.Sprintf("INSERT INTO software (node_id, name, version, status) VALUES (%s)", s.placeholders(4)),
 		data["node_id"], data["name"], data["version"], data["status"],
 	)
 	if err != nil {
@@ -912,7 +1037,7 @@ func (s *Store) SaveDBConnection(conn map[string]any) error {
 		return fmt.Errorf("encrypt password: %w", err)
 	}
 	_, err = s.db.Exec(
-		fmt.Sprintf("INSERT INTO db_connections (node_id, name, type, host, port, user, password, dbname) VALUES (%s)", s.placeholder(8)),
+		fmt.Sprintf("INSERT INTO db_connections (node_id, name, type, host, port, user, password, dbname) VALUES (%s)", s.placeholders(8)),
 		conn["node_id"], conn["name"], conn["type"], conn["host"], conn["port"], conn["user"], encPW, conn["dbname"],
 	)
 	return err
@@ -991,9 +1116,9 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, type, level, value, threshold, time, status FROM alerts ORDER BY time DESC LIMIT %s", s.placeholder(1)), limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, node_name, type, level, value, threshold, time, status, message FROM alerts ORDER BY time DESC LIMIT %s", s.placeholder(1)), limit)
 	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, type, level, value, threshold, time, status FROM alerts WHERE node_id = %s ORDER BY time DESC LIMIT %s", s.placeholder(1), s.placeholder(2)), nodeID, limit)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, node_name, type, level, value, threshold, time, status, message FROM alerts WHERE node_id = %s ORDER BY time DESC LIMIT %s", s.placeholder(1), s.placeholder(2)), nodeID, limit)
 	}
 	if err != nil {
 		return nil
@@ -1002,15 +1127,15 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]any {
 	var result []map[string]any
 	for rows.Next() {
 		var id int
-		var nid, alertType, level, status string
+		var nid, nodeName, alertType, level, status, message string
 		var value, threshold float64
 		var t time.Time
-		if err := rows.Scan(&id, &nid, &alertType, &level, &value, &threshold, &t, &status); err != nil {
+		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &t, &status, &message); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
-			"id": id, "node_id": nid, "type": alertType, "level": level,
-			"value": value, "threshold": threshold, "time": t, "status": status,
+			"id": id, "node_id": nid, "node_name": nodeName, "type": alertType, "level": level,
+			"value": value, "threshold": threshold, "time": t, "status": status, "message": message,
 		})
 	}
 	return result
@@ -1020,9 +1145,9 @@ func (s *Store) ListActiveAlerts(nodeID string) []map[string]any {
 	var rows *sql.Rows
 	var err error
 	if nodeID == "" {
-		rows, err = s.db.Query("SELECT id, node_id, type, level, value, threshold, time, status FROM alerts WHERE status = 'firing' OR status = 'active' ORDER BY time DESC")
+		rows, err = s.db.Query("SELECT id, node_id, node_name, type, level, value, threshold, time, status, message FROM alerts WHERE status = 'firing' OR status = 'active' ORDER BY time DESC")
 	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, type, level, value, threshold, time, status FROM alerts WHERE (status = 'firing' OR status = 'active') AND node_id = %s ORDER BY time DESC", s.placeholder(1)), nodeID)
+		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, node_name, type, level, value, threshold, time, status, message FROM alerts WHERE (status = 'firing' OR status = 'active') AND node_id = %s ORDER BY time DESC", s.placeholder(1)), nodeID)
 	}
 	if err != nil {
 		return nil
@@ -1031,15 +1156,15 @@ func (s *Store) ListActiveAlerts(nodeID string) []map[string]any {
 	var result []map[string]any
 	for rows.Next() {
 		var id int
-		var nid, alertType, level, status string
+		var nid, nodeName, alertType, level, status, message string
 		var value, threshold float64
 		var t time.Time
-		if err := rows.Scan(&id, &nid, &alertType, &level, &value, &threshold, &t, &status); err != nil {
+		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &t, &status, &message); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
-			"id": id, "node_id": nid, "type": alertType, "level": level,
-			"value": value, "threshold": threshold, "time": t, "status": status,
+			"id": id, "node_id": nid, "node_name": nodeName, "type": alertType, "level": level,
+			"value": value, "threshold": threshold, "time": t, "status": status, "message": message,
 		})
 	}
 	return result
@@ -1052,6 +1177,7 @@ func (s *Store) SilenceAlert(id int) error {
 
 func (s *Store) SaveAlert(data map[string]any) {
 	nodeID, _ := data["node_id"].(string)
+	nodeName, _ := data["node_name"].(string)
 	alertType, _ := data["metric"].(string)
 	if alertType == "" {
 		alertType, _ = data["type"].(string)
@@ -1066,14 +1192,24 @@ func (s *Store) SaveAlert(data map[string]any) {
 	if status == "" {
 		status = "active"
 	}
+	message, _ := data["message"].(string)
 	now := time.Now()
-	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO alerts (node_id, type, level, value, threshold, time, status) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-			s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6), s.placeholder(7)),
-		nodeID, alertType, level, value, threshold, now, status,
-	)
-	if err != nil {
-		log.Printf("[store] SaveAlert error: %v", err)
+	if s.IsPostgreSQL() {
+		_, err := s.db.Exec(
+			"INSERT INTO alerts (node_id, node_name, type, level, value, threshold, time, status, message) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+			nodeID, nodeName, alertType, level, value, threshold, now, status, message,
+		)
+		if err != nil {
+			log.Printf("[store] SaveAlert error: %v", err)
+		}
+	} else {
+		_, err := s.db.Exec(
+			"INSERT INTO alerts (node_id, node_name, type, level, value, threshold, time, status, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			nodeID, nodeName, alertType, level, value, threshold, now, status, message,
+		)
+		if err != nil {
+			log.Printf("[store] SaveAlert error: %v", err)
+		}
 	}
 }
 
@@ -1127,7 +1263,7 @@ func (s *Store) SaveAlertRule(rule map[string]any) error {
 		return err
 	}
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO alert_rules (name, metric, op, threshold, level, enabled) VALUES (%s)", s.placeholder(6)),
+		fmt.Sprintf("INSERT INTO alert_rules (name, metric, op, threshold, level, enabled) VALUES (%s)", s.placeholders(6)),
 		name, metric, op, threshold, level, enabled,
 	)
 	return err
@@ -1207,7 +1343,7 @@ func (s *Store) RecordFileOp(op map[string]any) {
 		isDir = 1
 	}
 	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO file_operations (node_id, operation, path, name, ext, size, is_dir) VALUES (%s)", s.placeholder(7)),
+		fmt.Sprintf("INSERT INTO file_operations (node_id, operation, path, name, ext, size, is_dir) VALUES (%s)", s.placeholders(7)),
 		nodeID, operation, path, name, ext, size, isDir,
 	)
 	if err != nil {
@@ -1297,4 +1433,52 @@ func (s *Store) GetFileStats(nodeID string, hours int) []map[string]any {
 		})
 	}
 	return result
+}
+
+func (s *Store) GetRecentMetricValues(nodeID, metric string, limit int) []float64 {
+	if s.db == nil {
+		return nil
+	}
+
+	var col string
+	switch metric {
+	case "cpu":
+		col = "cpu_usage"
+	case "memory", "mem":
+		col = "mem_usage_percent"
+	case "disk":
+		col = "disk_usage_percent"
+	case "load1":
+		col = "load1"
+	case "load5":
+		col = "load5"
+	case "load15":
+		col = "load15"
+	default:
+		return nil
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM metrics", col)
+	var args []interface{}
+	if nodeID != "" {
+		query += fmt.Sprintf(" WHERE node_id = %s", s.placeholder(1))
+		args = append(args, nodeID)
+	}
+	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %s", s.placeholder(len(args)+1))
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var values []float64
+	for rows.Next() {
+		var v float64
+		if err := rows.Scan(&v); err == nil {
+			values = append(values, v)
+		}
+	}
+	return values
 }

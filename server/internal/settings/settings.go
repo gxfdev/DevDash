@@ -15,12 +15,24 @@ type AlertSettings struct {
 	MemThreshold int    `json:"memThreshold"`
 	DiskThresh   int    `json:"diskThreshold"`
 	CooldownMin  int    `json:"cooldownMin"`
+
+	EmailEnabled  bool   `json:"email_enabled"`
+	EmailSMTP     string `json:"email_smtp"`
+	EmailPort     int    `json:"email_port"`
+	EmailUser     string `json:"email_user"`
+	EmailPassword string `json:"email_password"`
+	EmailFrom     string `json:"email_from"`
+	EmailTo       string `json:"email_to"`
+
+	WebhookEnabled bool   `json:"webhook_enabled"`
+	WebhookURL     string `json:"webhook_url"`
+	WebhookSecret  string `json:"webhook_secret"`
 }
 
 type SystemSettings struct {
-	ServerPort     string        `json:"server_port"`
-	CollectInterval int          `json:"collect_interval"`
-	Alert          AlertSettings `json:"alert"`
+	ServerPort      string        `json:"server_port"`
+	CollectInterval int           `json:"collect_interval"`
+	Alert           AlertSettings `json:"alert"`
 }
 
 var (
@@ -32,7 +44,7 @@ var (
 func Default() *SystemSettings {
 	return &SystemSettings{
 		ServerPort:      "9090",
-		CollectInterval: 10,
+		CollectInterval: 5,
 		Alert: AlertSettings{
 			Browser:      true,
 			Feishu:       false,
@@ -41,6 +53,7 @@ func Default() *SystemSettings {
 			MemThreshold: 90,
 			DiskThresh:   90,
 			CooldownMin:  5,
+			EmailPort:    587,
 		},
 	}
 }

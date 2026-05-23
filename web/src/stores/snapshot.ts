@@ -19,8 +19,12 @@ export const useSnapshotStore = defineStore('snapshot', () => {
   }
 
   async function fetchHistory(limit = 60) {
-    const { data } = await client.get<Snapshot[]>(`/history?limit=${limit}`)
-    history.value = data
+    try {
+      const { data } = await client.get<Snapshot[]>(`/history?limit=${limit}`)
+      history.value = Array.isArray(data) ? data : []
+    } catch {
+      history.value = []
+    }
   }
 
   async function triggerCollect() {

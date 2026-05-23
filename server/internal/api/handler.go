@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,12 +15,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"devdash/internal/auth"
 	"devdash/internal/collector"
 	"devdash/internal/dbmgr"
 	"devdash/internal/filemgr"
 	"devdash/internal/firewall"
+	"devdash/internal/ha"
 	"devdash/internal/model"
 	"devdash/internal/node"
 	"devdash/internal/settings"
@@ -34,7 +38,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" || origin == "null" {
-			return false
+			return true
 		}
 		allowedOrigins := os.Getenv("CORS_ORIGINS")
 		if allowedOrigins != "" {
@@ -44,12 +48,26 @@ var upgrader = websocket.Upgrader{
 				}
 			}
 		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		host := u.Hostname()
+		allowedHosts := map[string]bool{
+			"localhost": true,
+			"127.0.0.1": true,
+		}
+		if allowedHosts[host] {
+			return true
+		}
 		defaultOrigins := map[string]bool{
 			"http://localhost:3000": true,
 			"http://localhost:5173": true,
+			"http://localhost:5174": true,
 			"http://localhost:9090": true,
 			"http://127.0.0.1:3000": true,
 			"http://127.0.0.1:5173": true,
+			"http://127.0.0.1:5174": true,
 			"http://127.0.0.1:9090": true,
 		}
 		return defaultOrigins[origin]
@@ -79,22 +97,29 @@ func NewHandler(c *collector.Collector, s *store.Store, nm *node.NodeManager) *H
 
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	r.Use(requestSizeLimit(10 * 1024 * 1024))
+	r.Use(apiRateLimit())
+	r.Use(securityHeaders())
 
 	api := r.Group("/api")
 
-	api.GET("/v1/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok", "timestamp": time.Now().Format(time.RFC3339)}) })
+	api.GET("/v1/health", h.healthCheck)
+	api.GET("/v1/readiness", h.readinessCheck)
 
 	api.POST("/auth/login", h.login)
 	api.POST("/auth/refresh", h.refreshToken)
-	api.GET("/auth/me", auth.Middleware(), h.authMe)
-	api.PUT("/auth/password", auth.Middleware(), h.changePassword)
-	api.POST("/auth/logout", auth.Middleware(), h.authLogout)
+	authGroup := api.Group("", auth.Middleware(), auth.CSRFMiddleware())
+	authGroup.GET("/auth/me", h.authMe)
+	authGroup.PUT("/auth/password", h.changePassword)
+	authGroup.PUT("/auth/username", h.changeUsername)
+	authGroup.POST("/auth/logout", h.authLogout)
 
 	v1 := r.Group("/api/v1", auth.Middleware(), auth.CSRFMiddleware())
 
 	v1.GET("/snapshot", h.getSnapshot)
 	v1.GET("/latest", h.getLatest)
 	v1.GET("/history", h.getHistory)
+	v1.GET("/trend/compare", h.getTrendCompare)
+	v1.GET("/anomaly/detect", h.detectAnomalies)
 
 	v1.GET("/nodes", h.listNodes)
 	v1.GET("/node/:id", h.getNode)
@@ -135,9 +160,9 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.POST("/node/:id/fs/mkdir", auth.RequireRole("admin"), h.createDir)
 	v1.POST("/node/:id/fs/mkfile", auth.RequireRole("admin"), h.createFile)
 	v1.DELETE("/node/:id/fs/remove", auth.RequireRole("admin"), h.removeFile)
-	v1.GET("/node/:id/fs/read", h.readFile)
+	v1.GET("/node/:id/fs/read", auth.RequireRole("admin"), h.readFile)
 	v1.POST("/node/:id/fs/upload", auth.RequireRole("admin"), h.uploadFile)
-	v1.GET("/node/:id/fs/download", h.downloadFile)
+	v1.GET("/node/:id/fs/download", auth.RequireRole("admin"), h.downloadFile)
 
 	v1.GET("/alerts", h.listAlerts)
 	v1.GET("/alerts/active", h.listActiveAlerts)
@@ -154,6 +179,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.PUT("/settings", auth.RequireRole("admin"), h.updateSettings)
 	v1.GET("/alert-settings", h.getAlertSettings)
 	v1.PUT("/alert-settings", auth.RequireRole("admin"), h.updateAlertSettings)
+	v1.GET("/system-settings", h.getSystemSettings)
+	v1.PUT("/system-settings", auth.RequireRole("admin"), h.updateSystemSettings)
 
 	v1.GET("/software", h.listSoftware)
 	v1.POST("/software/install", auth.RequireRole("admin"), h.installNodeSoftware)
@@ -164,7 +191,14 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.POST("/collect", auth.RequireRole("admin"), h.triggerCollect)
 	v1.GET("/ws", auth.WSMiddleware(), h.websocket)
 
-	r.GET("/ws/terminal/:nodeId", auth.WSMiddleware(), auth.RequireRole("admin"), h.terminalWS)
+	v1.POST("/backup", auth.RequireRole("admin"), h.createBackup)
+	v1.GET("/backup/list", h.listBackups)
+	v1.POST("/backup/restore", auth.RequireRole("admin"), h.restoreBackup)
+	v1.DELETE("/backup/:name", auth.RequireRole("admin"), h.deleteBackup)
+
+	r.GET("/ws/terminal/:nodeId", auth.WSMiddleware(), h.terminalWS)
+
+	v1.GET("/terminal/shells", h.listShells)
 
 	dockerHandler, err := NewDockerHandler()
 	if err == nil {
@@ -175,6 +209,61 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 func requestSizeLimit(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		c.Next()
+	}
+}
+
+func securityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Next()
+	}
+}
+
+func apiRateLimit() gin.HandlerFunc {
+	type visitor struct {
+		count    int
+		lastSeen time.Time
+	}
+	var (
+		visitors = make(map[string]*visitor)
+		mu       sync.Mutex
+	)
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			mu.Lock()
+			for ip, v := range visitors {
+				if time.Since(v.lastSeen) > 2*time.Minute {
+					delete(visitors, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		mu.Lock()
+		v, exists := visitors[ip]
+		if !exists {
+			visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
+			mu.Unlock()
+			c.Next()
+			return
+		}
+		v.count++
+		v.lastSeen = time.Now()
+		if v.count > 600 {
+			mu.Unlock()
+			c.AbortWithStatusJSON(429, gin.H{"error": "rate limit exceeded"})
+			return
+		}
+		mu.Unlock()
 		c.Next()
 	}
 }
@@ -191,8 +280,12 @@ func (h *Handler) login(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "username and password are required"})
 		return
 	}
-	if len(req.Password) > 128 {
-		c.JSON(400, gin.H{"error": "password too long"})
+	if err := auth.ValidateUsername(req.Username); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if err := auth.ValidatePassword(req.Password); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -204,10 +297,12 @@ func (h *Handler) login(c *gin.Context) {
 
 	user, err := h.store.GetUserByUsername(req.Username)
 	if err != nil || !auth.CheckPassword(user.PasswordHash, req.Password) {
+		log.Printf("[auth] login failed for user %s from %s", auth.SanitizeLog(req.Username), c.ClientIP())
 		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
 	auth.ResetLoginAttempts(clientIP)
+	log.Printf("[auth] login success for user %s from %s", auth.SanitizeLog(req.Username), c.ClientIP())
 
 	tokenPair, err := auth.GenerateTokenPair(user.ID, user.Username, user.Role)
 	if err != nil {
@@ -216,8 +311,9 @@ func (h *Handler) login(c *gin.Context) {
 	}
 
 	csrfToken, _ := auth.GenerateCSRFToken()
-	c.SetCookie("csrf_token", csrfToken, 86400, "/", "", false, true)
-	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*86400, "/", "", false, true)
+	secure := os.Getenv("GIN_MODE") == "release"
+	c.SetCookie("csrf_token", csrfToken, 86400, "/", "", secure, true)
+	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*86400, "/", "", secure, true)
 
 	resp := gin.H{
 		"access_token": tokenPair.AccessToken,
@@ -233,7 +329,13 @@ func (h *Handler) login(c *gin.Context) {
 func (h *Handler) authMe(c *gin.Context) {
 	username, _ := c.Get("username")
 	role, _ := c.Get("role")
-	c.JSON(200, gin.H{"username": username, "role": role})
+	uname, _ := username.(string)
+	user, err := h.store.GetUserByUsername(uname)
+	mustChangePwd := false
+	if err == nil && user != nil {
+		mustChangePwd = user.MustChangePwd
+	}
+	c.JSON(200, gin.H{"username": username, "role": role, "must_change_pwd": mustChangePwd})
 }
 
 func (h *Handler) changePassword(c *gin.Context) {
@@ -245,31 +347,94 @@ func (h *Handler) changePassword(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid request"})
 		return
 	}
-	if len(req.New) < 8 {
-		c.JSON(400, gin.H{"error": "新密码长度至少8位"})
-		return
-	}
-	if len(req.New) > 128 {
-		c.JSON(400, gin.H{"error": "密码长度不能超过128位"})
+	if err := validatePasswordComplexity(req.New); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 	username, _ := c.Get("username")
 	uname, _ := username.(string)
 	user, err := h.store.GetUserByUsername(uname)
-	if err != nil || !auth.CheckPassword(user.PasswordHash, req.Old) {
-		c.JSON(401, gin.H{"error": "当前密码错误"})
+	if err != nil {
+		c.JSON(401, gin.H{"error": "user not found"})
 		return
+	}
+	if !user.MustChangePwd {
+		if !auth.CheckPassword(user.PasswordHash, req.Old) {
+			c.JSON(401, gin.H{"error": "当前密码错误"})
+			return
+		}
 	}
 	newHash := auth.HashPassword(req.New)
 	if err := h.store.UpdatePassword(uname, newHash); err != nil {
 		c.JSON(500, gin.H{"error": "更新失败"})
 		return
 	}
+	h.auditLog(c, "change_password", "user "+uname, "success")
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func validatePasswordComplexity(pwd string) error {
+	if len(pwd) < 8 {
+		return fmt.Errorf("密码长度至少8位")
+	}
+	if len(pwd) > 128 {
+		return fmt.Errorf("密码长度不能超过128位")
+	}
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, ch := range pwd {
+		switch {
+		case unicode.IsUpper(ch):
+			hasUpper = true
+		case unicode.IsLower(ch):
+			hasLower = true
+		case unicode.IsDigit(ch):
+			hasDigit = true
+		case unicode.IsPunct(ch) || unicode.IsSymbol(ch):
+			hasSpecial = true
+		}
+	}
+	var missing []string
+	if !hasUpper {
+		missing = append(missing, "大写字母")
+	}
+	if !hasLower {
+		missing = append(missing, "小写字母")
+	}
+	if !hasDigit {
+		missing = append(missing, "数字")
+	}
+	if !hasSpecial {
+		missing = append(missing, "特殊符号")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("密码必须包含：%s", strings.Join(missing, "、"))
+	}
+	return nil
 }
 
 func (h *Handler) authLogout(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func (h *Handler) changeUsername(c *gin.Context) {
+	var req struct {
+		NewUsername string `json:"new_username"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+	if len(req.NewUsername) < 2 || len(req.NewUsername) > 32 {
+		c.JSON(400, gin.H{"error": "用户名长度需在2-32位之间"})
+		return
+	}
+	username, _ := c.Get("username")
+	uname, _ := username.(string)
+	if err := h.store.UpdateUsername(uname, req.NewUsername); err != nil {
+		c.JSON(500, gin.H{"error": "修改失败，用户名可能已存在"})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ok", "username": req.NewUsername})
 }
 
 func (h *Handler) refreshToken(c *gin.Context) {
@@ -310,7 +475,7 @@ func (h *Handler) refreshToken(c *gin.Context) {
 func (h *Handler) getSnapshot(c *gin.Context) {
 	snap, err := h.collector.Collect()
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(500, gin.H{"error": "collection failed"})
 		return
 	}
 	snap.NodeID = "self"
@@ -328,7 +493,7 @@ func (h *Handler) getLatest(c *gin.Context) {
 	}
 	snap, err := h.collector.Collect()
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(500, gin.H{"error": "collection failed"})
 		return
 	}
 	snap.NodeID = "self"
@@ -341,6 +506,12 @@ func (h *Handler) persistAndCache(snap *model.Snapshot) {
 		h.store.SaveSnapshot(snap.NodeID, snap)
 		h.checkThresholds(snap)
 	}
+	h.mu.Lock()
+	h.cachedSnapshot = snap
+	h.mu.Unlock()
+}
+
+func (h *Handler) UpdateCache(snap *model.Snapshot) {
 	h.mu.Lock()
 	h.cachedSnapshot = snap
 	h.mu.Unlock()
@@ -406,13 +577,17 @@ func (h *Handler) getHistory(c *gin.Context) {
 		c.JSON(200, []interface{}{})
 		return
 	}
-	limit := 100
+	limit := 200
 	if l := c.Query("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 500 {
 			limit = v
 		}
 	}
-	c.JSON(200, h.store.ListSnapshots("", limit))
+	data := h.store.ListSnapshots("", limit)
+	if data == nil {
+		data = []map[string]any{}
+	}
+	c.JSON(200, data)
 }
 
 // ── Nodes ─────────────────────────────────────────────────────
@@ -436,6 +611,7 @@ func (h *Handler) deleteNode(c *gin.Context) {
 	if h.store != nil {
 		h.store.DeleteNode(id)
 	}
+	h.auditLog(c, "delete_node", "node "+id, "success")
 	c.JSON(200, gin.H{"status": "ok"})
 }
 
@@ -640,6 +816,16 @@ func (h *Handler) registerNode(c *gin.Context) {
 	if req.Name == "" {
 		c.JSON(400, gin.H{"error": "node name is required"})
 		return
+	}
+	if err := auth.ValidateInput(req.Name, 128, "node name"); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.ID != "" {
+		if err := auth.ValidateNodeID(req.ID); err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	h.nm.Register(&req)
 	c.JSON(200, gin.H{"status": "ok"})
@@ -1063,6 +1249,10 @@ func (h *Handler) executeDatabaseQuery(c *gin.Context) {
 	}
 	if len(req.SQL) > 4096 {
 		c.JSON(400, gin.H{"error": "SQL query too long (max 4096 characters)"})
+		return
+	}
+	if err := auth.ValidateSQLQuery(req.SQL); err != nil {
+		c.JSON(403, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -1526,6 +1716,31 @@ func (h *Handler) updateAlertSettings(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
 }
 
+func (h *Handler) getSystemSettings(c *gin.Context) {
+	s := settings.Get()
+	c.JSON(200, gin.H{
+		"collect_interval": s.CollectInterval,
+		"retention_days":   30,
+	})
+}
+
+func (h *Handler) updateSystemSettings(c *gin.Context) {
+	var req struct {
+		CollectInterval int `json:"collect_interval"`
+		RetentionDays   int `json:"retention_days"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	s := settings.Get()
+	if req.CollectInterval > 0 {
+		s.CollectInterval = req.CollectInterval
+	}
+	settings.Update(s)
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
 // ── Trigger Collect ───────────────────────────────────────────
 
 func (h *Handler) triggerCollect(c *gin.Context) {
@@ -1590,25 +1805,42 @@ func (h *Handler) websocket(c *gin.Context) {
 // ── Terminal WebSocket ────────────────────────────────────────
 
 func (h *Handler) terminalWS(c *gin.Context) {
-	token := c.Query("token")
-	if token == "" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token required"})
-		return
-	}
-	if ok, _ := auth.WebsocketAuth(token); !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-		return
-	}
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		log.Printf("[terminal] websocket upgrade failed: %v", err)
 		return
 	}
 	nodeID := c.Param("nodeId")
-	session := terminal.NewSession(nodeID, conn)
+	if nodeID == "" {
+		nodeID = "self"
+	}
+	shell := c.Query("shell")
+	session := terminal.NewSession(nodeID, shell, conn)
 	session.Handle()
 }
 
+func (h *Handler) listShells(c *gin.Context) {
+	shells := terminal.AvailableShells()
+	c.JSON(200, shells)
+}
+
 // ── Helper ────────────────────────────────────────────────────
+
+func (h *Handler) auditLog(c *gin.Context, action, detail, result string) {
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(float64)
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		nodeID = c.Param("nodeId")
+	}
+	h.store.SaveAuditLog(&model.AuditLog{
+		UserID: int(uid),
+		NodeID: nodeID,
+		Action: action,
+		Detail: detail,
+		Result: result,
+	})
+}
 
 func toIntFromInterface(v interface{}) int {
 	switch val := v.(type) {
@@ -1623,4 +1855,446 @@ func toIntFromInterface(v interface{}) int {
 		n, _ := strconv.Atoi(fmt.Sprintf("%v", val))
 		return n
 	}
+}
+
+func (h *Handler) healthCheck(c *gin.Context) {
+	checks := make(map[string]ha.Check)
+
+	dbStart := time.Now()
+	if err := h.store.Ping(); err != nil {
+		checks["database"] = ha.Check{Status: "unhealthy", Message: err.Error()}
+	} else {
+		checks["database"] = ha.Check{Status: "healthy", Latency: time.Since(dbStart).String()}
+	}
+
+	overall := "healthy"
+	for _, check := range checks {
+		if check.Status != "healthy" {
+			overall = "degraded"
+			break
+		}
+	}
+
+	status := 200
+	if overall == "unhealthy" {
+		status = 503
+	} else if overall == "degraded" {
+		status = 200
+	}
+
+	c.JSON(status, ha.HealthStatus{
+		Status:    overall,
+		Timestamp: time.Now().Format(time.RFC3339),
+		Uptime:    ha.GetUptime(),
+		Checks:    checks,
+		System:    ha.GetSystemInfo(),
+	})
+}
+
+func (h *Handler) readinessCheck(c *gin.Context) {
+	if err := h.store.Ping(); err != nil {
+		c.JSON(503, gin.H{"status": "not_ready", "error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"status": "ready", "timestamp": time.Now().Format(time.RFC3339)})
+}
+
+func (h *Handler) createBackup(c *gin.Context) {
+	dbPath := h.store.DBPath()
+	if dbPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "backup not supported for remote database"})
+		return
+	}
+
+	bm := ha.NewBackupManager("")
+	info, err := bm.CreateBackup(dbPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	bm.CleanupOldBackups(10)
+
+	h.auditLog(c, "create_backup", info.Name, "success")
+	c.JSON(http.StatusOK, info)
+}
+
+func (h *Handler) listBackups(c *gin.Context) {
+	bm := ha.NewBackupManager("")
+	backups := bm.ListBackups()
+	if backups == nil {
+		backups = []ha.BackupInfo{}
+	}
+	c.JSON(http.StatusOK, backups)
+}
+
+func (h *Handler) restoreBackup(c *gin.Context) {
+	dbPath := h.store.DBPath()
+	if dbPath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "restore not supported for remote database"})
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "backup name required"})
+		return
+	}
+
+	bm := ha.NewBackupManager("")
+	if err := bm.RestoreBackup(req.Name, dbPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.auditLog(c, "restore_backup", req.Name, "success")
+	c.JSON(http.StatusOK, gin.H{"message": "backup restored, restart required"})
+}
+
+func (h *Handler) deleteBackup(c *gin.Context) {
+	name := c.Param("name")
+	bm := ha.NewBackupManager("")
+	if err := bm.DeleteBackup(name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "backup deleted"})
+}
+
+func (h *Handler) getTrendCompare(c *gin.Context) {
+	if h.store == nil {
+		c.JSON(200, gin.H{"current": []interface{}{}, "previous": []interface{}{}, "summary": gin.H{}})
+		return
+	}
+
+	nodeID := c.Query("node_id")
+	if nodeID == "" {
+		nodeID = "self"
+	}
+	metric := c.Query("metric")
+	if metric == "" {
+		metric = "cpu"
+	}
+	period := c.Query("period")
+	if period == "" {
+		period = "7d"
+	}
+
+	var duration time.Duration
+	switch period {
+	case "1h":
+		duration = 1 * time.Hour
+	case "6h":
+		duration = 6 * time.Hour
+	case "1d":
+		duration = 24 * time.Hour
+	case "7d":
+		duration = 168 * time.Hour
+	case "30d":
+		duration = 720 * time.Hour
+	default:
+		duration = 168 * time.Hour
+	}
+
+	now := time.Now()
+	currentStart := now.Add(-duration)
+	previousStart := now.Add(-2 * duration)
+
+	currentData, err := h.store.GetMetricsHistoryRange(nodeID, currentStart, now)
+	if err != nil {
+		currentData = []map[string]any{}
+	}
+	previousData, err := h.store.GetMetricsHistoryRange(nodeID, previousStart, currentStart)
+	if err != nil {
+		previousData = []map[string]any{}
+	}
+
+	currentSummary := computeMetricSummary(currentData, metric)
+	previousSummary := computeMetricSummary(previousData, metric)
+
+	change := 0.0
+	curAvg := summaryFloat(currentSummary, "avg")
+	prevAvg := summaryFloat(previousSummary, "avg")
+	if prevAvg > 0 {
+		change = ((curAvg - prevAvg) / prevAvg) * 100
+	}
+
+	c.JSON(200, gin.H{
+		"current":  currentData,
+		"previous": previousData,
+		"metric":   metric,
+		"period":   period,
+		"summary": gin.H{
+			"current":  currentSummary,
+			"previous": previousSummary,
+			"change":   fmt.Sprintf("%.1f%%", change),
+			"trend":    trendDirection(change),
+		},
+	})
+}
+
+func computeMetricSummary(data []map[string]any, metric string) map[string]any {
+	if len(data) == 0 {
+		return map[string]any{"avg": float64(0), "max": float64(0), "min": float64(0), "count": 0}
+	}
+
+	var values []float64
+	for _, d := range data {
+		var v float64
+		switch metric {
+		case "cpu":
+			v, _ = d["cpu_usage"].(float64)
+			if v == 0 {
+				if m, ok := d["cpu"].(map[string]any); ok {
+					v, _ = m["usage_percent"].(float64)
+				}
+			}
+		case "memory":
+			v, _ = d["mem_usage_percent"].(float64)
+			if v == 0 {
+				if m, ok := d["memory"].(map[string]any); ok {
+					v, _ = m["usage_percent"].(float64)
+				}
+			}
+		case "disk":
+			v, _ = d["disk_usage_percent"].(float64)
+			if v == 0 {
+				if m, ok := d["disk"].(map[string]any); ok {
+					v, _ = m["usage_percent"].(float64)
+				}
+			}
+		case "load1":
+			if m, ok := d["load"].(map[string]any); ok {
+				v, _ = m["load1"].(float64)
+			}
+		}
+		if v > 0 {
+			values = append(values, v)
+		}
+	}
+
+	if len(values) == 0 {
+		return map[string]any{"avg": float64(0), "max": float64(0), "min": float64(0), "count": 0}
+	}
+
+	sum := 0.0
+	maxV := values[0]
+	minV := values[0]
+	for _, v := range values {
+		sum += v
+		if v > maxV {
+			maxV = v
+		}
+		if v < minV {
+			minV = v
+		}
+	}
+
+	return map[string]any{
+		"avg":   fmt.Sprintf("%.1f", sum/float64(len(values))),
+		"max":   fmt.Sprintf("%.1f", maxV),
+		"min":   fmt.Sprintf("%.1f", minV),
+		"count": len(values),
+	}
+}
+
+func trendDirection(change float64) string {
+	if change > 5 {
+		return "rising"
+	}
+	if change < -5 {
+		return "falling"
+	}
+	return "stable"
+}
+
+func summaryFloat(m map[string]any, key string) float64 {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	switch val := v.(type) {
+	case float64:
+		return val
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	case int:
+		return float64(val)
+	default:
+		return 0
+	}
+}
+
+type AnomalyResult struct {
+	Metric    string  `json:"metric"`
+	Value     float64 `json:"value"`
+	Mean      float64 `json:"mean"`
+	Std       float64 `json:"std"`
+	UpperBand float64 `json:"upper_band"`
+	LowerBand float64 `json:"lower_band"`
+	IsAnomaly bool    `json:"is_anomaly"`
+	Severity  string  `json:"severity"`
+	Time      string  `json:"time"`
+}
+
+func (h *Handler) detectAnomalies(c *gin.Context) {
+	if h.store == nil {
+		c.JSON(200, gin.H{"anomalies": []AnomalyResult{}, "summary": gin.H{"total": 0, "anomalies": 0}})
+		return
+	}
+
+	nodeID := c.Query("node_id")
+	if nodeID == "" {
+		nodeID = "self"
+	}
+	sigmaStr := c.Query("sigma")
+	sigma := 2.0
+	if s, err := strconv.ParseFloat(sigmaStr, 64); err == nil && s > 0 && s <= 5 {
+		sigma = s
+	}
+
+	hours := 24
+	if h := c.Query("hours"); h != "" {
+		if v, err := strconv.Atoi(h); err == nil && v > 0 && v <= 720 {
+			hours = v
+		}
+	}
+
+	data, err := h.store.GetMetricsHistory(nodeID, hours)
+	if err != nil || len(data) == 0 {
+		c.JSON(200, gin.H{"anomalies": []AnomalyResult{}, "summary": gin.H{"total": 0, "anomalies": 0, "message": "no data available"}})
+		return
+	}
+
+	metrics := []struct {
+		name    string
+		extract func(map[string]any) float64
+	}{
+		{"cpu", func(d map[string]any) float64 {
+			if v, ok := d["cpu_usage"].(float64); ok {
+				return v
+			}
+			if m, ok := d["cpu"].(map[string]any); ok {
+				if v, ok := m["usage_percent"].(float64); ok {
+					return v
+				}
+			}
+			return 0
+		}},
+		{"memory", func(d map[string]any) float64 {
+			if v, ok := d["mem_usage_percent"].(float64); ok {
+				return v
+			}
+			if m, ok := d["memory"].(map[string]any); ok {
+				if v, ok := m["usage_percent"].(float64); ok {
+					return v
+				}
+			}
+			return 0
+		}},
+		{"disk", func(d map[string]any) float64 {
+			if v, ok := d["disk_usage_percent"].(float64); ok {
+				return v
+			}
+			if m, ok := d["disk"].(map[string]any); ok {
+				if v, ok := m["usage_percent"].(float64); ok {
+					return v
+				}
+			}
+			return 0
+		}},
+	}
+
+	var anomalies []AnomalyResult
+	totalPoints := 0
+
+	for _, m := range metrics {
+		var values []float64
+		for _, d := range data {
+			v := m.extract(d)
+			if v > 0 {
+				values = append(values, v)
+			}
+		}
+
+		if len(values) < 5 {
+			continue
+		}
+
+		totalPoints += len(values)
+
+		mean := 0.0
+		for _, v := range values {
+			mean += v
+		}
+		mean /= float64(len(values))
+
+		variance := 0.0
+		for _, v := range values {
+			variance += (v - mean) * (v - mean)
+		}
+		variance /= float64(len(values))
+		std := math.Sqrt(variance)
+
+		upperBand := mean + sigma*std
+		lowerBand := mean - sigma*std
+		if lowerBand < 0 {
+			lowerBand = 0
+		}
+
+		for _, d := range data {
+			v := m.extract(d)
+			if v <= 0 {
+				continue
+			}
+
+			isAnomaly := v > upperBand || v < lowerBand
+			severity := "normal"
+			if isAnomaly {
+				deviation := 0.0
+				if v > upperBand {
+					deviation = (v - upperBand) / std
+				} else {
+					deviation = (lowerBand - v) / std
+				}
+				if deviation > 2 {
+					severity = "critical"
+				} else {
+					severity = "warning"
+				}
+			}
+
+			if isAnomaly {
+				ts, _ := d["timestamp"].(string)
+				if ts == "" {
+					ts = time.Now().Format(time.RFC3339)
+				}
+				anomalies = append(anomalies, AnomalyResult{
+					Metric:    m.name,
+					Value:     v,
+					Mean:      mean,
+					Std:       std,
+					UpperBand: upperBand,
+					LowerBand: lowerBand,
+					IsAnomaly: true,
+					Severity:  severity,
+					Time:      ts,
+				})
+			}
+		}
+	}
+
+	c.JSON(200, gin.H{
+		"anomalies": anomalies,
+		"summary": gin.H{
+			"total":       totalPoints,
+			"anomalies":   len(anomalies),
+			"sigma":       sigma,
+			"hours":       hours,
+			"anomalyRate": fmt.Sprintf("%.2f%%", float64(len(anomalies))/float64(totalPoints)*100),
+		},
+	})
 }

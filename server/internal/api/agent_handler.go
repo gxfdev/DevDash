@@ -25,15 +25,15 @@ func (h *AgentHandler) RegisterRoutes(r *gin.Engine) {
 	agentGroup := r.Group("/api/hosts", auth.Middleware())
 	{
 		agentGroup.GET("", h.ListHosts)
-		agentGroup.POST("", h.RegisterHost)
+		agentGroup.GET("/overview", h.GetOverview)
 		agentGroup.GET("/:id", h.GetHost)
-		agentGroup.DELETE("/:id", h.RemoveHost)
-		agentGroup.POST("/:id/collect", h.CollectFromHost)
 		agentGroup.GET("/:id/metrics", h.GetHostMetrics)
 		agentGroup.GET("/:id/containers", h.GetHostContainers)
 		agentGroup.GET("/:id/containers/:containerId/stats", h.GetHostContainerStats)
-		agentGroup.POST("/collect-all", h.CollectFromAllHosts)
-		agentGroup.GET("/overview", h.GetOverview)
+		agentGroup.POST("", auth.RequireRole("admin"), h.RegisterHost)
+		agentGroup.DELETE("/:id", auth.RequireRole("admin"), h.RemoveHost)
+		agentGroup.POST("/:id/collect", auth.RequireRole("admin"), h.CollectFromHost)
+		agentGroup.POST("/collect-all", auth.RequireRole("admin"), h.CollectFromAllHosts)
 	}
 }
 

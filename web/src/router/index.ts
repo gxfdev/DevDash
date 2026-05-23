@@ -5,6 +5,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
+    { path: '/force-change-password', name: 'force-change-password', component: () => import('@/views/ForceChangePasswordView.vue') },
     { path: '/', name: 'dashboard', component: () => import('@/views/DashboardView.vue'), meta: { requiresAuth: true } },
     { path: '/hosts', name: 'hosts', component: () => import('@/views/HostListView.vue'), meta: { requiresAuth: true } },
     { path: '/hosts/:id', name: 'host-detail', component: () => import('@/views/HostDetailView.vue'), meta: { requiresAuth: true } },
@@ -22,13 +23,33 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
+
   if (to.meta.requiresAuth && !auth.isLoggedIn) {
     next('/login')
-  } else {
-    next()
+    return
   }
+
+  if (auth.isLoggedIn && !auth.username && to.name !== 'force-change-password') {
+    await auth.fetchMe()
+    if (!auth.isLoggedIn) {
+      next('/login')
+      return
+    }
+  }
+
+  if (auth.isLoggedIn && auth.mustChangePwd && to.name !== 'force-change-password') {
+    next('/force-change-password')
+    return
+  }
+
+  if (to.path === '/login' && auth.isLoggedIn && !auth.mustChangePwd) {
+    next('/')
+    return
+  }
+
+  next()
 })
 
 export default router

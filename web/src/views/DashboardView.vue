@@ -20,14 +20,45 @@
         <metric-card label="负载(1m)" :value="loadLabel" :sub="loadSubLabel" color="#f85149" />
       </div>
 
-      <div class="charts-row">
-        <div class="chart-box">
-          <div class="chart-title">CPU & 内存 实时趋势 <span class="chart-hint">每30s自动刷新</span></div>
-          <div ref="chartRef" style="height:220px;width:100%" />
+      <div class="monitor-grid">
+        <div class="monitor-panel">
+          <div class="panel-header">
+            <span class="panel-dot" style="background:#3fb950"></span>
+            <span class="panel-title">CPU 监控</span>
+            <span class="panel-value" style="color:#3fb950">{{ cpuLabel }}</span>
+          </div>
+          <div class="panel-sub">{{ coresLabel }}</div>
+          <div ref="cpuChartRef" class="panel-chart" />
         </div>
-        <div class="chart-box">
-          <div class="chart-title">磁盘 & 网络 实时趋势</div>
-          <div ref="chart2Ref" style="height:220px;width:100%" />
+
+        <div class="monitor-panel">
+          <div class="panel-header">
+            <span class="panel-dot" style="background:#bc8cff"></span>
+            <span class="panel-title">内存使用</span>
+            <span class="panel-value" style="color:#bc8cff">{{ memLabel }}</span>
+          </div>
+          <div class="panel-sub">{{ memSubLabel }}</div>
+          <div ref="memChartRef" class="panel-chart" />
+        </div>
+
+        <div class="monitor-panel">
+          <div class="panel-header">
+            <span class="panel-dot" style="background:#d29922"></span>
+            <span class="panel-title">磁盘状态</span>
+            <span class="panel-value" style="color:#d29922">{{ diskLabel }}</span>
+          </div>
+          <div class="panel-sub">{{ diskSubLabel }}</div>
+          <div ref="diskChartRef" class="panel-chart" />
+        </div>
+
+        <div class="monitor-panel">
+          <div class="panel-header">
+            <span class="panel-dot" style="background:#f0883e"></span>
+            <span class="panel-title">网络流量</span>
+            <span class="panel-value" style="color:#f0883e">{{ netLabel }}</span>
+          </div>
+          <div class="panel-sub">{{ netSubLabel }}</div>
+          <div ref="netChartRef" class="panel-chart" />
         </div>
       </div>
 
@@ -72,10 +103,10 @@ import { NButton } from 'naive-ui'
 import { Refresh as RefreshIcon } from '@vicons/ionicons5'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent } from 'echarts/components'
 import { UniversalTransition } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, UniversalTransition, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent, UniversalTransition, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'
@@ -84,16 +115,22 @@ import { useNodesStore } from '@/stores/nodes'
 const snap = useSnapshotStore()
 const nodesStore = useNodesStore()
 
-const chartRef = ref<HTMLDivElement>()
-const chart2Ref = ref<HTMLDivElement>()
-let chart: echarts.ECharts | null = null
-let chart2: echarts.ECharts | null = null
+const cpuChartRef = ref<HTMLDivElement>()
+const memChartRef = ref<HTMLDivElement>()
+const diskChartRef = ref<HTMLDivElement>()
+const netChartRef = ref<HTMLDivElement>()
+let cpuChart: echarts.ECharts | null = null
+let memChart: echarts.ECharts | null = null
+let diskChart: echarts.ECharts | null = null
+let netChart: echarts.ECharts | null = null
 let pollTimer: ReturnType<typeof setInterval>
 
-const MAX_POINTS = 60
+const MAX_POINTS = 120
 const cpuData: [number, number][] = []
 const memData: [number, number][] = []
 const diskData: [number, number][] = []
+const diskReadData: [number, number][] = []
+const diskWriteData: [number, number][] = []
 const netRecvData: [number, number][] = []
 const netSentData: [number, number][] = []
 
@@ -115,11 +152,19 @@ const diskSubLabel = computed(() => {
   return `${d.used_gb.toFixed(1)} / ${d.total_gb.toFixed(1)} GB`
 })
 const netLabel = computed(() => {
-  const r = parseFloat(snap.netRecvMB)
-  const s = parseFloat(snap.netSentMB)
-  return `${(r + s).toFixed(1)} MB/s`
+  const cur = snap.current
+  if (!cur?.network) return '-- MB/s'
+  const r = typeof cur.network.recv_rate_mb === 'number' ? cur.network.recv_rate_mb : 0
+  const s = typeof cur.network.sent_rate_mb === 'number' ? cur.network.sent_rate_mb : 0
+  return `${(r + s).toFixed(3)} MB/s`
 })
-const netSubLabel = computed(() => `\u2193 ${snap.netRecvMB}  \u2191 ${snap.netSentMB}`)
+const netSubLabel = computed(() => {
+  const cur = snap.current
+  if (!cur?.network) return '\u2193 0  \u2191 0 MB/s'
+  const r = typeof cur.network.recv_rate_mb === 'number' ? cur.network.recv_rate_mb : 0
+  const s = typeof cur.network.sent_rate_mb === 'number' ? cur.network.sent_rate_mb : 0
+  return `\u2193 ${r.toFixed(3)}  \u2191 ${s.toFixed(3)} MB/s`
+})
 const loadLabel = computed(() => snap.load1.toFixed(2))
 const loadSubLabel = computed(() => {
   const l = snap.current?.load
@@ -170,7 +215,7 @@ function createGradientColor(color: string, opacity: number = 0.15): any {
   }
 }
 
-function makeBaseOpt(): Record<string, unknown> {
+function makeBaseOpt(): any {
   return {
     grid: { top: 30, right: 20, bottom: 30, left: 50 },
     legend: { top: 5, right: 10, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 16, itemHeight: 3 },
@@ -189,226 +234,362 @@ function makeBaseOpt(): Record<string, unknown> {
   }
 }
 
-function initCharts() {
+function makeTimeAxis(): any {
+  return {
+    type: 'time',
+    boundaryGap: false,
+    axisLine: { lineStyle: { color: '#30363d' } },
+    axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
+    splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } },
+  }
+}
+
+function makeLineSeries(name: string, color: string, areaOpacity: number, yAxisIndex = 0): any {
+  return {
+    name,
+    type: 'line',
+    smooth: 0.4,
+    showSymbol: false,
+    sampling: 'lttb',
+    yAxisIndex,
+    lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: hexToRgba(color, 0.3) },
+    itemStyle: { color },
+    areaStyle: { color: createGradientColor(color, areaOpacity) },
+    data: [],
+    emphasis: { focus: 'series', lineStyle: { width: 3 } },
+    connectNulls: true,
+  }
+}
+
+function makePercentYAxis(): any {
+  return {
+    type: 'value',
+    min: 0,
+    max: 100,
+    axisLine: { lineStyle: { color: '#30363d' } },
+    axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
+    splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
+  }
+}
+
+function initCharts(): Promise<void> {
   disposeCharts()
-  nextTick(() => {
-    if (chartRef.value) {
-      chart = echarts.init(chartRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = {
-        type: 'time',
-        boundaryGap: false,
-        axisLine: { lineStyle: { color: '#30363d' } },
-        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
-        splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } }
+  return new Promise(resolve => {
+    nextTick(() => {
+      if (cpuChartRef.value) {
+        cpuChart = echarts.init(cpuChartRef.value, 'dark')
+        const opt = makeBaseOpt()
+        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
+        opt.xAxis = makeTimeAxis()
+        opt.yAxis = makePercentYAxis()
+        opt.series = [
+          makeLineSeries('CPU', '#3fb950', 0.2),
+        ]
+        opt.series[0].markLine = {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+          data: [{ yAxis: 80, label: { formatter: '告警线 80%', color: '#f85149', fontSize: 10 } }],
+        }
+        cpuChart.setOption(opt)
       }
-      opt.yAxis = {
-        type: 'value',
-        min: 0,
-        max: 100,
-        axisLine: { lineStyle: { color: '#30363d' } },
-        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
-        splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } }
-      }
-      opt.series = [
-        {
-          name: 'CPU',
-          type: 'line',
-          smooth: 0.4,
-          showSymbol: false,
-          sampling: 'lttb',
-          lineStyle: { width: 2.5, color: '#3fb950', shadowBlur: 10, shadowColor: 'rgba(63,185,80,0.3)' },
-          itemStyle: { color: '#3fb950' },
-          areaStyle: { color: createGradientColor('rgb(63,185,80)', 0.2) },
-          data: [],
-          emphasis: { focus: 'series', lineStyle: { width: 3 } }
-        },
-        {
-          name: '内存',
-          type: 'line',
-          smooth: 0.4,
-          showSymbol: false,
-          sampling: 'lttb',
-          lineStyle: { width: 2.5, color: '#bc8cff', shadowBlur: 10, shadowColor: 'rgba(188,140,255,0.3)' },
-          itemStyle: { color: '#bc8cff' },
-          areaStyle: { color: createGradientColor('rgb(188,140,255)', 0.2) },
-          data: [],
-          emphasis: { focus: 'series', lineStyle: { width: 3 } }
-        },
-      ]
-      chart.setOption(opt)
-    }
 
-    if (chart2Ref.value) {
-      chart2 = echarts.init(chart2Ref.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = {
-        type: 'time',
-        boundaryGap: false,
-        axisLine: { lineStyle: { color: '#30363d' } },
-        axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
-        splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } }
+      if (memChartRef.value) {
+        memChart = echarts.init(memChartRef.value, 'dark')
+        const opt = makeBaseOpt()
+        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
+        opt.xAxis = makeTimeAxis()
+        opt.yAxis = makePercentYAxis()
+        opt.series = [
+          makeLineSeries('内存', '#bc8cff', 0.2),
+        ]
+        opt.series[0].markLine = {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+          data: [{ yAxis: 85, label: { formatter: '告警线 85%', color: '#f85149', fontSize: 10 } }],
+        }
+        memChart.setOption(opt)
       }
-      opt.yAxis = [
-        {
+
+      if (diskChartRef.value) {
+        diskChart = echarts.init(diskChartRef.value, 'dark')
+        const opt = makeBaseOpt()
+        opt.grid = { top: 40, right: 20, bottom: 30, left: 50 }
+        opt.xAxis = makeTimeAxis()
+        opt.yAxis = [
+          {
+            type: 'value',
+            min: 0,
+            max: 100,
+            position: 'left',
+            axisLine: { lineStyle: { color: '#30363d' } },
+            axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
+            splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
+          },
+          {
+            type: 'value',
+            min: 0,
+            position: 'right',
+            axisLine: { show: false },
+            axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' },
+            splitLine: { show: false },
+          },
+        ]
+        opt.series = [
+          makeLineSeries('磁盘使用', '#d29922', 0.15, 0),
+          makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
+          makeLineSeries('写入速率', '#f0883e', 0.08, 1),
+        ]
+        opt.series[0].markLine = {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+          data: [{ yAxis: 90, label: { formatter: '告警线 90%', color: '#f85149', fontSize: 10 } }],
+        }
+        diskChart.setOption(opt)
+      }
+
+      if (netChartRef.value) {
+        netChart = echarts.init(netChartRef.value, 'dark')
+        const opt = makeBaseOpt()
+        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
+        opt.xAxis = makeTimeAxis()
+        opt.yAxis = {
           type: 'value',
           min: 0,
-          max: 100,
-          position: 'left',
           axisLine: { lineStyle: { color: '#30363d' } },
-          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
-          splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } }
-        },
-        {
-          type: 'value',
-          min: 0,
-          position: 'right',
-          axisLine: { show: false },
-          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}' },
-          splitLine: { show: false }
-        },
-      ]
-      opt.series = [
-        {
-          name: '磁盘',
-          type: 'line',
-          smooth: 0.4,
-          yAxisIndex: 0,
-          showSymbol: false,
-          sampling: 'lttb',
-          lineStyle: { width: 2.5, color: '#d29922', shadowBlur: 10, shadowColor: 'rgba(210,153,34,0.3)' },
-          itemStyle: { color: '#d29922' },
-          areaStyle: { color: createGradientColor('rgb(210,153,34)', 0.15) },
-          data: [],
-          emphasis: { focus: 'series', lineStyle: { width: 3 } }
-        },
-        {
-          name: '\u2193入流量',
-          type: 'line',
-          smooth: 0.4,
-          yAxisIndex: 1,
-          showSymbol: false,
-          sampling: 'lttb',
-          lineStyle: { width: 2.5, color: '#58a6ff', shadowBlur: 10, shadowColor: 'rgba(88,166,255,0.3)' },
-          itemStyle: { color: '#58a6ff' },
-          areaStyle: { color: createGradientColor('rgb(88,166,255)', 0.12) },
-          data: [],
-          emphasis: { focus: 'series', lineStyle: { width: 3 } }
-        },
-        {
-          name: '\u2191出流量',
-          type: 'line',
-          smooth: 0.4,
-          yAxisIndex: 1,
-          showSymbol: false,
-          sampling: 'lttb',
-          lineStyle: { width: 2.5, color: '#f0883e', shadowBlur: 10, shadowColor: 'rgba(240,136,62,0.3)' },
-          itemStyle: { color: '#f0883e' },
-          areaStyle: { color: createGradientColor('rgb(240,136,62)', 0.12) },
-          data: [],
-          emphasis: { focus: 'series', lineStyle: { width: 3 } }
-        },
-      ]
-      chart2.setOption(opt)
-    }
+          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' },
+          splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
+        }
+        opt.series = [
+          makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
+          makeLineSeries('\u2191 出流量', '#f0883e', 0.12),
+        ]
+        netChart.setOption(opt)
+      }
 
-    pushData()
+      resolve()
+    })
   })
 }
 
 function disposeCharts() {
-  try { chart?.dispose(); chart = null } catch {}
-  try { chart2?.dispose(); chart2 = null } catch {}
+  try { cpuChart?.dispose(); cpuChart = null } catch {}
+  try { memChart?.dispose(); memChart = null } catch {}
+  try { diskChart?.dispose(); diskChart = null } catch {}
+  try { netChart?.dispose(); netChart = null } catch {}
 }
 
 function pushData() {
   const cur = snap.current
   if (!cur) return
 
-  const now = Date.now()
+  const now = cur.timestamp ? new Date(cur.timestamp).getTime() : Date.now()
+  if (cpuData.length > 0 && Math.abs(now - cpuData[cpuData.length - 1][0]) < 3000) return
+
   const cpuVal = typeof cur.cpu?.usage_percent === 'number' ? cur.cpu.usage_percent : 0
   const memVal = typeof cur.memory?.usage_percent === 'number' ? cur.memory.usage_percent : 0
   const diskVal = typeof cur.disk?.usage_percent === 'number' ? cur.disk.usage_percent : 0
-  const netIn = parseFloat(snap.netRecvMB) || 0
-  const netOut = parseFloat(snap.netSentMB) || 0
+
+  let diskReadRate = 0
+  let diskWriteRate = 0
+  if (typeof cur.disk_io?.read_rate_mb === 'number' && cur.disk_io.read_rate_mb > 0) {
+    diskReadRate = cur.disk_io.read_rate_mb
+    diskWriteRate = cur.disk_io.write_rate_mb ?? 0
+  } else {
+    diskReadRate = computeDiskRate(cur, 'read_mb')
+    diskWriteRate = computeDiskRate(cur, 'write_mb')
+  }
+
+  let netRecvRate = 0
+  let netSentRate = 0
+  if (typeof cur.network?.recv_rate_mb === 'number' && cur.network.recv_rate_mb > 0) {
+    netRecvRate = cur.network.recv_rate_mb
+    netSentRate = cur.network.sent_rate_mb ?? 0
+  } else {
+    netRecvRate = computeNetRate(cur, 'recv')
+    netSentRate = computeNetRate(cur, 'sent')
+  }
 
   cpuData.push([now, cpuVal])
   memData.push([now, memVal])
   diskData.push([now, diskVal])
-  netRecvData.push([now, netIn])
-  netSentData.push([now, netOut])
+  diskReadData.push([now, diskReadRate])
+  diskWriteData.push([now, diskWriteRate])
+  netRecvData.push([now, netRecvRate])
+  netSentData.push([now, netSentRate])
 
-  while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
+  while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
 
-  if (chart) {
-    try {
-      chart.setOption({
-        series: [
-          { data: cpuData.map(d => [...d]) },
-          { data: memData.map(d => [...d]) },
-        ],
-      })
-    } catch (e) {
-      console.warn('[dashboard] chart1 error:', e)
-    }
+  updateCharts()
+}
+
+let prevDiskRead = 0
+let prevDiskWrite = 0
+let prevDiskTs = 0
+let prevNetRecv = 0
+let prevNetSent = 0
+let prevNetTs = 0
+
+function computeDiskRate(cur: any, field: string): number {
+  const val = cur.disk_io?.[field] ?? 0
+  const ts = Date.now()
+  if (prevDiskTs === 0) {
+    prevDiskRead = cur.disk_io?.read_mb ?? 0
+    prevDiskWrite = cur.disk_io?.write_mb ?? 0
+    prevDiskTs = ts
+    return 0
   }
+  const dt = (ts - prevDiskTs) / 1000
+  if (dt <= 0) return 0
+  const prev = field === 'read_mb' ? prevDiskRead : prevDiskWrite
+  const rate = Math.max(0, (val - prev) / dt)
+  if (field === 'read_mb') { prevDiskRead = val; prevDiskWrite = cur.disk_io?.write_mb ?? prevDiskWrite }
+  else { prevDiskWrite = val; prevDiskRead = cur.disk_io?.read_mb ?? prevDiskRead }
+  prevDiskTs = ts
+  return parseFloat(rate.toFixed(2))
+}
 
-  if (chart2) {
+function computeNetRate(cur: any, field: string): number {
+  const bytesField = field === 'recv' ? 'bytes_recv' : 'bytes_sent'
+  const val = cur.network?.[bytesField] ?? 0
+  const ts = Date.now()
+  if (prevNetTs === 0) {
+    prevNetRecv = cur.network?.bytes_recv ?? 0
+    prevNetSent = cur.network?.bytes_sent ?? 0
+    prevNetTs = ts
+    return 0
+  }
+  const dt = (ts - prevNetTs) / 1000
+  if (dt <= 0) return 0
+  const prev = field === 'recv' ? prevNetRecv : prevNetSent
+  const rateMBps = Math.max(0, (val - prev) / 1024 / 1024 / dt)
+  if (field === 'recv') { prevNetRecv = val }
+  else { prevNetSent = val }
+  if (field === 'sent') {
+    prevNetRecv = cur.network?.bytes_recv ?? prevNetRecv
+    prevNetTs = ts
+  }
+  return parseFloat(rateMBps.toFixed(3))
+}
+
+function updateCharts() {
+  if (cpuChart) {
+    try { cpuChart.setOption({ series: [{ data: cpuData.map(d => [...d]) }] }) } catch {}
+  }
+  if (memChart) {
+    try { memChart.setOption({ series: [{ data: memData.map(d => [...d]) }] }) } catch {}
+  }
+  if (diskChart) {
     try {
-      chart2.setOption({
+      diskChart.setOption({
         series: [
           { data: diskData.map(d => [...d]) },
+          { data: diskReadData.map(d => [...d]) },
+          { data: diskWriteData.map(d => [...d]) },
+        ],
+      })
+    } catch {}
+  }
+  if (netChart) {
+    try {
+      netChart.setOption({
+        series: [
           { data: netRecvData.map(d => [...d]) },
           { data: netSentData.map(d => [...d]) },
         ],
       })
-    } catch (e) {
-      console.warn('[dashboard] chart2 error:', e)
-    }
+    } catch {}
   }
 }
 
 async function refresh() {
   try {
-    await snap.triggerCollect()
-    await nodesStore.fetchNodes()
+    await snap.fetchLatest()
     pushData()
-  } catch (e) {
-    console.warn('[dashboard] refresh error:', (e as Error)?.message || e)
+  } catch (e: unknown) {
+    const status = (e as any)?.response?.status
+    if (status === 429) {
+      console.warn('[dashboard] rate limited, will retry next cycle')
+    } else {
+      console.warn('[dashboard] refresh error:', (e as Error)?.message || e)
+    }
   }
+  try {
+    await nodesStore.fetchNodes()
+  } catch {}
 }
 
 function handleResize() {
-  try { chart?.resize(); chart2?.resize() } catch {}
+  try { cpuChart?.resize(); memChart?.resize(); diskChart?.resize(); netChart?.resize() } catch {}
 }
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await nodesStore.fetchNodes()
-  initCharts()
+  await initCharts()
 
   try {
-    await snap.fetchHistory(60)
+    await snap.fetchHistory(200)
     const hist = snap.history
     if (hist && hist.length > 0) {
-      for (const h of hist) {
+      for (let i = 0; i < hist.length; i++) {
+        const h = hist[i]
         const t = new Date(h.timestamp).getTime()
         if (isNaN(t)) continue
         cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
         memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
         diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
-        const nr = (h.network?.bytes_recv ?? 0) / 1024 / 1024
-        const ns = (h.network?.bytes_sent ?? 0) / 1024 / 1024
-        netRecvData.push([t, parseFloat(nr.toFixed(2))])
-        netSentData.push([t, parseFloat(ns.toFixed(2))])
+
+        if (typeof h.disk_io?.read_rate_mb === 'number' && h.disk_io.read_rate_mb > 0) {
+          diskReadData.push([t, h.disk_io.read_rate_mb])
+          diskWriteData.push([t, h.disk_io.write_rate_mb ?? 0])
+        } else if (i > 0) {
+          const prev = hist[i - 1]
+          const prevT = new Date(prev.timestamp).getTime()
+          const dt = (t - prevT) / 1000
+          if (dt > 0) {
+            const readRate = Math.max(0, ((h.disk_io?.read_mb ?? 0) - (prev.disk_io?.read_mb ?? 0)) / dt)
+            const writeRate = Math.max(0, ((h.disk_io?.write_mb ?? 0) - (prev.disk_io?.write_mb ?? 0)) / dt)
+            diskReadData.push([t, parseFloat(readRate.toFixed(2))])
+            diskWriteData.push([t, parseFloat(writeRate.toFixed(2))])
+          } else {
+            diskReadData.push([t, 0])
+            diskWriteData.push([t, 0])
+          }
+        } else {
+          diskReadData.push([t, 0])
+          diskWriteData.push([t, 0])
+        }
+
+        if (typeof h.network?.recv_rate_mb === 'number' && h.network.recv_rate_mb > 0) {
+          netRecvData.push([t, h.network.recv_rate_mb])
+          netSentData.push([t, h.network.sent_rate_mb ?? 0])
+        } else if (i > 0) {
+          const prev = hist[i - 1]
+          const prevT = new Date(prev.timestamp).getTime()
+          const dtSec = (t - prevT) / 1000
+          if (dtSec > 0) {
+            const curRecv = (h.network?.bytes_recv ?? 0) / 1024 / 1024
+            const curSent = (h.network?.bytes_sent ?? 0) / 1024 / 1024
+            const prevRecv = (prev.network?.bytes_recv ?? 0) / 1024 / 1024
+            const prevSent = (prev.network?.bytes_sent ?? 0) / 1024 / 1024
+            netRecvData.push([t, parseFloat(Math.max(0, (curRecv - prevRecv) / dtSec).toFixed(3))])
+            netSentData.push([t, parseFloat(Math.max(0, (curSent - prevSent) / dtSec).toFixed(3))])
+          } else {
+            netRecvData.push([t, 0])
+            netSentData.push([t, 0])
+          }
+        } else {
+          netRecvData.push([t, 0])
+          netSentData.push([t, 0])
+        }
       }
-      while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); netRecvData.shift(); netSentData.shift() }
-      if (chart) {
-        try { chart.setOption({ series: [{ data: cpuData.map(d => [...d]) }, { data: memData.map(d => [...d]) }] }) } catch {}
-      }
-      if (chart2) {
-        try { chart2.setOption({ series: [{ data: diskData.map(d => [...d]) }, { data: netRecvData.map(d => [...d]) }, { data: netSentData.map(d => [...d]) }] }) } catch {}
-      }
+      while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
+      updateCharts()
+      prevDiskTs = 0
+      prevNetTs = 0
     }
   } catch (e) {
     console.warn('[dashboard] load history failed:', e)
@@ -433,10 +614,15 @@ h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .last-update { font-size: 12px; color: #6e7681; }
 
 .summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-.chart-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; overflow: hidden; }
-.chart-title { font-size: 13px; color: #8b949e; margin-bottom: 8px; }
-.chart-hint { font-size: 11px; color: #484f58; margin-left: 6px; }
+
+.monitor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.monitor-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; overflow: hidden; }
+.panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.panel-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.panel-title { font-size: 13px; color: #8b949e; font-weight: 500; }
+.panel-value { font-size: 18px; font-weight: 700; margin-left: auto; }
+.panel-sub { font-size: 11px; color: #6e7681; margin-bottom: 8px; }
+.panel-chart { height: 200px; width: 100%; }
 
 .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .info-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; }
@@ -453,4 +639,9 @@ h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .alert-item { display: flex; justify-content: space-between; padding: 8px 12px; background: #f8514911; border-radius: 6px; }
 .alert-node { color: #e6edf3; font-weight: 500; font-size: 13px; }
 .alert-reason { color: #f85149; font-size: 13px; }
+
+@media (max-width: 768px) {
+  .monitor-grid { grid-template-columns: 1fr; }
+  .summary-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+}
 </style>

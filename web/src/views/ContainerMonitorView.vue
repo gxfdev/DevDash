@@ -1,4 +1,5 @@
 <template>
+  <app-layout>
   <div class="container-monitor">
     <div class="page-header">
       <h1>📊 容器监控</h1>
@@ -592,10 +593,12 @@
       </div>
     </div>
   </div>
+  </app-layout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import AppLayout from '@/components/AppLayout.vue'
 import apiClient from '../api/client'
 
 interface ContainerMetrics {
@@ -749,7 +752,7 @@ async function refreshAll() {
 
 async function fetchOverview() {
   try {
-    const response = await apiClient.get('/api/monitor/overview')
+    const response = await apiClient.get('/monitor/overview')
     overview.value = response.data.data
   } catch (error) {
     console.error('Failed to fetch overview:', error)
@@ -758,7 +761,7 @@ async function fetchOverview() {
 
 async function fetchDockerMetrics() {
   try {
-    const response = await apiClient.get('/api/monitor/docker/containers/realtime')
+    const response = await apiClient.get('/monitor/docker/containers/realtime')
     containers.value = Object.values(response.data.data) as ContainerMetrics[]
   } catch (error) {
     console.error('Failed to fetch Docker metrics:', error)
@@ -767,7 +770,7 @@ async function fetchDockerMetrics() {
 
 async function fetchK8sClusters() {
   try {
-    const response = await apiClient.get('/api/monitor/kubernetes/clusters')
+    const response = await apiClient.get('/monitor/kubernetes/clusters')
     k8sClusters.value = response.data.data
   } catch (error) {
     console.error('Failed to fetch K8s clusters:', error)
@@ -777,8 +780,8 @@ async function fetchK8sClusters() {
 async function fetchTopResources() {
   try {
     const [cpuResponse, memResponse] = await Promise.all([
-      apiClient.get('/api/monitor/docker/top/cpu?limit=10'),
-      apiClient.get('/api/monitor/docker/top/memory?limit=10')
+      apiClient.get('/monitor/docker/top/cpu?limit=10'),
+      apiClient.get('/monitor/docker/top/memory?limit=10')
     ])
     topCPUContainers.value = cpuResponse.data.data
     topMemoryContainers.value = memResponse.data.data
@@ -797,7 +800,7 @@ function toggleRealtime() {
 
 function connectWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${protocol}//${window.location.host}/api/monitor/docker/ws`
+  const wsUrl = `${protocol}//${window.location.host}/ws/monitor/docker`
 
   ws = new WebSocket(wsUrl)
 
@@ -900,7 +903,7 @@ async function removeCluster(clusterId: string) {
   if (!confirm('确定要删除该集群吗？')) return
   
   try {
-    await apiClient.delete(`/api/monitor/kubernetes/clusters/${clusterId}`)
+    await apiClient.delete(`/monitor/kubernetes/clusters/${clusterId}`)
     k8sClusters.value = k8sClusters.value.filter(c => c.id !== clusterId)
   } catch (error) {
     console.error('Failed to remove cluster:', error)
@@ -933,7 +936,7 @@ async function addCluster() {
       payload.token = newCluster.value.token
     }
 
-    await apiClient.post('/api/monitor/kubernetes/clusters', payload)
+    await apiClient.post('/monitor/kubernetes/clusters', payload)
     
     showAddClusterModal.value = false
     newCluster.value = {
@@ -959,7 +962,7 @@ async function loadHistory() {
   
   try {
     const response = await apiClient.get(
-      `/api/monitor/docker/containers/${selectedContainer.value.container_id}/history?duration=${historyDuration.value}&interval=${historyInterval.value}`
+      `/monitor/docker/containers/${selectedContainer.value.container_id}/history?duration=${historyDuration.value}&interval=${historyInterval.value}`
     )
     console.log('History data:', response.data)
   } catch (error) {
@@ -969,7 +972,7 @@ async function loadHistory() {
 
 async function fetchHostOverview() {
   try {
-    const response = await apiClient.get('/api/hosts/overview')
+    const response = await apiClient.get('/hosts/overview')
     hostOverview.value = response.data.data
   } catch (error) {
     console.error('Failed to fetch host overview:', error)
@@ -979,7 +982,7 @@ async function fetchHostOverview() {
 async function addHost() {
   addingHost.value = true
   try {
-    await apiClient.post('/api/hosts', newHost.value)
+    await apiClient.post('/hosts', newHost.value)
     showAddHostModal.value = false
     newHost.value = { name: '', endpoint: '', token: '', os: '', arch: '' }
     await fetchHostOverview()
@@ -994,7 +997,7 @@ async function addHost() {
 async function removeHost(hostId: string) {
   if (!confirm('确定要删除该主机吗？')) return
   try {
-    await apiClient.delete(`/api/hosts/${hostId}`)
+    await apiClient.delete(`/hosts/${hostId}`)
     await fetchHostOverview()
     if (selectedHost.value?.id === hostId) {
       selectedHost.value = null
@@ -1007,7 +1010,7 @@ async function removeHost(hostId: string) {
 
 async function collectFromHost(hostId: string) {
   try {
-    await apiClient.post(`/api/hosts/${hostId}/collect`)
+    await apiClient.post(`/hosts/${hostId}/collect`)
     await fetchHostOverview()
     if (selectedHost.value?.id === hostId) {
       await viewHostDetails(selectedHost.value)
@@ -1022,8 +1025,8 @@ async function viewHostDetails(host: RemoteHost) {
   selectedHost.value = host
   try {
     const [metricsResp, containersResp] = await Promise.all([
-      apiClient.get(`/api/hosts/${host.id}/metrics`),
-      apiClient.get(`/api/hosts/${host.id}/containers`)
+      apiClient.get(`/hosts/${host.id}/metrics`),
+      apiClient.get(`/hosts/${host.id}/containers`)
     ])
     hostMetrics.value = metricsResp.data.data
     hostContainers.value = containersResp.data.data || []
@@ -1036,7 +1039,7 @@ async function viewHostDetails(host: RemoteHost) {
 
 async function collectAllHosts() {
   try {
-    await apiClient.post('/api/hosts/collect-all')
+    await apiClient.post('/hosts/collect-all')
     await fetchHostOverview()
   } catch (error) {
     console.error('Failed to collect from all hosts:', error)
@@ -1061,7 +1064,7 @@ async function collectAllHosts() {
 .page-header h1 {
   margin: 0;
   font-size: 2rem;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .header-actions {
@@ -1921,5 +1924,45 @@ async function collectAllHosts() {
 .empty-state.small {
   padding: 20px;
   font-size: 0.9rem;
+}
+
+[data-theme="dark"] .container-monitor {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .container-monitor h1,
+[data-theme="dark"] .container-monitor h2,
+[data-theme="dark"] .container-monitor h3,
+[data-theme="dark"] .container-monitor h4 {
+  color: var(--text-primary);
+}
+[data-theme="dark"] .container-monitor .overview-card,
+[data-theme="dark"] .container-monitor .container-card,
+[data-theme="dark"] .container-monitor .detail-panel,
+[data-theme="dark"] .container-monitor .modal-content,
+[data-theme="dark"] .container-monitor .table-container,
+[data-theme="dark"] .container-monitor .host-card,
+[data-theme="dark"] .container-monitor .compose-card {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+[data-theme="dark"] .container-monitor .tab,
+[data-theme="dark"] .container-monitor .info-label,
+[data-theme="dark"] .container-monitor .service-name,
+[data-theme="dark"] .container-monitor .empty-state,
+[data-theme="dark"] .container-monitor .metric-label {
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .container-monitor input,
+[data-theme="dark"] .container-monitor select,
+[data-theme="dark"] .container-monitor textarea {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+[data-theme="dark"] .container-monitor .search-input {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--border-color);
 }
 </style>

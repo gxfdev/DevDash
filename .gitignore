@@ -54,6 +54,21 @@ test_*.go
 .env
 .env.local
 .env.*.local
+.env.production
+
+# === Secrets ===
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+docker/ssl/
+
+# === Backups ===
+server/backups/
+
+# === Settings (local) ===
+server/devdash-settings.json
 
 # === Nuxt (if any) ===
 web/.nuxt/

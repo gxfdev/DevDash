@@ -56,6 +56,9 @@ export interface TcpConns {
 export interface DiskIO {
   read_mb: number
   write_mb: number
+  iops?: number
+  read_rate_mb?: number
+  write_rate_mb?: number
 }
 
 export interface GPUDevice {

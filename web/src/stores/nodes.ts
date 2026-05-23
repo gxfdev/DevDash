@@ -25,6 +25,8 @@ export const useNodesStore = defineStore('nodes', () => {
     try {
       const { data } = await client.get('/nodes')
       nodes.value = data
+    } catch {
+      nodes.value = []
     } finally {
       loading.value = false
     }
@@ -36,8 +38,8 @@ export const useNodesStore = defineStore('nodes', () => {
   }
 
   async function addNode(payload: { name: string; addr: string; token: string; note?: string }) {
-    const { data } = await client.post('/nodes', payload)
-    nodes.value.unshift(data)
+    const { data } = await client.post('/node/register', payload)
+    await fetchNodes()
     return data
   }
 

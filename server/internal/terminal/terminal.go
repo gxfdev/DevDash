@@ -1,7 +1,6 @@
 package terminal
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -26,6 +25,7 @@ const (
 
 type TerminalSession struct {
 	NodeID string
+	Shell  string
 	Conn   *websocket.Conn
 	cmd    *exec.Cmd
 	mu     sync.Mutex
@@ -34,10 +34,11 @@ type TerminalSession struct {
 	cancel context.CancelFunc
 }
 
-func NewSession(nodeID string, conn *websocket.Conn) *TerminalSession {
+func NewSession(nodeID string, shell string, conn *websocket.Conn) *TerminalSession {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TerminalSession{
 		NodeID: nodeID,
+		Shell:  shell,
 		Conn:   conn,
 		ctx:    ctx,
 		cancel: cancel,
@@ -69,7 +70,9 @@ func (s *TerminalSession) Handle() {
 		return
 	}
 
-	s.sendMsg("\x1b[1;32mDevDash Terminal Connected (" + runtime.GOOS + ")\r\n\x1b[0m")
+	shellPath := s.resolvedShell()
+	log.Printf("[terminal] session started for node=%s pid=%d shell=%s", s.NodeID, cmd.Process.Pid, shellPath)
+	s.sendMsg("\x1b[1;32mDevDash Terminal Connected (" + runtime.GOOS + " - " + shellPath + ")\r\n\x1b[0m")
 
 	var wg sync.WaitGroup
 	wg.Add(4)
@@ -98,16 +101,17 @@ func (s *TerminalSession) Handle() {
 func (s *TerminalSession) createCommand() (*exec.Cmd, io.WriteCloser, io.Reader, io.Reader, error) {
 	var cmd *exec.Cmd
 
+	shell := s.resolvedShell()
+
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd.exe")
+		cmd = exec.Command(shell)
 		cmd.Env = append(os.Environ(),
 			"TERM=xterm-256color",
 		)
-	} else {
-		shell := "/bin/bash"
-		if _, err := os.Stat(shell); os.IsNotExist(err) {
-			shell = "/bin/sh"
+		if strings.Contains(strings.ToLower(shell), "cmd") {
+			cmd = exec.Command(shell, "/U", "/K", "prompt $P$G")
 		}
+	} else {
 		cmd = exec.Command(shell)
 		cmd.Env = append(os.Environ(),
 			"TERM=xterm-256color",
@@ -135,40 +139,148 @@ func (s *TerminalSession) createCommand() (*exec.Cmd, io.WriteCloser, io.Reader,
 	return cmd, stdin, stdout, stderr, nil
 }
 
+func (s *TerminalSession) resolvedShell() string {
+	if s.Shell != "" {
+		if _, err := os.Stat(s.Shell); err == nil {
+			return s.Shell
+		}
+		if s.Shell == "cmd.exe" {
+			return s.Shell
+		}
+	}
+
+	shell := os.Getenv("DEVDASH_SHELL")
+	if shell != "" {
+		if _, err := os.Stat(shell); err == nil {
+			return shell
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		pwsh := findWindowsShell([]string{
+			os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`,
+			os.Getenv("ProgramFiles") + `\PowerShell\6\pwsh.exe`,
+			`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+		})
+		if pwsh != "" {
+			return pwsh
+		}
+		return "cmd.exe"
+	}
+
+	envShell := os.Getenv("SHELL")
+	if envShell != "" {
+		if _, err := os.Stat(envShell); err == nil {
+			return envShell
+		}
+	}
+
+	candidates := []string{"/bin/zsh", "/bin/bash", "/usr/bin/zsh", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+
+	return "/bin/sh"
+}
+
+func findWindowsShell(candidates []string) string {
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return ""
+}
+
+func (s *TerminalSession) isPowerShell() bool {
+	shell := s.resolvedShell()
+	return strings.Contains(strings.ToLower(shell), "powershell") || strings.Contains(strings.ToLower(shell), "pwsh")
+}
+
+type ShellOption struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+func AvailableShells() []ShellOption {
+	var shells []ShellOption
+
+	if runtime.GOOS == "windows" {
+		winShells := []struct{ name, path string }{
+			{"PowerShell", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
+			{"PowerShell 7", os.Getenv("ProgramFiles") + `\PowerShell\7\pwsh.exe`},
+			{"PowerShell 6", os.Getenv("ProgramFiles") + `\PowerShell\6\pwsh.exe`},
+			{"Command Prompt", "cmd.exe"},
+		}
+		for _, s := range winShells {
+			if s.path == "cmd.exe" {
+				shells = append(shells, ShellOption{Name: s.name, Path: s.path})
+			} else if _, err := os.Stat(s.path); err == nil {
+				shells = append(shells, ShellOption{Name: s.name, Path: s.path})
+			}
+		}
+	} else {
+		unixShells := []struct{ name, path string }{
+			{"Zsh", "/bin/zsh"},
+			{"Zsh", "/usr/bin/zsh"},
+			{"Bash", "/bin/bash"},
+			{"Bash", "/usr/bin/bash"},
+			{"Fish", "/usr/bin/fish"},
+			{"Fish", "/usr/local/bin/fish"},
+			{"Dash", "/bin/dash"},
+			{"Sh", "/bin/sh"},
+		}
+		seen := map[string]bool{}
+		for _, s := range unixShells {
+			if seen[s.name] {
+				continue
+			}
+			if _, err := os.Stat(s.path); err == nil {
+				shells = append(shells, ShellOption{Name: s.name, Path: s.path})
+				seen[s.name] = true
+			}
+		}
+	}
+
+	return shells
+}
+
 func (s *TerminalSession) streamReader(r io.Reader, wg *sync.WaitGroup, isStderr bool) {
 	defer wg.Done()
 
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4096), maxMessageSize)
-
-	for scanner.Scan() {
+	buf := make([]byte, 4096)
+	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		default:
 		}
 
-		text := scanner.Text()
-		if runtime.GOOS == "windows" && !isStderr {
-			text = text + "\r\n"
-		} else if !isStderr {
-			text = text + "\n"
-		}
-
-		s.mu.Lock()
-		if atomic.LoadInt32(&s.closed) == 0 {
-			if err := s.Conn.WriteMessage(websocket.TextMessage, []byte(text)); err != nil {
-				log.Printf("[terminal] write error: %v", err)
-				s.mu.Unlock()
-				s.cancel()
-				return
+		n, err := r.Read(buf)
+		if n > 0 {
+			data := buf[:n]
+			s.mu.Lock()
+			if atomic.LoadInt32(&s.closed) == 0 {
+				if writeErr := s.Conn.WriteMessage(websocket.TextMessage, data); writeErr != nil {
+					log.Printf("[terminal] write error: %v", writeErr)
+					s.mu.Unlock()
+					s.cancel()
+					return
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Printf("[terminal] scanner error (%v): %v", map[bool]string{true: "stderr", false: "stdout"}[isStderr], err)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("[terminal] read error (%v): %v", map[bool]string{true: "stderr", false: "stdout"}[isStderr], err)
+			}
+			return
+		}
 	}
 }
 
@@ -209,15 +321,11 @@ func (s *TerminalSession) handleInput(w io.WriteCloser, wg *sync.WaitGroup) {
 					s.cmd.Process.Signal(os.Interrupt)
 				}
 				continue
-			}
-
-			if runtime.GOOS == "windows" {
-				data = strings.ReplaceAll(data, "\r\n", "\n")
-				data = strings.ReplaceAll(data, "\r", "\n")
-				if !strings.HasSuffix(data, "\n") {
-					data = data + "\r\n"
+			case "\r", "\n":
+				if runtime.GOOS == "windows" {
+					data = "\r\n"
 				} else {
-					data = strings.TrimSuffix(data, "\n") + "\r\n"
+					data = "\r"
 				}
 			}
 

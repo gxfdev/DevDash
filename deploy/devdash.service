@@ -1,0 +1,33 @@
+[Unit]
+Description=DevDash Operations Dashboard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=devdash
+Group=devdash
+WorkingDirectory=/opt/devdash
+ExecStart=/opt/devdash/devdash-server
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+EnvironmentFile=/opt/devdash/.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=devdash
+
+LimitNOFILE=65536
+LimitNPROC=4096
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/devdash/data /opt/devdash/logs
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

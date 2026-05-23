@@ -10,30 +10,34 @@
         </n-space>
       </div>
 
-      <n-tabs type="line" animated>
+      <n-tabs type="line" animated @update:value="onTabChange">
         <n-tab-pane name="system" tab="系统指标">
           <div v-if="historyData.length === 0 && !loading" class="empty-state">
             <div class="empty-icon">📊</div>
             <div>暂无历史数据，请等待数据采集或调整时间范围</div>
           </div>
-          <div v-else class="charts-row">
-            <div class="chart-box">
-              <div class="chart-title">CPU 趋势</div>
-              <div ref="cpuRef" style="height:220px" />
+          <template v-else>
+            <div class="charts-row">
+              <div class="chart-box">
+                <div class="chart-title">CPU 趋势</div>
+                <div ref="cpuRef" style="height:240px" />
+              </div>
+              <div class="chart-box">
+                <div class="chart-title">内存趋势</div>
+                <div ref="memRef" style="height:240px" />
+              </div>
             </div>
-            <div class="chart-box">
-              <div class="chart-title">内存趋势</div>
-              <div ref="memRef" style="height:220px" />
+            <div class="charts-row">
+              <div class="chart-box">
+                <div class="chart-title">磁盘 I/O 速率</div>
+                <div ref="diskRef" style="height:240px" />
+              </div>
+              <div class="chart-box">
+                <div class="chart-title">网络流量</div>
+                <div ref="netRef" style="height:240px" />
+              </div>
             </div>
-            <div class="chart-box">
-              <div class="chart-title">磁盘 I/O</div>
-              <div ref="diskRef" style="height:220px" />
-            </div>
-            <div class="chart-box">
-              <div class="chart-title">网络趋势 (KB/s)</div>
-              <div ref="netRef" style="height:220px" />
-            </div>
-          </div>
+          </template>
 
           <div class="stats-row">
             <div class="stat-box">
@@ -59,51 +63,76 @@
           </div>
         </n-tab-pane>
 
-        <n-tab-pane name="files" tab="文件统计">
-          <div v-if="fileStats.length === 0 && !loading" class="empty-state">
-            <div class="empty-icon">📁</div>
-            <div>暂无文件操作数据，请先使用文件管理功能进行操作</div>
+        <n-tab-pane name="compare" tab="趋势对比">
+          <div v-if="historyData.length === 0 && !loading" class="empty-state">
+            <div class="empty-icon">📈</div>
+            <div>暂无数据，请先在系统指标页加载数据</div>
           </div>
-          <div v-else class="charts-row">
-            <div class="chart-box">
-              <div class="chart-title">文件操作趋势</div>
-              <div ref="fileOpRef" style="height:220px" />
+          <template v-else>
+            <n-space style="margin-bottom:12px" align="center">
+              <span style="color:#8b949e;font-size:13px">对比指标：</span>
+              <n-select v-model:value="compareMetric" :options="compareMetricOptions" style="width:140px" size="small" />
+            </n-space>
+            <div class="stats-row" style="margin-bottom:16px">
+              <div class="stat-box">
+                <div class="stat-label">当前均值</div>
+                <div class="stat-val" style="color:#3fb950">{{ compareCurrentAvg }}</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">前期均值</div>
+                <div class="stat-val" style="color:#58a6ff">{{ comparePreviousAvg }}</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">变化趋势</div>
+                <div class="stat-val" :style="{color: compareTrend === 'rising' ? '#f85149' : compareTrend === 'falling' ? '#3fb950' : '#d29922'}">{{ compareTrendLabel }}</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-label">变化幅度</div>
+                <div class="stat-val" :style="{color: parseFloat(compareChange) > 0 ? '#f85149' : parseFloat(compareChange) < 0 ? '#3fb950' : '#d29922'}">{{ compareChange }}</div>
+              </div>
+            </div>
+            <div class="chart-box" style="margin-bottom:16px">
+              <div class="chart-title">{{ compareMetricLabel }} 趋势对比</div>
+              <div ref="compareCpuMemRef" style="height:280px" />
             </div>
             <div class="chart-box">
-              <div class="chart-title">文件类型分布</div>
-              <div ref="fileTypeRef" style="height:220px" />
+              <div class="chart-title">磁盘 & 网络 综合对比</div>
+              <div ref="compareDiskNetRef" style="height:280px" />
             </div>
-            <div class="chart-box">
-              <div class="chart-title">存储空间使用趋势</div>
-              <div ref="storageRef" style="height:220px" />
-            </div>
-            <div class="chart-box">
-              <div class="chart-title">目录文件数统计</div>
-              <div ref="dirCountRef" style="height:220px" />
-            </div>
-          </div>
-
-          <div class="stats-row">
-            <div class="stat-box">
-              <div class="stat-label">文件总数</div>
-              <div class="stat-val" style="color:#58a6ff">{{ totalFiles }}</div>
-              <div class="stat-sub">目录 {{ totalDirs }} · 文件 {{ totalRegular }}</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">总大小</div>
-              <div class="stat-val" style="color:#3fb950">{{ totalSize }}</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">今日操作</div>
-              <div class="stat-val" style="color:#d29922">{{ todayOps }}</div>
-              <div class="stat-sub">创建 {{ todayCreated }} · 删除 {{ todayDeleted }}</div>
-            </div>
-            <div class="stat-box">
-              <div class="stat-label">最活跃目录</div>
-              <div class="stat-val" style="color:#bc8cff">{{ topDir }}</div>
-            </div>
-          </div>
+          </template>
         </n-tab-pane>
+
+        <n-tab-pane name="anomaly" tab="异常检测">
+          <div v-if="historyData.length === 0 && !loading" class="empty-state">
+            <div class="empty-icon">🔍</div>
+            <div>暂无数据，请先在系统指标页加载数据</div>
+          </div>
+          <template v-else>
+            <div class="chart-box" style="margin-bottom:16px">
+              <div class="chart-title">CPU 异常检测 (均值±2σ)</div>
+              <div ref="anomalyCpuRef" style="height:260px" />
+            </div>
+            <div class="chart-box">
+              <div class="chart-title">内存异常检测 (均值±2σ)</div>
+              <div ref="anomalyMemRef" style="height:260px" />
+            </div>
+            <div class="anomaly-summary" v-if="anomalyPoints.length > 0">
+              <div class="anomaly-title">检测到 {{ anomalyPoints.length }} 个异常点</div>
+              <div class="anomaly-list">
+                <div v-for="(p, i) in anomalyPoints.slice(0, 20)" :key="i" class="anomaly-item">
+                  <span class="anomaly-time">{{ formatAnomalyTime(p.time) }}</span>
+                  <span class="anomaly-metric">{{ p.metric }}</span>
+                  <span class="anomaly-val">{{ p.value.toFixed(1) }}%</span>
+                  <span class="anomaly-range">正常范围 {{ p.lower.toFixed(1) }}% ~ {{ p.upper.toFixed(1) }}%</span>
+                </div>
+              </div>
+            </div>
+            <div class="anomaly-summary" v-else>
+              <div class="anomaly-title" style="color:#3fb950">未检测到异常，系统运行正常</div>
+            </div>
+          </template>
+        </n-tab-pane>
+
       </n-tabs>
 
       <div class="report-box">
@@ -114,7 +143,8 @@
           <p>内存平均使用 <strong>{{ avgMem }}%</strong>，{{ avgMem > 80 ? '⚠️ 建议关注' : '✅ 运行正常' }}</p>
           <p>磁盘平均使用 <strong>{{ avgDisk }}%</strong>，{{ avgDisk > 90 ? '⚠️ 磁盘即将满' : '✅ 空间充足' }}</p>
           <p>网络总计流量 <strong>{{ totalNet }} GB</strong></p>
-          <p v-if="fileStats.length > 0">文件操作统计：总计 <strong>{{ totalFiles }}</strong> 个文件，大小 <strong>{{ totalSize }}</strong></p>
+          <p v-if="anomalyPoints.length > 0">异常检测：发现 <strong>{{ anomalyPoints.length }}</strong> 个异常数据点</p>
+          <p v-else>异常检测：<strong>✅ 未发现异常</strong></p>
         </div>
         <n-button size="small" style="margin-top:8px" @click="exportReport">导出报告</n-button>
       </div>
@@ -125,10 +155,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { LineChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
 import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
@@ -138,26 +168,25 @@ const nodesStore = useNodesStore()
 const selectedNode = ref<string | null>(null)
 const duration = ref('7d')
 const historyData = ref<Snapshot[]>([])
-const fileStats = ref<any[]>([])
 const loading = ref(false)
 
 const cpuRef = ref<HTMLDivElement>()
 const memRef = ref<HTMLDivElement>()
 const diskRef = ref<HTMLDivElement>()
 const netRef = ref<HTMLDivElement>()
-const fileOpRef = ref<HTMLDivElement>()
-const fileTypeRef = ref<HTMLDivElement>()
-const storageRef = ref<HTMLDivElement>()
-const dirCountRef = ref<HTMLDivElement>()
+const compareCpuMemRef = ref<HTMLDivElement>()
+const compareDiskNetRef = ref<HTMLDivElement>()
+const anomalyCpuRef = ref<HTMLDivElement>()
+const anomalyMemRef = ref<HTMLDivElement>()
 
 let cpuChart: echarts.ECharts | null = null
 let memChart: echarts.ECharts | null = null
 let diskChart: echarts.ECharts | null = null
 let netChart: echarts.ECharts | null = null
-let fileOpChart: echarts.ECharts | null = null
-let fileTypeChart: echarts.ECharts | null = null
-let storageChart: echarts.ECharts | null = null
-let dirCountChart: echarts.ECharts | null = null
+let compareCpuMemChart: echarts.ECharts | null = null
+let compareDiskNetChart: echarts.ECharts | null = null
+let anomalyCpuChart: echarts.ECharts | null = null
+let anomalyMemChart: echarts.ECharts | null = null
 
 const durationOptions = [
   { label: '1小时', value: '1h' },
@@ -168,8 +197,68 @@ const durationOptions = [
 ]
 const durationLabel = computed(() => durationOptions.find(d => d.value === duration.value)?.label || '')
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
-const selectedNodeName = computed(() => nodesStore.nodes.find((n: { name: string; hostname?: string; ip: string; id: string }) => n.id === selectedNode.value)?.name || '--')
+const compareMetric = ref('cpu')
+const compareMetricOptions = [
+  { label: 'CPU 使用率', value: 'cpu' },
+  { label: '内存使用率', value: 'memory' },
+  { label: '磁盘使用率', value: 'disk' },
+  { label: '1分钟负载', value: 'load1' },
+]
+const compareMetricLabel = computed(() => compareMetricOptions.find(o => o.value === compareMetric.value)?.label || '')
+
+const compareData = ref<{ current: any[]; previous: any[] }>({ current: [], previous: [] })
+
+const compareCurrentAvg = computed(() => {
+  const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
+  if (compareData.value.current.length > 0) {
+    const curVals = compareData.value.current.map(h => getVal(h, keys))
+    return curVals.length ? Math.round(curVals.reduce((s, v) => s + v, 0) / curVals.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
+  }
+  const half = Math.floor(historyData.value.length / 2)
+  if (half === 0) return '--'
+  const secondHalf = historyData.value.slice(half).map(h => getVal(h, keys))
+  return secondHalf.length ? Math.round(secondHalf.reduce((s, v) => s + v, 0) / secondHalf.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
+})
+const comparePreviousAvg = computed(() => {
+  if (compareData.value.previous.length === 0) {
+    const half = Math.floor(historyData.value.length / 2)
+    if (half === 0) return '--'
+    const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
+    const firstHalf = historyData.value.slice(0, half).map(h => getVal(h, keys))
+    return firstHalf.length ? Math.round(firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
+  }
+  const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
+  const prevVals = compareData.value.previous.map(h => getVal(h, keys))
+  return prevVals.length ? Math.round(prevVals.reduce((s, v) => s + v, 0) / prevVals.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
+})
+const compareTrend = computed(() => {
+  const cur = parseFloat(compareCurrentAvg.value as string)
+  const prev = parseFloat(comparePreviousAvg.value as string)
+  if (isNaN(cur) || isNaN(prev) || prev === 0) return 'stable'
+  const diff = ((cur - prev) / prev) * 100
+  if (diff > 5) return 'rising'
+  if (diff < -5) return 'falling'
+  return 'stable'
+})
+const compareTrendLabel = computed(() => compareTrend.value === 'rising' ? '↑ 上升' : compareTrend.value === 'falling' ? '↓ 下降' : '→ 平稳')
+const compareChange = computed(() => {
+  const cur = parseFloat(compareCurrentAvg.value as string)
+  const prev = parseFloat(comparePreviousAvg.value as string)
+  if (isNaN(cur) || isNaN(prev) || prev === 0) return '0%'
+  return ((cur - prev) / prev * 100).toFixed(1) + '%'
+})
+
+const nodeOptions = computed(() => {
+  const opts: { label: string; value: string }[] = [{ label: '本地系统', value: 'local' }]
+  nodesStore.nodes.forEach((n: { name: string; hostname?: string; ip: string; id: string }) => {
+    opts.push({ label: n.name || n.hostname || n.ip, value: n.id })
+  })
+  return opts
+})
+const selectedNodeName = computed(() => {
+  if (selectedNode.value === 'local') return '本地系统'
+  return nodesStore.nodes.find((n: { name: string; hostname?: string; ip: string; id: string }) => n.id === selectedNode.value)?.name || '--'
+})
 
 function toTs(val: string | number | undefined): number {
   if (!val) return Date.now()
@@ -216,24 +305,35 @@ const totalNet = computed(() => ((sumArr(netInVals.value) + sumArr(netOutVals.va
 const totalIn = computed(() => (sumArr(netInVals.value) / 1024 / 1024 / 1024).toFixed(2) + ' GB')
 const totalOut = computed(() => (sumArr(netOutVals.value) / 1024 / 1024 / 1024).toFixed(2) + ' GB')
 
-const totalFiles = computed(() => fileStats.value.reduce((s, f) => s + (f.total || 0), 0))
-const totalDirs = computed(() => fileStats.value.reduce((s, f) => s + (f.dirs || 0), 0))
-const totalRegular = computed(() => totalFiles.value - totalDirs.value)
-const totalSize = computed(() => {
-  const bytes = fileStats.value.reduce((s, f) => s + (f.size || 0), 0)
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'
-  if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB'
-  return (bytes / 1073741824).toFixed(2) + ' GB'
+interface AnomalyPoint { time: number; metric: string; value: number; lower: number; upper: number }
+const anomalyPoints = computed<AnomalyPoint[]>(() => {
+  const cpuVals = vals(['cpu.usage_percent', 'cpu_usage'])
+  const memVals = vals(['memory.usage_percent', 'mem_usage_percent'])
+  const points: AnomalyPoint[] = []
+  const detectAnomaly = (data: number[], metric: string) => {
+    if (data.length < 5) return
+    const mean = data.reduce((s, v) => s + v, 0) / data.length
+    const std = Math.sqrt(data.reduce((s, v) => s + (v - mean) ** 2, 0) / data.length)
+    const upper = mean + 2 * std
+    const lower = mean - 2 * std
+    data.forEach((v, i) => {
+      if (v > upper || v < lower) {
+        const h = historyData.value[i]
+        if (h) {
+          points.push({ time: toTs(h.timestamp), metric, value: v, lower: Math.max(0, lower), upper: Math.min(100, upper) })
+        }
+      }
+    })
+  }
+  detectAnomaly(cpuVals, 'CPU')
+  detectAnomaly(memVals, '内存')
+  return points.sort((a, b) => b.time - a.time)
 })
-const todayOps = computed(() => fileStats.value.reduce((s, f) => s + (f.today_ops || 0), 0))
-const todayCreated = computed(() => fileStats.value.reduce((s, f) => s + (f.today_created || 0), 0))
-const todayDeleted = computed(() => fileStats.value.reduce((s, f) => s + (f.today_deleted || 0), 0))
-const topDir = computed(() => {
-  if (fileStats.value.length === 0) return '--'
-  const sorted = [...fileStats.value].sort((a, b) => (b.total || 0) - (a.total || 0))
-  return (sorted[0]?.path || '--').split(/[/\\]/).pop() || '--'
-})
+
+function formatAnomalyTime(ts: number): string {
+  try { return new Date(ts).toLocaleString('zh-CN', { hour12: false }) }
+  catch { return String(ts) }
+}
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '')
@@ -256,30 +356,49 @@ function createGradientColor(color: string, opacity: number = 0.2): any {
   }
 }
 
-function makeChartOpt(color: string) {
+function getTimeFormatter(): string {
+  switch (duration.value) {
+    case '1h': case '6h': return '{HH}:{mm}'
+    case '1d': return '{HH}:{mm}'
+    case '7d': return '{MM}/{dd} {HH}:{mm}'
+    case '30d': return '{MM}/{dd}'
+    default: return '{HH}:{mm}'
+  }
+}
+
+function makeLineSeries(name: string, color: string, areaOpacity: number, yAxisIndex = 0, lineType?: string): any {
+  const series: any = {
+    name,
+    type: 'line',
+    smooth: 0.4,
+    sampling: 'lttb',
+    yAxisIndex,
+    showSymbol: false,
+    lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: hexToRgba(color, 0.3) },
+    itemStyle: { color },
+    areaStyle: areaOpacity > 0 ? { color: createGradientColor(color, areaOpacity) } : undefined,
+    data: [],
+    emphasis: { focus: 'series', lineStyle: { width: 3 } },
+    connectNulls: true,
+  }
+  if (lineType) {
+    series.lineStyle.type = lineType
+  }
+  return series
+}
+
+function makeBaseOpt(): any {
   return {
-    grid: { top: 20, right: 20, bottom: 30, left: 50 },
-    xAxis: { type: 'time', boundaryGap: false, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{HH}:{mm}' }, splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } } },
-    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+    grid: { top: 35, right: 20, bottom: 30, left: 55 },
+    legend: { top: 5, right: 10, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 16, itemHeight: 3 },
     tooltip: {
       trigger: 'axis',
       backgroundColor: '#1f242c',
       borderColor: '#30363d',
       borderWidth: 1,
       textStyle: { color: '#e6edf3', fontSize: 12 },
-      axisPointer: { type: 'cross', lineStyle: { color: '#484f58' } }
+      axisPointer: { type: 'cross', lineStyle: { color: '#484f58' } },
     },
-    series: [{
-      type: 'line',
-      smooth: 0.4,
-      sampling: 'lttb',
-      data: [],
-      lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: hexToRgba(color, 0.3) },
-      itemStyle: { color },
-      symbol: 'none',
-      areaStyle: { color: createGradientColor(color) },
-      emphasis: { focus: 'series', lineStyle: { width: 3 } }
-    }],
     animation: true,
     animationDuration: 500,
     animationEasing: 'cubicOut',
@@ -287,65 +406,161 @@ function makeChartOpt(color: string) {
   }
 }
 
-function makeBarChartOpt(color: string) {
+function makeTimeAxis(): any {
   return {
-    grid: { top: 20, right: 20, bottom: 40, left: 50 },
-    xAxis: { type: 'category', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, rotate: 30 } },
-    yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
-    tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
-    series: [{ type: 'bar', data: [], itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{offset: 0, color}, {offset: 1, color: hexToRgba(color, 0.2)}] }, borderRadius: [4, 4, 0, 0] } }],
-    animation: true,
-    animationDuration: 500,
-    backgroundColor: 'transparent',
+    type: 'time',
+    boundaryGap: false,
+    axisLine: { lineStyle: { color: '#30363d' } },
+    axisLabel: { color: '#6e7681', fontSize: 10, formatter: getTimeFormatter() },
+    splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } },
   }
 }
 
-function buildCharts() {
+function makePercentYAxis(): any {
+  return {
+    type: 'value',
+    min: 0,
+    max: 100,
+    axisLine: { lineStyle: { color: '#30363d' } },
+    axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
+    splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
+  }
+}
+
+async function buildCharts() {
   disposeCharts()
-  nextTick(() => {
-    if (cpuRef.value) { cpuChart = echarts.init(cpuRef.value, 'dark'); cpuChart.setOption(makeChartOpt('#3fb950')) }
-    if (memRef.value) { memChart = echarts.init(memRef.value, 'dark'); memChart.setOption(makeChartOpt('#bc8cff')) }
+  await nextTick()
+    if (cpuRef.value) {
+      cpuChart = echarts.init(cpuRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = makePercentYAxis()
+      opt.series = [makeLineSeries('CPU', '#3fb950', 0.2)]
+      opt.series[0].markLine = {
+        silent: true, symbol: 'none',
+        lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+        data: [{ yAxis: 80, label: { formatter: '告警 80%', color: '#f85149', fontSize: 10 } }],
+      }
+      cpuChart.setOption(opt)
+    }
+
+    if (memRef.value) {
+      memChart = echarts.init(memRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = makePercentYAxis()
+      opt.series = [makeLineSeries('内存', '#bc8cff', 0.2)]
+      opt.series[0].markLine = {
+        silent: true, symbol: 'none',
+        lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+        data: [{ yAxis: 85, label: { formatter: '告警 85%', color: '#f85149', fontSize: 10 } }],
+      }
+      memChart.setOption(opt)
+    }
+
     if (diskRef.value) {
       diskChart = echarts.init(diskRef.value, 'dark')
-      const opt = makeChartOpt('#d29922')
-      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      const opt = makeBaseOpt()
+      opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = [
+        { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+        { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
+      ]
+      opt.series = [
+        makeLineSeries('磁盘使用率', '#d29922', 0.15, 0),
+        makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
+        makeLineSeries('写入速率', '#f0883e', 0.08, 1),
+      ]
       diskChart.setOption(opt)
     }
+
     if (netRef.value) {
       netChart = echarts.init(netRef.value, 'dark')
-      const opt = makeChartOpt('#58a6ff')
-      opt.yAxis = { axisLabel: { color: '#6e7681', fontSize: 11, formatter: '{value} KB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = { type: 'value', min: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+      opt.series = [
+        makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
+        makeLineSeries('\u2191 出流量', '#f0883e', 0.12),
+      ]
       netChart.setOption(opt)
     }
-    if (fileOpRef.value) { fileOpChart = echarts.init(fileOpRef.value, 'dark'); fileOpChart.setOption({
-      grid: { top: 30, right: 20, bottom: 30, left: 50 },
-      xAxis: { type: 'category', boundaryGap: false, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10 }, splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } } },
-      yAxis: { axisLabel: { color: '#6e7681', fontSize: 11 }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
-      tooltip: { trigger: 'axis', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
-      legend: { data: ['创建', '删除'], textStyle: { color: '#8b949e' }, top: 5, right: 10 },
-      series: [
-        { type: 'bar', data: [], name: '创建', itemStyle: { color: '#3fb950', borderRadius: [4, 4, 0, 0] } },
-        { type: 'bar', data: [], name: '删除', itemStyle: { color: '#f85149', borderRadius: [4, 4, 0, 0] } },
-      ],
-      animation: true,
-      animationDuration: 500,
-      backgroundColor: 'transparent',
-    }) }
-    if (fileTypeRef.value) { fileTypeChart = echarts.init(fileTypeRef.value, 'dark'); fileTypeChart.setOption({
-      tooltip: { trigger: 'item', backgroundColor: '#1f242c', borderColor: '#30363d', textStyle: { color: '#e6edf3' } },
-      legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: '#8b949e' } },
-      backgroundColor: 'transparent',
-    }) }
-    if (storageRef.value) { storageChart = echarts.init(storageRef.value, 'dark'); storageChart.setOption(makeBarChartOpt('#d29922')) }
-    if (dirCountRef.value) { dirCountChart = echarts.init(dirCountRef.value, 'dark'); dirCountChart.setOption(makeBarChartOpt('#bc8cff')) }
-  })
+
+    if (compareCpuMemRef.value) {
+      compareCpuMemChart = echarts.init(compareCpuMemRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = makePercentYAxis()
+      opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
+      opt.series = [
+        makeLineSeries('当前CPU', '#3fb950', 0.15),
+        makeLineSeries('当前内存', '#bc8cff', 0.15),
+        makeLineSeries('前期CPU', '#3fb95080', 0, undefined, 'dashed'),
+        makeLineSeries('前期内存', '#bc8cff80', 0, undefined, 'dashed'),
+      ]
+      compareCpuMemChart.setOption(opt)
+    }
+
+    if (compareDiskNetRef.value) {
+      compareDiskNetChart = echarts.init(compareDiskNetRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = [
+        { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+        { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
+      ]
+      opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
+      opt.series = [
+        makeLineSeries('当前磁盘', '#d29922', 0.1, 0),
+        makeLineSeries('当前↓入', '#58a6ff', 0.08, 1),
+        makeLineSeries('当前↑出', '#f0883e', 0.08, 1),
+        makeLineSeries('前期磁盘', '#d2992280', 0, 0, 'dashed'),
+        makeLineSeries('前期↓入', '#58a6ff80', 0, 1, 'dashed'),
+        makeLineSeries('前期↑出', '#f0883e80', 0, 1, 'dashed'),
+      ]
+      compareDiskNetChart.setOption(opt)
+    }
+
+    if (anomalyCpuRef.value) {
+      anomalyCpuChart = echarts.init(anomalyCpuRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = makePercentYAxis()
+      opt.series = [
+        makeLineSeries('CPU', '#3fb950', 0.15),
+        { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
+      ]
+      anomalyCpuChart.setOption(opt)
+    }
+
+    if (anomalyMemRef.value) {
+      anomalyMemChart = echarts.init(anomalyMemRef.value, 'dark')
+      const opt = makeBaseOpt()
+      opt.xAxis = makeTimeAxis()
+      opt.yAxis = makePercentYAxis()
+      opt.series = [
+        makeLineSeries('内存', '#bc8cff', 0.15),
+        { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
+      ]
+      anomalyMemChart.setOption(opt)
+    }
+
 }
 
 function disposeCharts() {
-  [cpuChart, memChart, diskChart, netChart, fileOpChart, fileTypeChart, storageChart, dirCountChart].forEach(c => {
+  [cpuChart, memChart, diskChart, netChart, compareCpuMemChart, compareDiskNetChart, anomalyCpuChart, anomalyMemChart].forEach(c => {
     try { c?.dispose() } catch {}
   })
-  cpuChart = memChart = diskChart = netChart = fileOpChart = fileTypeChart = storageChart = dirCountChart = null
+  cpuChart = memChart = diskChart = netChart = compareCpuMemChart = compareDiskNetChart = anomalyCpuChart = anomalyMemChart = null
+}
+
+function computeAnomalyBand(data: number[]): { mean: number; upper: number; lower: number } {
+  if (data.length < 3) return { mean: 0, upper: 100, lower: 0 }
+  const mean = data.reduce((s, v) => s + v, 0) / data.length
+  const std = Math.sqrt(data.reduce((s, v) => s + (v - mean) ** 2, 0) / data.length)
+  return { mean, upper: Math.min(100, mean + 2 * std), lower: Math.max(0, mean - 2 * std) }
 }
 
 function pushData() {
@@ -366,91 +581,184 @@ function pushData() {
     return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
 
-  const netSeries = historyData.value.map((h: any, i: number) => {
-    const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
-    const sent = getVal(h, ['network.bytes_sent', 'bytes_sent'])
+  const diskUsageSeries = historyData.value.map((h: any) => [toTs(h.timestamp), getVal(h, ['disk.usage_percent', 'disk_usage_percent'])])
+
+  const diskReadSeries = historyData.value.map((h: any, i: number) => {
+    const readMB = getVal(h, ['disk_io.read_mb', 'read_mb'])
     const ts = toTs(h.timestamp)
+    const readRateMB = getVal(h, ['disk_io.read_rate_mb', 'read_rate_mb'])
+    if (readRateMB > 0) return [ts, readRateMB]
     if (i === 0) return [ts, 0]
+    const prevReadMB = getVal(historyData.value[i - 1], ['disk_io.read_mb', 'read_mb'])
+    const prevTs = toTs(historyData.value[i - 1].timestamp)
+    const dt = (ts - prevTs) / 1000
+    if (dt <= 0) return [ts, 0]
+    return [ts, parseFloat(Math.max(0, (readMB - prevReadMB) / dt).toFixed(3))]
+  })
+
+  const diskWriteSeries = historyData.value.map((h: any, i: number) => {
+    const writeMB = getVal(h, ['disk_io.write_mb', 'write_mb'])
+    const ts = toTs(h.timestamp)
+    const writeRateMB = getVal(h, ['disk_io.write_rate_mb', 'write_rate_mb'])
+    if (writeRateMB > 0) return [ts, writeRateMB]
+    if (i === 0) return [ts, 0]
+    const prevWriteMB = getVal(historyData.value[i - 1], ['disk_io.write_mb', 'write_mb'])
+    const prevTs = toTs(historyData.value[i - 1].timestamp)
+    const dt = (ts - prevTs) / 1000
+    if (dt <= 0) return [ts, 0]
+    return [ts, parseFloat(Math.max(0, (writeMB - prevWriteMB) / dt).toFixed(3))]
+  })
+
+  const netRecvSeries = historyData.value.map((h: any, i: number) => {
+    const ts = toTs(h.timestamp)
+    const recvRateMB = getVal(h, ['network.recv_rate_mb', 'recv_rate_mb'])
+    if (recvRateMB > 0) return [ts, recvRateMB]
+    if (i === 0) return [ts, 0]
+    const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
     const prevRecv = getVal(historyData.value[i - 1], ['network.bytes_recv', 'bytes_recv'])
+    const prevTs = toTs(historyData.value[i - 1].timestamp)
+    const dt = (ts - prevTs) / 1000
+    if (dt <= 0) return [ts, 0]
+    const rateMBps = (recv - prevRecv) / 1024 / 1024 / dt
+    return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
+  })
+
+  const netSentSeries = historyData.value.map((h: any, i: number) => {
+    const ts = toTs(h.timestamp)
+    const sentRateMB = getVal(h, ['network.sent_rate_mb', 'sent_rate_mb'])
+    if (sentRateMB > 0) return [ts, sentRateMB]
+    if (i === 0) return [ts, 0]
+    const sent = getVal(h, ['network.bytes_sent', 'bytes_sent'])
     const prevSent = getVal(historyData.value[i - 1], ['network.bytes_sent', 'bytes_sent'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
     if (dt <= 0) return [ts, 0]
-    const rateKBps = ((recv + sent - prevRecv - prevSent) / 1024) / dt
-    return [ts, parseFloat(Math.max(0, rateKBps).toFixed(2))]
+    const rateMBps = (sent - prevSent) / 1024 / 1024 / dt
+    return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
 
   cpuChart?.setOption({ series: [{ data: cpuData }] })
   memChart?.setOption({ series: [{ data: memData }] })
-  diskChart?.setOption({ series: [{ data: diskIOSeries }] })
-  netChart?.setOption({ series: [{ data: netSeries }] })
+  diskChart?.setOption({ series: [{ data: diskUsageSeries }, { data: diskReadSeries }, { data: diskWriteSeries }] })
+  netChart?.setOption({ series: [{ data: netRecvSeries }, { data: netSentSeries }] })
 
-  pushFileStats()
-}
+  compareCpuMemChart?.setOption({ series: [{ data: cpuData }, { data: memData }, { data: [] }, { data: [] }] })
+  compareDiskNetChart?.setOption({ series: [{ data: diskUsageSeries }, { data: netRecvSeries }, { data: netSentSeries }, { data: [] }, { data: [] }, { data: [] }] })
 
-function pushFileStats() {
-  if (fileStats.value.length === 0) return
+  if (compareData.value.current.length > 0 || compareData.value.previous.length > 0) {
+    const curCpu = compareData.value.current.map((h: any) => [toTs(h.timestamp), getVal(h, ['cpu.usage_percent', 'cpu_usage'])])
+    const curMem = compareData.value.current.map((h: any) => [toTs(h.timestamp), getVal(h, ['memory.usage_percent', 'mem_usage_percent'])])
+    const prevCpu = compareData.value.previous.map((h: any) => [toTs(h.timestamp), getVal(h, ['cpu.usage_percent', 'cpu_usage'])])
+    const prevMem = compareData.value.previous.map((h: any) => [toTs(h.timestamp), getVal(h, ['memory.usage_percent', 'mem_usage_percent'])])
 
-  const sorted = [...fileStats.value].sort((a, b) => (b.total || 0) - (a.total || 0)).slice(0, 10)
-
-  dirCountChart?.setOption({
-    xAxis: { data: sorted.map((f: any) => (f.path || '').split(/[/\\]/).pop() || f.path || '?') },
-    series: [{ data: sorted.map((f: any) => f.total || 0) }],
-  })
-
-  const typeCount: Record<string, number> = {}
-  fileStats.value.forEach((f: any) => {
-    const types = f.types || {}
-    Object.entries(types).forEach(([ext, count]) => {
-      typeCount[ext] = (typeCount[ext] || 0) + (count as number)
+    compareCpuMemChart?.setOption({
+      legend: { data: ['当前CPU', '当前内存', '前期CPU', '前期内存'], textStyle: { color: '#8b949e', fontSize: 11 } },
+      series: [
+        { name: '当前CPU', data: curCpu },
+        { name: '当前内存', data: curMem },
+        { name: '前期CPU', data: prevCpu, lineStyle: { type: 'dashed' } },
+        { name: '前期内存', data: prevMem, lineStyle: { type: 'dashed' } },
+      ],
     })
-  })
-  const pieData = Object.entries(typeCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, value]) => ({ name, value }))
 
-  fileTypeChart?.setOption({
-    series: [{
-      type: 'pie',
-      radius: ['30%', '65%'],
-      center: ['40%', '50%'],
-      data: pieData,
-      label: { color: '#8b949e', fontSize: 11 },
-      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.5)' } },
-    }],
-  })
+    const curDiskUsage = compareData.value.current.map((h: any) => [toTs(h.timestamp), getVal(h, ['disk.usage_percent', 'disk_usage_percent'])])
+    const curNetRecv = compareData.value.current.map((h: any) => [toTs(h.timestamp), getVal(h, ['network.recv_rate_mb', 'recv_rate_mb'])])
+    const curNetSent = compareData.value.current.map((h: any) => [toTs(h.timestamp), getVal(h, ['network.sent_rate_mb', 'sent_rate_mb'])])
+    const prevDiskUsage = compareData.value.previous.map((h: any) => [toTs(h.timestamp), getVal(h, ['disk.usage_percent', 'disk_usage_percent'])])
+    const prevNetRecv = compareData.value.previous.map((h: any) => [toTs(h.timestamp), getVal(h, ['network.recv_rate_mb', 'recv_rate_mb'])])
+    const prevNetSent = compareData.value.previous.map((h: any) => [toTs(h.timestamp), getVal(h, ['network.sent_rate_mb', 'sent_rate_mb'])])
 
-  const storageData = sorted.map((f: any) => ({
-    name: (f.path || '').split(/[/\\]/).pop() || f.path || '?',
-    value: f.size || 0,
-  }))
-  storageChart?.setOption({
-    series: [{ data: storageData.map((d, i) => [i, d.value ? +(d.value / 1048576).toFixed(1) : 0]) }],
-    xAxis: { type: 'category', data: storageData.map(d => d.name) },
-  })
+    compareDiskNetChart?.setOption({
+      legend: { data: ['当前磁盘', '当前↓入', '当前↑出', '前期磁盘', '前期↓入', '前期↑出'], textStyle: { color: '#8b949e', fontSize: 11 } },
+      series: [
+        { name: '当前磁盘', data: curDiskUsage },
+        { name: '当前↓入', data: curNetRecv },
+        { name: '当前↑出', data: curNetSent },
+        { name: '前期磁盘', data: prevDiskUsage, lineStyle: { type: 'dashed' } },
+        { name: '前期↓入', data: prevNetRecv, lineStyle: { type: 'dashed' } },
+        { name: '前期↑出', data: prevNetSent, lineStyle: { type: 'dashed' } },
+      ],
+    })
+  }
 
-  const opData = fileStats.value.slice(0, 10).map((f: any) => ({
-    name: (f.path || '').split(/[/\\]/).pop() || f.path || '?',
-    created: f.today_created || 0,
-    deleted: f.today_deleted || 0,
-  }))
-  fileOpChart?.setOption({
-    xAxis: { type: 'category', data: opData.map(d => d.name) },
+  const cpuVals = vals(['cpu.usage_percent', 'cpu_usage'])
+  const memVals = vals(['memory.usage_percent', 'mem_usage_percent'])
+  const cpuBand = computeAnomalyBand(cpuVals)
+  const memBand = computeAnomalyBand(memVals)
+
+  const cpuAnomalyScatter = cpuData.filter((d: number[]) => d[1] > cpuBand.upper || d[1] < cpuBand.lower)
+  const memAnomalyScatter = memData.filter((d: number[]) => d[1] > memBand.upper || d[1] < memBand.lower)
+
+  anomalyCpuChart?.setOption({
     series: [
-      { data: opData.map(d => d.created), name: '创建', type: 'bar', itemStyle: { color: '#3fb950' } },
-      { data: opData.map(d => d.deleted), name: '删除', type: 'bar', itemStyle: { color: '#f85149' } },
+      { data: cpuData },
+      { data: cpuAnomalyScatter },
     ],
-  } as any)
+  })
+  if (cpuData.length > 0) {
+    anomalyCpuChart?.setOption({
+      series: [{
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(63,185,80,0.08)' },
+          data: [[{ yAxis: cpuBand.lower }, { yAxis: cpuBand.upper }]],
+        },
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { color: '#3fb95066', type: 'dotted', width: 1 },
+          data: [
+            { yAxis: cpuBand.mean, label: { formatter: `均值 ${cpuBand.mean.toFixed(1)}%`, color: '#8b949e', fontSize: 10 } },
+            { yAxis: cpuBand.upper, label: { formatter: `+2σ ${cpuBand.upper.toFixed(1)}%`, color: '#f85149', fontSize: 10 }, lineStyle: { color: '#f8514966' } },
+            { yAxis: cpuBand.lower, label: { formatter: `-2σ ${cpuBand.lower.toFixed(1)}%`, color: '#f85149', fontSize: 10 }, lineStyle: { color: '#f8514966' } },
+          ],
+        },
+      }],
+    })
+  }
+
+  anomalyMemChart?.setOption({
+    series: [
+      { data: memData },
+      { data: memAnomalyScatter },
+    ],
+  })
+  if (memData.length > 0) {
+    anomalyMemChart?.setOption({
+      series: [{
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(188,140,255,0.08)' },
+          data: [[{ yAxis: memBand.lower }, { yAxis: memBand.upper }]],
+        },
+        markLine: {
+          silent: true, symbol: 'none',
+          lineStyle: { color: '#bc8cff66', type: 'dotted', width: 1 },
+          data: [
+            { yAxis: memBand.mean, label: { formatter: `均值 ${memBand.mean.toFixed(1)}%`, color: '#8b949e', fontSize: 10 } },
+            { yAxis: memBand.upper, label: { formatter: `+2σ ${memBand.upper.toFixed(1)}%`, color: '#f85149', fontSize: 10 }, lineStyle: { color: '#f8514966' } },
+            { yAxis: memBand.lower, label: { formatter: `-2σ ${memBand.lower.toFixed(1)}%`, color: '#f85149', fontSize: 10 }, lineStyle: { color: '#f8514966' } },
+          ],
+        },
+      }],
+    })
+  }
+
 }
 
 async function loadHistory() {
   if (!selectedNode.value) return
   loading.value = true
   try {
-    const { data } = await client.get(`/node/${selectedNode.value}/history`, { params: { duration: duration.value, limit: 500 } })
-    historyData.value = Array.isArray(data) ? data : []
-    if (historyData.value.length === 0) {
+    let data: any[]
+    if (selectedNode.value === 'local') {
+      const resp = await client.get('/history', { params: { limit: 500 } })
+      data = Array.isArray(resp.data) ? resp.data : []
+    } else {
+      const resp = await client.get(`/node/${selectedNode.value}/history`, { params: { duration: duration.value, limit: 500 } })
+      data = Array.isArray(resp.data) ? resp.data : []
+    }
+    historyData.value = data
+    if (data.length === 0) {
       console.warn('[trends] no history data for', selectedNode.value)
     }
   } catch (e: unknown) {
@@ -459,13 +767,22 @@ async function loadHistory() {
   }
 }
 
-async function loadFileStats() {
+async function loadCompare() {
   if (!selectedNode.value) return
   try {
-    const { data } = await client.get(`/node/${selectedNode.value}/fs/stats`, { params: { duration: duration.value } })
-    fileStats.value = Array.isArray(data) ? data : []
-  } catch {
-    fileStats.value = []
+    const nodeID = selectedNode.value === 'local' ? '' : selectedNode.value
+    const resp = await client.get('/trend/compare', { params: { period: duration.value, node_id: nodeID } })
+    if (resp.data && typeof resp.data === 'object') {
+      compareData.value = {
+        current: Array.isArray(resp.data.current) ? resp.data.current : [],
+        previous: Array.isArray(resp.data.previous) ? resp.data.previous : [],
+      }
+    } else {
+      compareData.value = { current: [], previous: [] }
+    }
+  } catch (e: unknown) {
+    console.warn('[trends] compare load error:', (e as Error)?.message || e)
+    compareData.value = { current: [], previous: [] }
   }
 }
 
@@ -473,9 +790,8 @@ async function load() {
   if (!selectedNode.value) return
   loading.value = true
   try {
-    await Promise.all([loadHistory(), loadFileStats()])
-    buildCharts()
-    await nextTick()
+    await loadHistory()
+    await buildCharts()
     pushData()
   } finally {
     loading.value = false
@@ -491,11 +807,8 @@ function exportReport() {
     `内存:    均值${avgMem.value}% 峰值${maxMem.value}% 低谷${minMem.value}%`,
     `磁盘:    均值${avgDisk.value}% 峰值${maxDisk.value}% 低谷${minDisk.value}%`,
     `网络:    总计${totalNet.value}GB (入${totalIn.value} 出${totalOut.value})`,
-    `--- 文件统计 ---`,
-    `文件总数: ${totalFiles.value} (目录${totalDirs.value} 文件${totalRegular.value})`,
-    `总大小:   ${totalSize.value}`,
-    `今日操作: ${todayOps.value} (创建${todayCreated.value} 删除${todayDeleted.value})`,
-    `最活跃目录: ${topDir.value}`,
+    `--- 异常检测 ---`,
+    anomalyPoints.value.length > 0 ? `发现 ${anomalyPoints.value.length} 个异常点` : '未发现异常',
   ].join('\n')
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
@@ -507,7 +820,7 @@ function exportReport() {
 }
 
 function handleResize() {
-  [cpuChart, memChart, diskChart, netChart, fileOpChart, fileTypeChart, storageChart, dirCountChart].forEach(c => {
+  [cpuChart, memChart, diskChart, netChart, compareCpuMemChart, compareDiskNetChart, anomalyCpuChart, anomalyMemChart].forEach(c => {
     try { c?.resize() } catch {}
   })
 }
@@ -515,14 +828,22 @@ function handleResize() {
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await nodesStore.fetchNodes()
-  if (nodesStore.nodes.length) {
-    selectedNode.value = nodesStore.nodes[0]?.id
-    buildCharts()
-    load()
-  }
+  selectedNode.value = 'local'
+  await buildCharts()
+  load()
 })
 
 watch(selectedNode, () => { load() })
+
+async function onTabChange(name: string) {
+  await buildCharts()
+  if (name === 'compare') {
+    await loadCompare()
+  }
+  if (historyData.value.length > 0) {
+    pushData()
+  }
+}
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   disposeCharts()
@@ -547,4 +868,16 @@ h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .report-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
 .report-content p { margin: 0 0 6px; font-size: 13px; color: #8b949e; line-height: 1.8; }
 .report-content strong { color: #e6edf3; }
+.anomaly-summary { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-top: 16px; }
+.anomaly-title { font-size: 13px; color: #f85149; margin-bottom: 12px; font-weight: 600; }
+.anomaly-list { display: flex; flex-direction: column; gap: 4px; }
+.anomaly-item { display: flex; gap: 12px; padding: 6px 10px; background: #f8514911; border-radius: 4px; font-size: 12px; }
+.anomaly-time { color: #8b949e; min-width: 150px; }
+.anomaly-metric { color: #e6edf3; font-weight: 500; min-width: 40px; }
+.anomaly-val { color: #f85149; font-weight: 600; min-width: 60px; }
+.anomaly-range { color: #6e7681; }
+
+@media (max-width: 768px) {
+  .charts-row { grid-template-columns: 1fr; }
+}
 </style>

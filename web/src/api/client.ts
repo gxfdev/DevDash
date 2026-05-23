@@ -46,7 +46,8 @@ client.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
-      if (!window.location.pathname.includes('/login')) {
+      const path = window.location.pathname
+      if (!path.includes('/login') && !path.includes('/force-change-password')) {
         window.location.href = '/login'
       }
     }
@@ -66,6 +67,10 @@ authClient.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  const csrfToken = getCsrfToken()
+  if (csrfToken && ['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '')) {
+    config.headers['X-CSRF-Token'] = csrfToken
+  }
   return config
 })
 
@@ -73,9 +78,13 @@ authClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('token')
-      if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login'
+      const path = window.location.pathname
+      const errMsg = err.response?.data?.error || ''
+      if (errMsg.includes('expired') || errMsg.includes('invalid')) {
+        localStorage.removeItem('token')
+        if (!path.includes('/login')) {
+          window.location.href = '/login'
+        }
       }
     }
     return Promise.reject(err)

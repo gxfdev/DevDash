@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -14,34 +13,27 @@ import (
 var Secret []byte
 
 func InitSecret(secret string) error {
-	if secret == "" {
-		if isProduction() {
-			return fmt.Errorf("JWT_SECRET environment variable is required in production")
+	if secret != "" {
+		if len(secret) < 32 {
+			return fmt.Errorf("JWT_SECRET must be at least 32 characters (current: %d)", len(secret))
 		}
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return fmt.Errorf("failed to generate random JWT secret: %w", err)
+		weakSecrets := []string{
+			"secret", "password", "123456", "admin", "devdash",
+			"jwt_secret", "changeme", "default", "test",
 		}
-		Secret = b
-		fmt.Println("WARNING: Using auto-generated JWT secret. Set JWT_SECRET env var for production!")
+		for _, weak := range weakSecrets {
+			if secret == weak {
+				return fmt.Errorf("JWT_SECRET '%s' is too common and insecure", secret)
+			}
+		}
+		Secret = []byte(secret)
 		return nil
 	}
-
-	if len(secret) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 characters (current: %d)", len(secret))
+	if isProduction() {
+		return fmt.Errorf("JWT_SECRET environment variable is required in production")
 	}
-
-	weakSecrets := []string{
-		"secret", "password", "123456", "admin", "devdash",
-		"jwt_secret", "changeme", "default", "test",
-	}
-	for _, weak := range weakSecrets {
-		if secret == weak {
-			return fmt.Errorf("JWT_SECRET '%s' is too common and insecure", secret)
-		}
-	}
-
-	Secret = []byte(secret)
+	Secret = []byte("devdash-dev-secret-key-min-32ch!!")
+	fmt.Println("WARNING: Using default dev JWT secret. Set JWT_SECRET env var for production!")
 	return nil
 }
 

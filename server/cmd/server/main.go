@@ -18,6 +18,8 @@ import (
 	"devdash/internal/auth"
 	"devdash/internal/collector"
 	"devdash/internal/config"
+	"devdash/internal/docker"
+	"devdash/internal/exporter"
 	"devdash/internal/filemgr"
 	"devdash/internal/logger"
 	"devdash/internal/model"
@@ -62,16 +64,26 @@ func main() {
 
 	registerSelfNode(nm, c)
 
-	go startCollection(c, s, nm, cfg, alertEngine)
 	go startMetricsCleanup(s)
 
-	agentMgr.StartPeriodicCollection(30 * time.Second)
+	agentMgr.StartPeriodicCollection(time.Duration(cfg.CollectInterval) * time.Second)
 
 	r := gin.Default()
-	
+
+	r.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, err interface{}) {
+		log.Printf("[panic] recovered: %v", err)
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})
+	}))
 	r.Use(corsMiddleware())
+	r.Use(auth.SecureHeadersMiddleware())
+	r.Use(auth.AuditLogMiddleware())
 	r.Use(logger.Middleware())
-	
+
+	auditFile, auditErr := os.OpenFile("audit.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if auditErr == nil {
+		auth.InitAuditLog(auditFile)
+	}
+
 	handler := api.NewHandler(c, s, nm)
 	handler.RegisterRoutes(r)
 
@@ -80,6 +92,25 @@ func main() {
 
 	agentServer := agent.NewAgentServer(nil, nil, c)
 	agentServer.RegisterRoutes(r)
+
+	var containerMon *docker.ContainerMonitor
+	var dockerMgr *docker.DockerManager
+	dh, dockerErr := api.NewDockerHandler()
+	if dockerErr == nil {
+		dockerMgr = dh.DockerManager()
+		containerMon = docker.NewContainerMonitor(dockerMgr)
+		containerMon.Start()
+	} else {
+		log.Printf("[docker] Docker not available: %v", dockerErr)
+	}
+
+	monitorHandler := api.NewMonitorHandler(dockerMgr, containerMon, c)
+	monitorHandler.RegisterRoutes(r)
+
+	exp := exporter.NewExporter(c, "self")
+	exp.RegisterRoutes(r)
+
+	go startCollection(c, s, nm, cfg, alertEngine, handler)
 
 	// Serve frontend SPA from dist/ (supports both local dev and Docker)
 	staticDir := os.Getenv("STATIC_DIR")
@@ -175,7 +206,7 @@ func startMetricsCleanup(s *store.Store) {
 	}
 }
 
-func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine) {
+func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine, h *api.Handler) {
 	interval := time.Duration(cfg.CollectInterval) * time.Second
 	if interval < 5*time.Second {
 		interval = 5 * time.Second
@@ -199,7 +230,10 @@ func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManage
 						return
 					}
 					snap.NodeID = node.ID
-					s.SaveSnapshot(node.ID, snap)
+					if err := s.SaveSnapshot(node.ID, snap); err != nil {
+						log.Printf("[store] save snapshot failed node=%s: %v", node.ID, err)
+					}
+					h.UpdateCache(snap)
 					alertEngine.Evaluate(snap)
 					nm.UpdateHeartbeat(node.ID)
 				}(n)

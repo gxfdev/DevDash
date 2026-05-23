@@ -40,7 +40,7 @@ func Load() *Config {
 	if port == "" {
 		port = "9090"
 	}
-	interval := 10
+	interval := 5
 	if i := os.Getenv("INTERVAL"); i != "" {
 		if v, err := strconv.Atoi(i); err == nil {
 			interval = v

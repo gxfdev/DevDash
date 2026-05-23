@@ -97,9 +97,10 @@ const nodeOptions = computed(() => [
 
 const metricOptions = [
   { label: 'CPU 使用率', value: 'cpu' },
-  { label: '内存使用率', value: 'mem' },
+  { label: '内存使用率', value: 'memory' },
   { label: '磁盘使用率', value: 'disk' },
-  { label: '系统负载', value: 'load' },
+  { label: '1分钟负载', value: 'load1' },
+  { label: '5分钟负载', value: 'load5' },
 ]
 
 const opOptions = [

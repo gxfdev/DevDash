@@ -8,7 +8,7 @@ services:
     restart_delay: 5s
     environment:
       - PORT=9090
-      - INTERVAL=30
+      - INTERVAL=5
       - "JWT_SECRET=${JWT_SECRET:?ERROR: JWT_SECRET environment variable is required. Generate one with: openssl rand -hex 32}"
       - AGENT_TOKEN=${AGENT_TOKEN:-}
       - DB_TYPE=postgres
@@ -20,12 +20,20 @@ services:
       - DB_SSLMODE=${DB_SSLMODE:-disable}
       - STATIC_DIR=/srv/www
       - TZ=Asia/Shanghai
-      - LANG=zh_CN.UTF-8
-      - LC_ALL=zh_CN.UTF-8
+      - LANG=C.UTF-8
       - GIN_MODE=release
       - "CORS_ORIGINS=${CORS_ORIGINS:?ERROR: CORS_ORIGINS required (e.g., https://your-domain.com)}"
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_DEV=/host/dev
+      - HOST_ETC=/host/etc
     volumes:
       - devdash-data:/data
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+      - /etc/hostname:/etc/hostname:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - internal-net
     depends_on:
@@ -59,6 +67,75 @@ services:
         max-size: "10m"
         max-file: "3"
         labels: "service=devdash"
+
+  devdash2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    container_name: devdash-app-2
+    restart: unless-stopped
+    restart_delay: 5s
+    environment:
+      - PORT=9090
+      - INTERVAL=5
+      - "JWT_SECRET=${JWT_SECRET:?ERROR: JWT_SECRET environment variable is required. Generate one with: openssl rand -hex 32}"
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-devdash}
+      - "DB_PASSWORD=${DB_PASSWORD:?ERROR: DB_PASSWORD environment variable is required}"
+      - DB_NAME=${DB_NAME:-devdash}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      - STATIC_DIR=/srv/www
+      - TZ=Asia/Shanghai
+      - LANG=C.UTF-8
+      - GIN_MODE=release
+      - "CORS_ORIGINS=${CORS_ORIGINS:?ERROR: CORS_ORIGINS required (e.g., https://your-domain.com)}"
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_DEV=/host/dev
+      - HOST_ETC=/host/etc
+    volumes:
+      - devdash-data:/data
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+      - /etc/hostname:/etc/hostname:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    expose:
+      - "9090"
+    mem_limit: 512m
+    cpus: "2.0"
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "http://localhost:9090/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=devdash2"
 
   postgres:
     image: postgres:16-alpine
@@ -148,6 +225,8 @@ services:
       devdash:
         condition: service_healthy
         restart: true
+      devdash2:
+        condition: service_started
     networks:
       - internal-net
     mem_limit: 128m

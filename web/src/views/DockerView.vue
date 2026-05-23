@@ -1,4 +1,5 @@
 <template>
+  <app-layout>
   <div class="docker-container">
     <div class="page-header">
       <h1>Docker 容器管理</h1>
@@ -364,11 +365,13 @@
       </div>
     </div>
   </div>
+  </app-layout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { dockerApi } from '../api/client'
+import AppLayout from '@/components/AppLayout.vue'
 
 interface Container {
   id: string
@@ -866,7 +869,7 @@ function formatDate(date: Date): string {
 .page-header h1 {
   margin: 0;
   font-size: 28px;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 .header-actions {
@@ -908,7 +911,7 @@ function formatDate(date: Date): string {
   display: flex;
   gap: 5px;
   margin-bottom: 20px;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid var(--border-color);
   padding-bottom: 0;
 }
 
@@ -919,7 +922,7 @@ function formatDate(date: Date): string {
   cursor: pointer;
   font-size: 15px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-secondary);
   border-bottom: 3px solid transparent;
   transition: all 0.3s ease;
   position: relative;
@@ -927,13 +930,13 @@ function formatDate(date: Date): string {
 }
 
 .tab:hover {
-  color: #374151;
+  color: var(--text-primary);
   background: rgba(99, 102, 241, 0.05);
 }
 
 .tab.active {
-  color: #6366f1;
-  border-bottom-color: #6366f1;
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
   background: rgba(99, 102, 241, 0.08);
 }
 
@@ -948,16 +951,18 @@ function formatDate(date: Date): string {
 
 .search-input {
   padding: 10px 16px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 14px;
   min-width: 300px;
   outline: none;
   transition: all 0.3s ease;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .search-input:focus {
-  border-color: #6366f1;
+  border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
@@ -966,7 +971,7 @@ function formatDate(date: Date): string {
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: #4b5563;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -977,11 +982,11 @@ function formatDate(date: Date): string {
 }
 
 .container-card {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid #d1d5db;
+  border-left: 4px solid var(--border-color);
   transition: all 0.3s ease;
 }
 
@@ -1012,7 +1017,7 @@ function formatDate(date: Date): string {
 .card-header h3 {
   margin: 0;
   font-size: 18px;
-  color: #111827;
+  color: var(--text-primary);
   word-break: break-all;
 }
 
@@ -1056,13 +1061,13 @@ function formatDate(date: Date): string {
 
 .info-row .label {
   width: 70px;
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
   flex-shrink: 0;
 }
 
 .info-row .value {
-  color: #111827;
+  color: var(--text-primary);
   word-break: break-all;
 }
 
@@ -1162,42 +1167,42 @@ function formatDate(date: Date): string {
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #9ca3af;
+  color: var(--text-tertiary);
   font-size: 16px;
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--bg-card);
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .data-table thead {
-  background: #f9fafb;
+  background: var(--bg-input);
 }
 
 .data-table th,
 .data-table td {
   padding: 12px 16px;
   text-align: left;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-color);
   font-size: 14px;
 }
 
 .data-table th {
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .data-table tbody tr:hover {
-  background: #f9fafb;
+  background: var(--bg-input);
 }
 
 .compose-project-card {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 20px;
   margin-bottom: 16px;
@@ -1214,13 +1219,13 @@ function formatDate(date: Date): string {
 .project-header h3 {
   margin: 0;
   font-size: 20px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .project-info p {
   margin: 4px 0;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-secondary);
 }
 
 .services-list {
@@ -1230,7 +1235,7 @@ function formatDate(date: Date): string {
 .services-list h4 {
   margin: 0 0 10px 0;
   font-size: 16px;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .service-items {
@@ -1244,13 +1249,13 @@ function formatDate(date: Date): string {
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  background: #f9fafb;
+  background: var(--bg-input);
   border-radius: 6px;
 }
 
 .service-name {
   font-weight: 600;
-  color: #111827;
+  color: var(--text-primary);
   min-width: 150px;
 }
 
@@ -1267,7 +1272,7 @@ function formatDate(date: Date): string {
   gap: 8px;
   margin-top: 15px;
   padding-top: 15px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color);
 }
 
 /* Modal Styles */
@@ -1286,7 +1291,7 @@ function formatDate(date: Date): string {
 }
 
 .modal-content {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   max-width: 800px;
   width: 100%;
@@ -1304,13 +1309,13 @@ function formatDate(date: Date): string {
   justify-content: space-between;
   align-items: center;
   padding: 20px 24px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .modal-header h3 {
   margin: 0;
   font-size: 20px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .modal-close {
@@ -1318,7 +1323,7 @@ function formatDate(date: Date): string {
   border: none;
   font-size: 28px;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--text-tertiary);
   line-height: 1;
   padding: 0;
   width: 32px;
@@ -1331,8 +1336,8 @@ function formatDate(date: Date): string {
 }
 
 .modal-close:hover {
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .modal-body {
@@ -1344,14 +1349,14 @@ function formatDate(date: Date): string {
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 24px;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-input);
   border-radius: 0 0 12px 12px;
 }
 
 .logs-output {
-  background: #1e293b;
-  color: #e2e8f0;
+  background: var(--bg-input);
+  color: var(--text-primary);
   padding: 20px;
   border-radius: 8px;
   font-family: 'Courier New', monospace;
@@ -1372,23 +1377,25 @@ function formatDate(date: Date): string {
   display: block;
   margin-bottom: 6px;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .form-control {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
   transition: all 0.3s ease;
   box-sizing: border-box;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .form-control:focus {
-  border-color: #6366f1;
+  border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
@@ -1401,7 +1408,7 @@ function formatDate(date: Date): string {
 
 .template-card {
   padding: 20px;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color);
   border-radius: 12px;
   cursor: pointer;
   text-align: center;
@@ -1409,13 +1416,13 @@ function formatDate(date: Date): string {
 }
 
 .template-card:hover {
-  border-color: #6366f1;
+  border-color: var(--primary-color);
   background: rgba(99, 102, 241, 0.03);
   transform: translateY(-2px);
 }
 
 .template-card.selected {
-  border-color: #6366f1;
+  border-color: var(--primary-color);
   background: rgba(99, 102, 241, 0.08);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
@@ -1428,27 +1435,27 @@ function formatDate(date: Date): string {
 .template-card h4 {
   margin: 0 0 8px 0;
   font-size: 16px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .template-card p {
   margin: 0;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .deploy-config {
-  background: #f9fafb;
+  background: var(--bg-input);
   padding: 20px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
 }
 
 .deploy-config h4 {
   margin: 0 0 16px 0;
   font-size: 16px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 @media (max-width: 768px) {

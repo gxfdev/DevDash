@@ -212,7 +212,7 @@ func registerOSJob(job *CronJob) error {
 	}
 }
 
-func unregisterOSJob(id int, nodeID string) {
+func unregisterOSJob(id int, _ string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	switch runtime.GOOS {

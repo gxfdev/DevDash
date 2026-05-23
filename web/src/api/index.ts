@@ -6,6 +6,8 @@ export const authAPI = {
     authClient.post('/auth/login', { username, password }),
   changePassword: (old: string, newPw: string) =>
     authClient.put('/auth/password', { old, new: newPw }),
+  changeUsername: (newUsername: string) =>
+    authClient.put('/auth/username', { new_username: newUsername }),
   logout: () => authClient.post('/auth/logout'),
   me: () => authClient.get('/auth/me'),
 }
@@ -50,14 +52,20 @@ export const cronAPI = {
 export const dbAPI = {
   list: (nodeId: string) => client.get(`/node/${nodeId}/databases`),
   add: (nodeId: string, cfg: Omit<DatabaseConnection, 'id'>) => client.post(`/node/${nodeId}/databases`, cfg),
+  test: (nodeId: string, cfg: Omit<DatabaseConnection, 'id'>) =>
+    client.post(`/node/${nodeId}/databases/test`, cfg),
   tables: (nodeId: string, dbId: string) => client.get(`/node/${nodeId}/databases/${dbId}/tables`),
   query: (nodeId: string, dbId: string, sql: string) =>
     client.post(`/node/${nodeId}/databases/${dbId}/query`, { sql }),
+  delete: (nodeId: string, dbId: string) =>
+    client.delete(`/node/${nodeId}/databases/${dbId}`),
 }
 
 export const fileAPI = {
   list: (nodeId: string, path: string) =>
     client.get(`/node/${nodeId}/fs/list`, { params: { path } }),
+  read: (nodeId: string, path: string) =>
+    client.get(`/node/${nodeId}/fs/read`, { params: { path } }),
   mkdir: (nodeId: string, path: string) =>
     client.post(`/node/${nodeId}/fs/mkdir`, { path }),
   mkfile: (nodeId: string, path: string) =>

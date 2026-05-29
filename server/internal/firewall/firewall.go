@@ -28,7 +28,6 @@ var (
 	validProtocol = map[string]bool{"tcp": true, "udp": true, "icmp": true}
 	validAction   = map[string]bool{"allow": true, "deny": true, "block": true, "reject": true}
 	ipRegex       = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$`)
-	portRegex     = regexp.MustCompile(`^\d{1,5}$`)
 	ruleIDRegex   = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
 )
 
@@ -311,7 +310,7 @@ func ToggleRule(id string, enabled bool) error {
 		return nil
 
 	case "linux":
-		return fmt.Errorf("Linux iptables does not support toggle by ID, use Add/Remove instead")
+		return fmt.Errorf("linux iptables does not support toggle by ID, use Add/Remove instead")
 	}
 	return fmt.Errorf("unsupported OS: %s", os)
 }

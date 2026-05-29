@@ -86,7 +86,6 @@ type Handler struct {
 	nodeSnapshots  map[string]interface{}
 	nodeMu         sync.RWMutex
 	dbConns        map[int]*sql.DB
-	dbMu           sync.RWMutex
 }
 
 func NewHandler(c *collector.Collector, s *store.Store, nm *node.NodeManager) *Handler {
@@ -761,40 +760,6 @@ func parseDuration(d string) int {
 		}
 		return 0
 	}
-}
-
-func convertSnapshotsToMap(snaps []model.Snapshot) []map[string]interface{} {
-	var result []map[string]interface{}
-	for _, snap := range snaps {
-		result = append(result, map[string]interface{}{
-			"node_id":   snap.NodeID,
-			"timestamp": snap.Timestamp,
-			"cpu": map[string]interface{}{
-				"usage_percent": snap.CPU.UsagePercent,
-				"cores":         snap.CPU.Cores,
-			},
-			"memory": map[string]interface{}{
-				"total_gb":      snap.Memory.TotalGB,
-				"used_gb":       snap.Memory.UsedGB,
-				"usage_percent": snap.Memory.UsagePercent,
-			},
-			"disk": map[string]interface{}{
-				"total_gb":      snap.Disk.TotalGB,
-				"used_gb":       snap.Disk.UsedGB,
-				"usage_percent": snap.Disk.UsagePercent,
-			},
-			"network": map[string]interface{}{
-				"bytes_recv": snap.Network.BytesRecv,
-				"bytes_sent": snap.Network.BytesSent,
-			},
-			"load": map[string]interface{}{
-				"load1":  snap.Load.Load1,
-				"load5":  snap.Load.Load5,
-				"load15": snap.Load.Load15,
-			},
-		})
-	}
-	return result
 }
 
 func (h *Handler) getNodeProcs(c *gin.Context) {
@@ -1995,9 +1960,10 @@ func (h *Handler) healthCheck(c *gin.Context) {
 	}
 
 	status := 200
-	if overall == "unhealthy" {
+	switch overall {
+	case "unhealthy":
 		status = 503
-	} else if overall == "degraded" {
+	case "degraded":
 		status = 200
 	}
 

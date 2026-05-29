@@ -19,11 +19,8 @@ import (
 )
 
 type K8sMonitor struct {
-	clientSet     *kubernetes.Clientset
-	metricsClient *metricsv.Clientset
-	config        *rest.Config
-	clusters      map[string]*K8sClusterConnection
-	clusterMutex  sync.RWMutex
+	clusters     map[string]*K8sClusterConnection
+	clusterMutex sync.RWMutex
 }
 
 type K8sClusterConnection struct {

@@ -58,19 +58,6 @@ func InitAllowedDirs(dirs []string) {
 	}
 }
 
-func isPathAllowed(absPath string) bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	lowerPath := strings.ToLower(absPath)
-	for _, base := range allowedBaseDirs {
-		cleanBase := strings.ToLower(filepath.Clean(base))
-		if strings.HasPrefix(lowerPath, cleanBase) || lowerPath == cleanBase {
-			return true
-		}
-	}
-	return false
-}
-
 func validatePath(userPath string) (string, error) {
 	if userPath == "" {
 		return GetDefaultRoot(), nil

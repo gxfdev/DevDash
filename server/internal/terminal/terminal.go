@@ -226,11 +226,6 @@ func findWindowsShell(candidates []string) string {
 	return ""
 }
 
-func (s *TerminalSession) isPowerShell() bool {
-	shell := s.resolvedShell()
-	return strings.Contains(strings.ToLower(shell), "powershell") || strings.Contains(strings.ToLower(shell), "pwsh")
-}
-
 type ShellOption struct {
 	Name string `json:"name"`
 	Path string `json:"path"`

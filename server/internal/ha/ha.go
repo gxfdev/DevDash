@@ -285,16 +285,6 @@ func (bm *BackupManager) CleanupOldBackups(maxBackups int) {
 	}
 }
 
-func encodeContent(data []byte) string {
-	encoded := make([]byte, len(data)*2)
-	hexChars := []byte("0123456789abcdef")
-	for i, b := range data {
-		encoded[i*2] = hexChars[b>>4]
-		encoded[i*2+1] = hexChars[b&0x0f]
-	}
-	return string(encoded)
-}
-
 func decodeContent(s string) ([]byte, error) {
 	if len(s)%2 != 0 {
 		return nil, fmt.Errorf("invalid hex length")

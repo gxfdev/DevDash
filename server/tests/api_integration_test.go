@@ -2,7 +2,7 @@ package api_test
 
 import (
 	"bytes"
-	"devdash/internal/filemgr"
+	"github.com/gxfdev/DevDash/server/internal/filemgr"
 	"encoding/json"
 	"fmt"
 	"io"

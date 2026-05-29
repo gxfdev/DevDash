@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"devdash/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/logger"
 )
 
 type GPUCollector struct {

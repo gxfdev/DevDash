@@ -1,7 +1,7 @@
 package api
 
 import (
-	"devdash/internal/docker"
+	"github.com/gxfdev/DevDash/server/internal/docker"
 	"io"
 	"net/http"
 	"strconv"

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

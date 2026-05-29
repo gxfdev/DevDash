@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"devdash/internal/model"
-	"devdash/internal/store"
+	"github.com/gxfdev/DevDash/server/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/store"
 )
 
 var validTypes = map[string]bool{

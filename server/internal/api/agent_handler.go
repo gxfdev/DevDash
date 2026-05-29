@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"devdash/internal/agent"
-	"devdash/internal/auth"
-	"devdash/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/agent"
+	"github.com/gxfdev/DevDash/server/internal/auth"
+	"github.com/gxfdev/DevDash/server/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )

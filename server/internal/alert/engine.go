@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/model"
-	"devdash/internal/settings"
-	"devdash/internal/store"
+	"github.com/gxfdev/DevDash/server/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/settings"
+	"github.com/gxfdev/DevDash/server/internal/store"
 )
 
 type Engine struct {

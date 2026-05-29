@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"devdash/internal/auth"
-	"devdash/internal/config"
-	"devdash/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/auth"
+	"github.com/gxfdev/DevDash/server/internal/config"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"golang.org/x/crypto/bcrypt"
 

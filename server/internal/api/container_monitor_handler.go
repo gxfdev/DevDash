@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"devdash/internal/docker"
-	"devdash/internal/kubernetes"
-	"devdash/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/docker"
+	"github.com/gxfdev/DevDash/server/internal/kubernetes"
+	"github.com/gxfdev/DevDash/server/internal/logger"
 
 	"github.com/gin-gonic/gin"
 )

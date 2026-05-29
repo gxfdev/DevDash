@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/auth"
-	"devdash/internal/collector"
-	"devdash/internal/docker"
-	"devdash/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/auth"
+	"github.com/gxfdev/DevDash/server/internal/collector"
+	"github.com/gxfdev/DevDash/server/internal/docker"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"github.com/gin-gonic/gin"
 )

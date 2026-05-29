@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/model"
-	"devdash/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/logger"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

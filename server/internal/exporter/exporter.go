@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/collector"
+	"github.com/gxfdev/DevDash/server/internal/collector"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,4 +1,4 @@
-module devdash
+module github.com/gxfdev/DevDash/server
 
 go 1.26
 

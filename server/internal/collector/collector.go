@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"devdash/internal/model"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"

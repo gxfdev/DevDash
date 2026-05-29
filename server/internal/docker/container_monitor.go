@@ -65,8 +65,8 @@ func (cm *ContainerMonitor) collectAllMetrics() {
 	containers, err := cm.dm.ListContainers(false)
 	if err != nil {
 		cm.consecFailures++
-		if cm.consecFailures <= 1 || cm.consecFailures%12 == 0 {
-			logger.ErrorLogger(err, "Failed to list containers for metrics collection")
+		if cm.consecFailures == 1 {
+			logger.WarnLogger(fmt.Sprintf("Docker unavailable, container metrics disabled: %v", err))
 		}
 		return
 	}

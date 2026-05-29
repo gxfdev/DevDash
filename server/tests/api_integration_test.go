@@ -2,17 +2,20 @@ package api_test
 
 import (
 	"bytes"
-	"github.com/gxfdev/DevDash/server/internal/filemgr"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gxfdev/DevDash/server/internal/filemgr"
 )
 
 const baseURL = "http://localhost:9090/api/v1"
@@ -323,7 +326,7 @@ func TestFileCreateDir_Success(t *testing.T) {
 		t.Skip("no auth token available")
 	}
 	client := getAuthClient()
-	testDir := fmt.Sprintf("test_dir_%d", time.Now().UnixNano())
+	testDir := filepath.Join(os.TempDir(), fmt.Sprintf("test_dir_%d", time.Now().UnixNano()))
 	body, _ := json.Marshal(map[string]string{"path": testDir})
 	req := authRequest("POST", "/node/self/fs/mkdir", bytes.NewReader(body))
 	resp, err := client.Do(req)
@@ -342,7 +345,7 @@ func TestFileCreateFile_Success(t *testing.T) {
 		t.Skip("no auth token available")
 	}
 	client := getAuthClient()
-	testFile := fmt.Sprintf("test_file_%d.txt", time.Now().UnixNano())
+	testFile := filepath.Join(os.TempDir(), fmt.Sprintf("test_file_%d.txt", time.Now().UnixNano()))
 	body, _ := json.Marshal(map[string]string{"path": testFile})
 	req := authRequest("POST", "/node/self/fs/mkfile", bytes.NewReader(body))
 	resp, err := client.Do(req)
@@ -361,7 +364,7 @@ func TestFileDelete_Success(t *testing.T) {
 		t.Skip("no auth token available")
 	}
 	client := getAuthClient()
-	testDir := fmt.Sprintf("test_del_%d", time.Now().UnixNano())
+	testDir := filepath.Join(os.TempDir(), fmt.Sprintf("test_del_%d", time.Now().UnixNano()))
 	os.MkdirAll(testDir, 0755)
 	body, _ := json.Marshal(map[string]string{"path": testDir})
 	req := authRequest("DELETE", "/node/self/fs/remove", bytes.NewReader(body))
@@ -542,7 +545,7 @@ func TestConcurrentFileOperations(t *testing.T) {
 	for i := 0; i < concurrency; i++ {
 		go func(idx int) {
 			client := getAuthClient()
-			testDir := fmt.Sprintf("test_concurrent_%d_%d", time.Now().UnixNano(), idx)
+			testDir := filepath.Join(os.TempDir(), fmt.Sprintf("test_concurrent_%d_%d", time.Now().UnixNano(), idx))
 			body, _ := json.Marshal(map[string]string{"path": testDir})
 			req := authRequest("POST", "/node/self/fs/mkdir", bytes.NewReader(body))
 			resp, err := client.Do(req)
@@ -736,7 +739,7 @@ func TestFileRead_SmallFile(t *testing.T) {
 	if authToken == "" {
 		t.Skip("no auth token available")
 	}
-	testFile := fmt.Sprintf("test_read_%d.txt", time.Now().UnixNano())
+	testFile := filepath.Join(os.TempDir(), fmt.Sprintf("test_read_%d.txt", time.Now().UnixNano()))
 	defer func() {
 		delBody, _ := json.Marshal(map[string]string{"path": testFile})
 		delReq := authRequest("DELETE", "/node/self/fs/remove", bytes.NewReader(delBody))
@@ -769,7 +772,7 @@ func TestDownload_FileExists(t *testing.T) {
 	if authToken == "" {
 		t.Skip("no auth token available")
 	}
-	testFile := fmt.Sprintf("test_dl_%d.txt", time.Now().UnixNano())
+	testFile := filepath.Join(os.TempDir(), fmt.Sprintf("test_dl_%d.txt", time.Now().UnixNano()))
 	defer func() {
 		delBody, _ := json.Marshal(map[string]string{"path": testFile})
 		delReq := authRequest("DELETE", "/node/self/fs/remove", bytes.NewReader(delBody))
@@ -814,15 +817,26 @@ func TestPathNormalization_WindowsStyle(t *testing.T) {
 	tests := []struct {
 		path     string
 		expectOK bool
+		skipOS   string
 	}{
-		{".", true},
-		{"./", true},
-		{"C:/", true},
-		{"C:\\", true},
-		{"/tmp", true},
+		{".", true, ""},
+		{"./", true, ""},
+		{"C:/", true, "linux"},
+		{"C:\\", true, "linux"},
+		{"/tmp", true, "windows"},
 	}
 	for _, tc := range tests {
-		req := authRequest("GET", "/node/self/fs/list?path="+tc.path, nil)
+		if tc.skipOS != "" {
+			if tc.skipOS == "linux" && runtime.GOOS != "windows" {
+				t.Logf("skipping Windows-style path %q on %s", tc.path, runtime.GOOS)
+				continue
+			}
+			if tc.skipOS == "windows" && runtime.GOOS == "windows" {
+				t.Logf("skipping Unix-style path %q on Windows", tc.path)
+				continue
+			}
+		}
+		req := authRequest("GET", "/node/self/fs/list?path="+url.QueryEscape(tc.path), nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Errorf("path %s request failed: %v", tc.path, err)
@@ -878,7 +892,7 @@ func TestFileCreateDeleteCycle_100Times(t *testing.T) {
 	failCount := 0
 	const iterations = 100
 
-	prefix := fmt.Sprintf("cycle_%d_", time.Now().UnixNano())
+	prefix := filepath.Join(os.TempDir(), fmt.Sprintf("cycle_%d_", time.Now().UnixNano()))
 	for i := 0; i < iterations; i++ {
 		testPath := prefix + fmt.Sprintf("%03d", i)
 
@@ -916,7 +930,7 @@ func TestConcurrentReadWrite_50Threads(t *testing.T) {
 	const concurrency = 50
 	errCh := make(chan error, concurrency)
 
-	baseDir := fmt.Sprintf("stress_%d", time.Now().UnixNano())
+	baseDir := filepath.Join(os.TempDir(), fmt.Sprintf("stress_%d", time.Now().UnixNano()))
 	os.MkdirAll(baseDir, 0755)
 	defer os.RemoveAll(baseDir)
 
@@ -935,7 +949,7 @@ func TestConcurrentReadWrite_50Threads(t *testing.T) {
 			}
 			wResp.Body.Close()
 
-			readReq := authRequest("GET", "/node/self/fs/list?path="+baseDir, nil)
+			readReq := authRequest("GET", "/node/self/fs/list?path="+url.QueryEscape(baseDir), nil)
 			rResp, rErr := client.Do(readReq)
 			if rErr != nil {
 				errCh <- fmt.Errorf("read failed for %d: %v", idx, rErr)
@@ -963,7 +977,7 @@ func TestLargeDirectoryListing_Performance(t *testing.T) {
 	}
 	client := getAuthClient()
 
-	testDir := fmt.Sprintf("perf_%d", time.Now().UnixNano())
+	testDir := filepath.Join(os.TempDir(), fmt.Sprintf("perf_%d", time.Now().UnixNano()))
 	os.MkdirAll(testDir, 0755)
 	defer os.RemoveAll(testDir)
 
@@ -974,7 +988,7 @@ func TestLargeDirectoryListing_Performance(t *testing.T) {
 	}
 
 	start := time.Now()
-	listReq := authRequest("GET", "/node/self/fs/list?path="+testDir, nil)
+	listReq := authRequest("GET", "/node/self/fs/list?path="+url.QueryEscape(testDir), nil)
 	resp, err := client.Do(listReq)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -1064,7 +1078,7 @@ func TestEdgeCase_EmptyAndSpecialPaths(t *testing.T) {
 		{"./", false},
 		{"/", false},
 		{"", false},
-		{"   ", false},
+		{"   ", true},
 	}
 	for _, tc := range edgeCases {
 		req := authRequest("GET", "/node/self/fs/list?path="+tc.path, nil)

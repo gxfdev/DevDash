@@ -1365,6 +1365,17 @@ func isPathSafe(p string) bool {
 	if strings.ContainsRune(p, 0) {
 		return false
 	}
+	if strings.TrimSpace(p) == "" && p != "" {
+		return false
+	}
+	if runtime.GOOS != "windows" {
+		if len(p) >= 2 && p[1] == ':' && (p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z') {
+			return false
+		}
+		if strings.ContainsRune(p, '\\') {
+			return false
+		}
+	}
 	cleaned := filepath.Clean(p)
 	if strings.Contains(cleaned, "..") {
 		return false
@@ -1716,13 +1727,27 @@ func (h *Handler) updateAlertRule(c *gin.Context) {
 }
 
 func validateAlertRule(rule map[string]interface{}) error {
-	validMetrics := map[string]bool{"cpu": true, "mem": true, "disk": true, "load": true}
+	validMetrics := map[string]bool{
+		"cpu": true, "mem": true, "disk": true, "load": true,
+		"cpu_usage": true, "mem_usage": true, "disk_usage": true,
+		"memory": true, "cpu_percent": true, "mem_percent": true,
+		"disk_percent": true, "load_avg": true,
+	}
+	metricAliases := map[string]string{
+		"cpu_usage": "cpu", "cpu_percent": "cpu",
+		"mem_usage": "mem", "memory": "mem", "mem_percent": "mem",
+		"disk_usage": "disk", "disk_percent": "disk",
+		"load_avg": "load",
+	}
 	validOps := map[string]bool{">": true, ">=": true, "<": true, "<=": true}
 	validLevels := map[string]bool{"info": true, "warning": true, "critical": true}
 
 	metric, _ := rule["metric"].(string)
 	if !validMetrics[metric] {
 		return fmt.Errorf("metric must be one of: cpu, mem, disk, load")
+	}
+	if alias, ok := metricAliases[metric]; ok {
+		rule["metric"] = alias
 	}
 	op, _ := rule["op"].(string)
 	if !validOps[op] {

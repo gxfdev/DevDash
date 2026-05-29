@@ -10,6 +10,9 @@ jobs:
   test-server:
     name: Server Tests
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
     env:
       GOWORK: "off"
     steps:
@@ -18,17 +21,30 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
+      - name: Debug info
+        run: |
+          echo "=== PWD ==="
+          pwd
+          echo "=== Go version ==="
+          go version
+          echo "=== Go env ==="
+          go env GOMOD GOWORK GOROOT
+          echo "=== go.mod ==="
+          head -5 go.mod
+          echo "=== Directory structure ==="
+          ls -la internal/ | head -20
+          echo "=== internal/agent ==="
+          ls -la internal/agent/ 2>&1 || echo "MISSING"
       - name: Build check
-        run: cd server && go build ./...
+        run: go build ./...
       - name: Vet
-        run: cd server && go vet ./...
+        run: go vet ./...
       - name: Start server for integration tests
         run: |
-          cd server
           ENCRYPTION_KEY=test-encryption-key-32bytes!! JWT_SECRET=test-jwt-secret-key-32byt go run ./cmd/server &
           sleep 5
       - name: Run integration tests
-        run: cd server && go test ./tests/... -v -timeout 60s
+        run: go test ./tests/... -v -timeout 60s
       - name: Stop server
         if: always()
         run: pkill -f "go run ./cmd/server" || true
@@ -36,6 +52,9 @@ jobs:
   build-web:
     name: Frontend Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,9 +63,9 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - name: Install & Build
-        run: cd web && npm ci && npm run build
+        run: npm ci && npm run build
       - name: Type check
-        run: cd web && npx vue-tsc --noEmit
+        run: npx vue-tsc --noEmit
 
   docker-build:
     name: Docker Build Test

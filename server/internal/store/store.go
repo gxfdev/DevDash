@@ -1,4 +1,4 @@
-package store
+﻿package store
 
 import (
 	"database/sql"
@@ -1470,12 +1470,15 @@ func (s *Store) GetFileStats(nodeID string, hours int) []map[string]any {
 	}
 
 	var result []map[string]any
+	if len(dirMap) == 0 {
+		return result
+	}
 	for _, ds := range dirMap {
 		result = append(result, map[string]any{
 			"path":          ds.path,
 			"total":         ds.total,
 			"dirs":          ds.dirs,
-			"files":         ds.files - ds.dirs,
+			"files":         ds.files,
 			"size":          ds.size,
 			"types":         ds.types,
 			"today_ops":     ds.todayOps,

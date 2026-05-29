@@ -17,7 +17,7 @@ dist/
 *.test
 *.out
 devdash
-agent
+/agent
 server/devdash
 server/agent
 server/devdash.exe

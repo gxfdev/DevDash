@@ -2,7 +2,10 @@ package api
 
 import (
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+const maxTopLimit = 100
 
 type MonitorHandler struct {
 	dockerMgr    *docker.DockerManager
@@ -55,7 +60,6 @@ func (h *MonitorHandler) getOverview(c *gin.Context) {
 		containers, err := h.dockerMgr.ListContainers(false)
 		if err == nil {
 			running := 0
-			var totalCPU float64
 			for _, ct := range containers {
 				if ct.State == "running" {
 					running++
@@ -63,6 +67,7 @@ func (h *MonitorHandler) getOverview(c *gin.Context) {
 			}
 			if h.containerMon != nil {
 				allMetrics := h.containerMon.GetAllCachedMetrics()
+				var totalCPU float64
 				for _, m := range allMetrics {
 					totalCPU += m.CPU.UsagePercent
 				}
@@ -108,6 +113,14 @@ func (h *MonitorHandler) getDockerRealtime(c *gin.Context) {
 	}
 
 	allMetrics := h.containerMon.GetAllCachedMetrics()
+	if allMetrics == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    map[string]interface{}{},
+		})
+		return
+	}
+
 	result := make(map[string]interface{}, len(allMetrics))
 	for id, m := range allMetrics {
 		result[id] = m
@@ -120,10 +133,7 @@ func (h *MonitorHandler) getDockerRealtime(c *gin.Context) {
 }
 
 func (h *MonitorHandler) getTopCPU(c *gin.Context) {
-	limit := 10
-	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
-		limit = l
-	}
+	limit := parseLimit(c.Query("limit"), 10, maxTopLimit)
 
 	if h.containerMon == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
@@ -137,7 +147,7 @@ func (h *MonitorHandler) getTopCPU(c *gin.Context) {
 		AvgCPU        float64 `json:"avg_cpu"`
 	}
 
-	var items []topItem
+	items := make([]topItem, 0, len(allMetrics))
 	for _, m := range allMetrics {
 		items = append(items, topItem{
 			ContainerID:   m.ContainerID,
@@ -146,13 +156,9 @@ func (h *MonitorHandler) getTopCPU(c *gin.Context) {
 		})
 	}
 
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[j].AvgCPU > items[i].AvgCPU {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].AvgCPU > items[j].AvgCPU
+	})
 
 	if len(items) > limit {
 		items = items[:limit]
@@ -162,10 +168,7 @@ func (h *MonitorHandler) getTopCPU(c *gin.Context) {
 }
 
 func (h *MonitorHandler) getTopMemory(c *gin.Context) {
-	limit := 10
-	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
-		limit = l
-	}
+	limit := parseLimit(c.Query("limit"), 10, maxTopLimit)
 
 	if h.containerMon == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": []interface{}{}})
@@ -179,7 +182,7 @@ func (h *MonitorHandler) getTopMemory(c *gin.Context) {
 		AvgMemory     uint64 `json:"avg_memory"`
 	}
 
-	var items []topItem
+	items := make([]topItem, 0, len(allMetrics))
 	for _, m := range allMetrics {
 		items = append(items, topItem{
 			ContainerID:   m.ContainerID,
@@ -188,13 +191,9 @@ func (h *MonitorHandler) getTopMemory(c *gin.Context) {
 		})
 	}
 
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[j].AvgMemory > items[i].AvgMemory {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].AvgMemory > items[j].AvgMemory
+	})
 
 	if len(items) > limit {
 		items = items[:limit]
@@ -207,9 +206,10 @@ func (h *MonitorHandler) listK8sClusters(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	clusters := make([]interface{}, 0, len(h.k8sClusters))
+	clusters := make([]*model.KubernetesCluster, 0, len(h.k8sClusters))
 	for _, cl := range h.k8sClusters {
-		clusters = append(clusters, cl)
+		safe := *cl
+		clusters = append(clusters, &safe)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": clusters})
@@ -230,6 +230,23 @@ func (h *MonitorHandler) addK8sCluster(c *gin.Context) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "name is required"})
+		return
+	}
+
+	if req.APIEndpoint != "" {
+		if _, err := url.Parse(req.APIEndpoint); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid api_endpoint format"})
+			return
+		}
+		if !strings.HasPrefix(req.APIEndpoint, "https://") {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "api_endpoint must use https"})
+			return
+		}
+	}
+
 	cluster := &model.KubernetesCluster{
 		ID:          "k8s-" + strconv.FormatInt(time.Now().UnixMilli(), 10),
 		Name:        req.Name,
@@ -244,14 +261,33 @@ func (h *MonitorHandler) addK8sCluster(c *gin.Context) {
 	h.k8sClusters[cluster.ID] = cluster
 	h.mu.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": cluster})
+	resp := *cluster
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": resp})
 }
 
 func (h *MonitorHandler) removeK8sCluster(c *gin.Context) {
 	id := c.Param("id")
+
 	h.mu.Lock()
+	_, exists := h.k8sClusters[id]
+	if !exists {
+		h.mu.Unlock()
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "cluster not found"})
+		return
+	}
 	delete(h.k8sClusters, id)
 	h.mu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "removed"})
+}
+
+func parseLimit(raw string, defaultVal, maxVal int) int {
+	limit := defaultVal
+	if l, err := strconv.Atoi(raw); err == nil && l > 0 {
+		limit = l
+	}
+	if limit > maxVal {
+		limit = maxVal
+	}
+	return limit
 }

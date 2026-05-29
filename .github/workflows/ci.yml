@@ -41,7 +41,7 @@ jobs:
         run: go vet ./...
       - name: Start server for integration tests
         run: |
-          ENCRYPTION_KEY=test-encryption-key-32bytes!! JWT_SECRET=test-jwt-secret-key-32byt go run ./cmd/server &
+          ENCRYPTION_KEY=test-encryption-key-32bytes!! JWT_SECRET=test-jwt-secret-key-32bytes-min!! go run ./cmd/server &
           sleep 5
       - name: Run integration tests
         run: go test ./tests/... -v -timeout 60s

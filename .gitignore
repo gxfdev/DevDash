@@ -73,5 +73,9 @@ server/devdash-settings.json
 # === Nuxt (if any) ===
 web/.nuxt/
 
+# === Go Workspace (local only) ===
+go.work
+go.work.sum
+
 # === Docker local ===
 docker-compose.override.yml

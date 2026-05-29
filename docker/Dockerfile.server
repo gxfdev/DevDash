@@ -11,12 +11,14 @@ ENV VITE_API_BASE_URL=/api/v1
 RUN npx vite build --outDir dist
 
 
-FROM golang:1.23-alpine AS server-builder
+FROM golang:1.26-alpine AS server-builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
 RUN apk add --no-cache git ca-certificates gcc musl-dev
+
+ENV GOWORK=off
 
 WORKDIR /build
 COPY server/go.mod server/go.sum ./

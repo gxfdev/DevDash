@@ -114,6 +114,7 @@ jobs:
           CGO_ENABLED: "1"
           GOWORK: "off"
         run: |
+          mkdir -p ../dist
           go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-windows-amd64.exe ./cmd/server
 
       - name: Upload artifact
@@ -139,8 +140,8 @@ jobs:
       - run: npm run build
       - name: Create archive
         run: |
-          cd dist
-          tar -czf ../../dist/frontend-dist.tar.gz .
+          mkdir -p ${{ github.workspace }}/dist
+          tar -czf ${{ github.workspace }}/dist/frontend-dist.tar.gz -C dist .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

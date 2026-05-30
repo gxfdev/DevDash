@@ -4,6 +4,8 @@
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/github/actions/workflow/status/gxfdev/DevDash/ci.yml?style=flat-square&label=CI" alt="CI" />
+  <img src="https://img.shields.io/github/v/tag/gxfdev/DevDash?style=flat-square&label=version" alt="Version" />
 </p>
 
 <h1 align="center">DevDash - 轻量级运维监控面板</h1>
@@ -21,11 +23,17 @@
 - [功能预览](#-功能预览)
 - [技术架构](#-技术架构)
 - [快速开始](#-快速开始)
+  - [一键 Docker 部署（推荐）](#方式一一键-docker-部署推荐)
+  - [Docker Compose 部署](#方式二docker-compose-部署)
+  - [本地开发](#方式三本地开发)
+  - [二进制部署](#方式四二进制部署)
 - [配置说明](#-配置说明)
 - [功能模块](#-功能模块)
 - [项目结构](#-项目结构)
-- [安全特性](#-安全特性)
+- [CI/CD](#-cicd)
+- [部署工具](#-部署工具)
 - [API 文档](#-api-文档)
+- [安全特性](#-安全特性)
 - [常见问题](#-常见问题)
 - [参与贡献](#-参与贡献)
 - [许可证](#-许可证)
@@ -123,36 +131,114 @@
 
 ## 🚀 快速开始
 
-### 方式一：Docker Compose 部署（推荐生产环境）
+### 方式一：一键 Docker 部署（推荐）
+
+无需克隆代码，直接拉取预构建镜像运行，**30 秒内启动**：
+
+```bash
+# 1. 生成随机密钥并启动（Linux / macOS）
+export JWT_SECRET=$(openssl rand -hex 32)
+docker run -d \
+  --name devdash \
+  --restart unless-stopped \
+  -p 9090:9090 \
+  -v devdash-data:/data \
+  -v /proc:/host/proc:ro \
+  -v /sys:/host/sys:ro \
+  -v /dev:/host/dev:ro \
+  -v /etc/hostname:/etc/hostname:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e JWT_SECRET=$JWT_SECRET \
+  -e HOST_PROC=/host/proc \
+  -e HOST_SYS=/host/sys \
+  -e HOST_DEV=/host/dev \
+  -e HOST_ETC=/host/etc \
+  -e GIN_MODE=release \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/gxfdev/devdash:latest
+```
+
+```powershell
+# Windows PowerShell
+$jwtSecret = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+docker run -d `
+  --name devdash `
+  --restart unless-stopped `
+  -p 9090:9090 `
+  -v devdash-data:/data `
+  -e "JWT_SECRET=$jwtSecret" `
+  -e GIN_MODE=release `
+  -e TZ=Asia/Shanghai `
+  ghcr.io/gxfdev/devdash:latest
+```
+
+访问：**http://localhost:9090**  
+默认账号：`admin` / `admin123`（首次登录请立即修改密码）
+
+> 💡 **提示**：Windows 上不需要挂载 `/proc`、`/sys` 等目录，Docker 管理功能也不可用（无需挂载 `docker.sock`）。
+
+#### 使用 Docker Compose 一键部署（更推荐）
+
+```bash
+# 下载编排文件
+curl -O https://raw.githubusercontent.com/gxfdev/DevDash/main/docker-compose.ghcr.yml
+
+# 生成密钥并启动
+export JWT_SECRET=$(openssl rand -hex 32)
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+```powershell
+# Windows PowerShell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/gxfdev/DevDash/main/docker-compose.ghcr.yml -OutFile docker-compose.ghcr.yml
+$env:JWT_SECRET = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+#### 指定版本
+
+```bash
+# 使用特定版本
+docker run -d ... ghcr.io/gxfdev/devdash:v1.0.0
+
+# 查看所有可用版本
+# https://github.com/gxfdev/DevDash/pkgs/container/devdash
+```
+
+### 方式二：Docker Compose 部署
+
+从源码构建镜像，适合需要自定义修改的场景：
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/devdash.git
-cd devdash
+git clone https://github.com/gxfdev/DevDash.git
+cd DevDash
 
 # 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，设置 JWT_SECRET、DB_PASSWORD 等
+# 编辑 .env，设置 JWT_SECRET 等
 
-# 3. 启动服务（含 TLS 负载均衡）
-docker-compose -f docker-compose.prod.yml up -d --build
+# 3. 启动服务（含 Nginx 反向代理）
+docker compose up -d --build
+```
+
+访问：`http://localhost:80`（Nginx 代理）或 `http://localhost:9090`（直连后端）
+
+#### 生产环境（含 TLS + PostgreSQL + 负载均衡）
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 访问：`https://your-domain.com`
 
-默认账号：`admin` / `admin123`（首次登录请立即修改密码）
-
-### 方式二：Docker 单实例部署
+#### 开发环境（含热重载）
 
 ```bash
-git clone https://github.com/your-username/devdash.git
-cd devdash
-docker-compose up -d --build
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-访问：`http://localhost:9090`
-
-### 方式三：本地开发（一键脚本）
+### 方式三：本地开发
 
 **前置要求：**
 - Go 1.26+
@@ -192,24 +278,17 @@ bash dev.sh start
 # 示例：仅启动后端
 SKIP_FRONTEND=1 bash dev.sh start
 
-# 示例：仅启动前端
-SKIP_BACKEND=1 bash dev.sh start
-
 # 查看服务状态
 bash dev.sh status
 
 # 查看日志
 bash dev.sh logs backend
-bash dev.sh logs frontend
 
 # 停止所有服务
 bash dev.sh stop
-
-# 重启所有服务
-bash dev.sh restart
 ```
 
-### 方式三（备选）：手动启动
+#### 手动启动
 
 ```bash
 # 1. 启动后端
@@ -229,14 +308,27 @@ VITE_BACKEND_URL=http://localhost:9090 npm run dev
 
 ```bash
 # Linux amd64
-wget https://github.com/your-username/devdash/releases/latest/download/devdash-linux-amd64.tar.gz
-tar -xzf devdash-linux-amd64.tar.gz
-chmod +x devdash
-./devdash
+wget https://github.com/gxfdev/DevDash/releases/latest/download/devdash-linux-amd64
+chmod +x devdash-linux-amd64
+JWT_SECRET=$(openssl rand -hex 32) ./devdash-linux-amd64
+
+# Linux arm64 (树莓派等)
+wget https://github.com/gxfdev/DevDash/releases/latest/download/devdash-linux-arm64
+chmod +x devdash-linux-arm64
+JWT_SECRET=$(openssl rand -hex 32) ./devdash-linux-arm64
+
+# macOS (Apple Silicon)
+wget https://github.com/gxfdev/DevDash/releases/latest/download/devdash-darwin-arm64
+chmod +x devdash-darwin-arm64
+JWT_SECRET=$(openssl rand -hex 32) ./devdash-darwin-arm64
 
 # Windows
-# 下载 devdash-windows-amd64.zip，解压后运行 devdash.exe
+# 下载 devdash-windows-amd64.exe，然后：
+set JWT_SECRET=your-random-secret-here
+devdash-windows-amd64.exe
 ```
+
+> ⚠️ **注意**：Windows 二进制需要 CGO 编译（ConPTY 终端支持），需安装 MinGW-w64 或使用 Visual Studio Build Tools。
 
 ---
 
@@ -244,33 +336,45 @@ chmod +x devdash
 
 ### 环境变量
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | `9090` | 服务监听端口 |
-| `JWT_SECRET` | `change-this-random-secret` | JWT 签名密钥（**生产环境必须修改**） |
-| `DB_TYPE` | `sqlite` | 数据库类型：`sqlite` 或 `postgres` |
-| `DB_PATH` | `devdash.db` | SQLite 数据库路径（仅 SQLite 模式） |
-| `DB_HOST` | `localhost` | PostgreSQL 主机（仅 PostgreSQL 模式） |
-| `DB_PORT` | `5432` | PostgreSQL 端口 |
-| `DB_USER` | `devdash` | PostgreSQL 用户名 |
-| `DB_PASSWORD` | - | PostgreSQL 密码（**必填**） |
-| `DB_NAME` | `devdash` | PostgreSQL 数据库名 |
-| `DB_SSLMODE` | `disable` | PostgreSQL SSL 模式 |
-| `INTERVAL` | `5` | 数据采集间隔（秒） |
-| `TZ` | `Asia/Shanghai` | 时区 |
-| `GIN_MODE` | `debug` | Gin 运行模式：`debug` 或 `release` |
-| `CORS_ORIGINS` | `*` | CORS 允许的来源（**生产环境建议限制**） |
-| `STATIC_DIR` | - | 前端静态文件目录 |
-| `AGENT_TOKEN` | - | Agent 认证令牌 |
+| 变量 | 默认值 | 必填 | 说明 |
+|------|--------|------|------|
+| `PORT` | `9090` | 否 | 服务监听端口 |
+| `JWT_SECRET` | `change-this-random-secret` | ✅ **是** | JWT 签名密钥（**生产环境必须修改**，建议 `openssl rand -hex 32`） |
+| `ENCRYPTION_KEY` | - | 否 | 数据加密密钥（32 字节） |
+| `DB_TYPE` | `sqlite` | 否 | 数据库类型：`sqlite` 或 `postgres` |
+| `DB_PATH` | `devdash.db` | 否 | SQLite 数据库路径（仅 SQLite 模式） |
+| `DB_HOST` | `localhost` | 否 | PostgreSQL 主机 |
+| `DB_PORT` | `5432` | 否 | PostgreSQL 端口 |
+| `DB_USER` | `devdash` | 否 | PostgreSQL 用户名 |
+| `DB_PASSWORD` | - | PostgreSQL 时必填 | PostgreSQL 密码 |
+| `DB_NAME` | `devdash` | 否 | PostgreSQL 数据库名 |
+| `DB_SSLMODE` | `disable` | 否 | PostgreSQL SSL 模式 |
+| `INTERVAL` | `5` | 否 | 数据采集间隔（秒） |
+| `TZ` | `Asia/Shanghai` | 否 | 时区 |
+| `GIN_MODE` | `debug` | 否 | Gin 运行模式：`debug` 或 `release` |
+| `CORS_ORIGINS` | `*` | 否 | CORS 允许的来源（**生产环境建议限制**） |
+| `STATIC_DIR` | - | 否 | 前端静态文件目录（二进制部署时使用） |
+| `AGENT_TOKEN` | - | 否 | Agent 认证令牌 |
+| `HOST_PROC` | - | Docker 时建议 | 宿主机 /proc 挂载路径 |
+| `HOST_SYS` | - | Docker 时建议 | 宿主机 /sys 挂载路径 |
+| `HOST_DEV` | - | Docker 时建议 | 宿主机 /dev 挂载路径 |
+| `HOST_ETC` | - | Docker 时建议 | 宿主机 /etc 挂载路径 |
+
+### Docker Compose 配置文件对比
+
+| 文件 | 用途 | 镜像来源 | 包含服务 |
+|------|------|----------|----------|
+| `docker-compose.ghcr.yml` | **一键部署（推荐）** | GHCR 预构建镜像 | DevDash |
+| `docker-compose.yml` | 源码构建部署 | 本地构建 | DevDash + Nginx + PostgreSQL |
+| `docker-compose.prod.yml` | 生产环境 | 本地构建 | DevDash + Nginx (TLS) + PostgreSQL + 备用节点 |
+| `docker-compose.dev.yml` | 开发环境 | 本地构建 | DevDash (热重载) + 前端 (Vite Dev) |
 
 ### docker-compose.yml 示例
 
 ```yaml
 services:
   devdash:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
+    image: ghcr.io/gxfdev/devdash:latest
     container_name: devdash
     ports:
       - "9090:9090"
@@ -285,11 +389,11 @@ services:
       - PORT=9090
       - JWT_SECRET=your-random-secret-here
       - TZ=Asia/Shanghai
-      - LANG=C.UTF-8
       - GIN_MODE=release
       - HOST_PROC=/host/proc
       - HOST_SYS=/host/sys
       - HOST_DEV=/host/dev
+      - HOST_ETC=/host/etc
     restart: unless-stopped
 
 volumes:
@@ -356,6 +460,13 @@ volumes:
 ### 9. 💻 Web 终端 Terminal
 基于 xterm.js 的 Web SSH 终端，直接在浏览器中操作远程主机。
 
+**终端特性：**
+- 跨平台支持：Linux (PTY) / Windows (ConPTY)
+- WebSocket 实时通信，JWT 认证
+- 支持自定义 Shell（bash / zsh / PowerShell / cmd）
+- 连接超时检测 + 自动重连
+- 错误码反馈（认证失败、节点离线、权限不足）
+
 ### 10. 🐳 容器管理 Docker
 - 容器列表与状态监控
 - 容器资源使用统计
@@ -380,14 +491,14 @@ DevDash/
 │   ├── cmd/server/main.go           # 程序入口
 │   ├── internal/
 │   │   ├── api/                     # API 处理器
-│   │   │   ├── handler.go           # 核心 API（仪表盘、趋势、历史）
+│   │   │   ├── handler.go           # 核心 API（仪表盘、趋势、历史、终端 WS）
 │   │   │   ├── monitor_handler.go   # 监控相关 API
 │   │   │   ├── agent_handler.go     # Agent 通信 API
 │   │   │   ├── docker_handler.go    # Docker 管理 API
 │   │   │   └── container_monitor_handler.go  # 容器监控 API
 │   │   ├── auth/                    # 认证与安全
 │   │   │   ├── jwt.go               # JWT 令牌管理
-│   │   │   ├── middleware.go        # 认证中间件
+│   │   │   ├── middleware.go        # 认证中间件（HTTP + WebSocket）
 │   │   │   ├── security.go          # 安全策略
 │   │   │   └── validation.go        # 输入校验
 │   │   ├── collector/               # 系统数据采集
@@ -403,6 +514,9 @@ DevDash/
 │   │   │   ├── container_monitor.go # 容器监控
 │   │   │   └── websocket_stream.go  # 日志 WebSocket
 │   │   ├── terminal/                # Web 终端
+│   │   │   ├── terminal.go          # 终端核心（连接管理、消息转发）
+│   │   │   ├── terminal_unix.go     # Linux/macOS PTY 实现
+│   │   │   └── terminal_windows.go  # Windows ConPTY 实现
 │   │   ├── filemgr/filemgr.go       # 文件管理
 │   │   ├── firewall/firewall.go     # 防火墙管理
 │   │   ├── cronjob/cronjob.go       # 计划任务
@@ -456,35 +570,113 @@ DevDash/
 │   │   └── utils/sanitize.ts        # 工具函数
 │   └── package.json
 ├── docker/                          # Docker 文件
-│   ├── Dockerfile.server            # 后端多阶段构建
+│   ├── Dockerfile.server            # 后端多阶段构建（< 50MB）
 │   ├── Dockerfile.agent             # Agent 构建
 │   ├── nginx.conf                   # Nginx 开发配置
 │   ├── nginx.ssl.conf               # Nginx TLS + 负载均衡配置
 │   ├── init-db/01-init.sql          # PostgreSQL 初始化
 │   └── build-multiarch.sh           # 多架构构建脚本
-├── deploy/                          # 部署脚本
-│   ├── deploy.sh                    # Linux 部署脚本
-│   ├── deploy-windows.ps1           # Windows 部署脚本
-│   ├── backup.sh                    # 数据备份脚本
-│   └── devdash.service              # systemd 服务文件
-├── scripts/                         # 工具脚本
-│   ├── build.sh                     # 构建脚本
-│   ├── install.sh                   # Linux 安装脚本
-│   ├── install.ps1                  # Windows 安装脚本
-│   ├── deploy-secure.sh             # 安全部署脚本
-│   └── test-production.sh           # 生产测试脚本
 ├── .github/workflows/               # GitHub Actions
 │   ├── ci.yml                       # CI 流水线
-│   └── release.yml                  # 发布流水线
-├── docker-compose.yml               # 开发环境编排
-├── docker-compose.prod.yml          # 生产环境编排（含负载均衡）
-├── docker-compose.monitoring.yml    # 监控栈编排
+│   └── release.yml                  # CD 发布流水线
+├── docker-compose.ghcr.yml          # 一键部署（GHCR 预构建镜像）
+├── docker-compose.yml               # 源码构建部署
+├── docker-compose.prod.yml          # 生产环境编排（含 TLS + 负载均衡）
+├── docker-compose.dev.yml           # 开发环境编排（含热重载）
+├── .env.example                     # 环境变量模板
+├── .env.prod                        # 生产环境配置模板
+├── dev.sh / dev.ps1                 # 开发启动脚本
+├── deploy.sh / deploy.ps1           # 部署脚本
 ├── Makefile                         # 构建命令
 ├── SECURITY.md                      # 安全指南
 └── LICENSE                          # MIT 许可证
 ```
 
-## � 部署工具
+---
+
+## 🔄 CI/CD
+
+### CI 流水线（`.github/workflows/ci.yml`）
+
+每次推送到 `main` / `develop` 分支或创建 PR 时自动运行：
+
+```
+┌──────────────┐    ┌────────────────┐
+│  Lint & Vet  │───▶│  Server Tests  │───┐
+└──────────────┘    └────────────────┘   │
+┌──────────────┐                          │    ┌──────────────┐
+│Security Scan │                          ├───▶│ Docker Build │───▶ CI Success
+└──────────────┘                          │    └──────────────┘
+┌──────────────┐    ┌────────────────┐   │
+│  Frontend    │───▶│  Build & Type  │───┘
+│  Build       │    │  Check         │
+└──────────────┘    └────────────────┘
+┌──────────────────────┐
+│ Windows Tests (CGO)  │──────────────────────▶ CI Success
+└──────────────────────┘
+```
+
+| Job | 运行环境 | 说明 |
+|-----|---------|------|
+| **Server Lint & Vet** | Ubuntu | `gofmt` 格式检查 + `go vet` 静态分析 |
+| **Security Scan** | Ubuntu | `go mod verify` 依赖完整性 + `govulncheck` 漏洞扫描 |
+| **Server Tests** | Ubuntu | `go build` + `go test -race` + 覆盖率报告 |
+| **Server Tests (Windows)** | Windows | CGO 构建（ConPTY）+ 单元测试 |
+| **Frontend Build** | Ubuntu | `vue-tsc --noEmit` 类型检查 + `vite build` 构建 |
+| **Docker Build Test** | Ubuntu | 构建镜像 + 健康检查验证 |
+
+**并发控制**：同一分支的 CI 运行会自动取消旧的运行，节省资源。
+
+### CD 发布流水线（`.github/workflows/release.yml`）
+
+推送 `v*` 标签时自动触发：
+
+```bash
+# 创建发布
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+```
+┌─────────────────────┐
+│  Build & Push       │───▶ ghcr.io/gxfdev/devdash:v1.0.0
+│  Docker Image       │───▶ ghcr.io/gxfdev/devdash:1.0
+│  (amd64 + arm64)    │───▶ ghcr.io/gxfdev/devdash:latest
+└─────────────────────┘
+┌─────────────────────┐
+│  Build Binaries     │───▶ devdash-linux-amd64
+│  (Linux/macOS)      │───▶ devdash-linux-arm64
+│                     │───▶ devdash-darwin-amd64
+│                     │───▶ devdash-darwin-arm64
+└─────────────────────┘
+┌─────────────────────┐
+│  Build Windows      │───▶ devdash-windows-amd64.exe
+│  Binary (CGO)       │     (ConPTY 终端支持)
+└─────────────────────┘
+┌─────────────────────┐
+│  Build Frontend     │───▶ frontend-dist.tar.gz
+│  Dist               │     (可配合二进制部署使用)
+└─────────────────────┘
+         │
+         ▼
+┌─────────────────────┐
+│  Create GitHub      │───▶ Release 页面 + 所有产物
+│  Release            │     + 自动生成 Release Notes
+└─────────────────────┘
+```
+
+**Docker 镜像标签策略：**
+
+| 标签 | 示例 | 说明 |
+|------|------|------|
+| `{{version}}` | `v1.0.0` | 完整版本号 |
+| `{{major}}.{{minor}}` | `1.0` | 次版本号（自动获取补丁更新） |
+| `latest` | - | 最新稳定版 |
+| `sha-xxxxxx` | `sha-abc1234` | Git commit SHA |
+
+---
+
+## 🛠️ 部署工具
 
 ### 一键部署脚本
 
@@ -517,23 +709,6 @@ DEPLOY_HOST=prod.example.com DEPLOY_ENV=production bash deploy.sh deploy
 DEPLOY_HOST=staging.example.com DEPLOY_ENV=staging bash deploy.sh deploy
 ```
 
-**部署配置文件：**
-
-| 文件 | 用途 |
-|------|------|
-| `.env.prod` | 生产环境配置模板 |
-| `.env.example` | 本地开发环境配置模板 |
-
-### Docker Compose 部署
-
-```bash
-# 生产环境（含 Nginx 反向代理）
-docker compose up -d --build
-
-# 开发环境（含热重载）
-docker compose -f docker-compose.dev.yml up -d --build
-```
-
 ### Makefile 快捷命令
 
 | 命令 | 说明 |
@@ -548,8 +723,6 @@ docker compose -f docker-compose.dev.yml up -d --build
 | `make lint` | 代码检查（前后端） |
 | `make security-scan` | 安全漏洞扫描 |
 | `make test` | 运行所有测试 |
-| `make test-unit` | 仅运行单元测试 |
-| `make test-integration` | 仅运行集成测试 |
 | `make docker-up` | 启动 Docker 容器 |
 | `make docker-dev-up` | 启动开发环境容器 |
 
@@ -573,27 +746,52 @@ docker compose -f docker-compose.dev.yml up -d --build
 }
 ```
 
-### 主要端点
+### 认证
 
-| 分类 | 端点 | 方法 | 说明 |
-|------|------|------|------|
-| 认证 | `/auth/login` | POST | 用户登录 |
-| 认证 | `/auth/refresh` | POST | 刷新Token |
-| 指标 | `/snapshot` | GET | 获取系统快照 |
-| 指标 | `/latest` | GET | 获取最新指标 |
-| 指标 | `/history` | GET | 获取历史指标 |
-| 节点 | `/nodes` | GET | 节点列表 |
-| 节点 | `/node/:id/metrics` | GET | 节点指标 |
-| 文件 | `/node/:id/fs/list` | GET | 目录列表 |
-| 文件 | `/node/:id/fs/upload` | POST | 上传文件 |
-| 告警 | `/alerts` | GET | 告警列表 |
-| 告警 | `/alert-rules` | POST | 创建告警规则 |
-| 设置 | `/settings` | GET/PUT | 系统设置 |
-| 备份 | `/backup` | POST | 创建备份 |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 用户登录，返回 JWT |
+| POST | `/api/auth/change-password` | 修改密码 |
+
+### 监控数据
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/health` | 健康检查（无需认证） |
+| GET | `/api/v1/snapshot` | 获取系统快照 |
+| GET | `/api/v1/latest` | 最新监控数据 |
+| GET | `/api/v1/history` | 历史数据（支持 `limit` 参数） |
+| GET | `/api/v1/trend/compare` | 趋势对比数据（支持 `period` 和 `node_id`） |
+
+### 节点管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/nodes` | 获取所有节点 |
+| POST | `/api/v1/nodes` | 添加节点 |
+| DELETE | `/api/v1/nodes/:id` | 删除节点 |
+
+### Docker 管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/docker/ping` | 检查 Docker 状态 |
+| GET | `/api/v1/docker/containers` | 容器列表 |
+| POST | `/api/v1/docker/containers/:id/start` | 启动容器 |
+| POST | `/api/v1/docker/containers/:id/stop` | 停止容器 |
+| GET | `/api/v1/docker/containers/:id/logs` | 容器日志 |
+
+### WebSocket
+
+| 端点 | 说明 |
+|------|------|
+| `/ws/terminal/:nodeId?token=<jwt>` | Web 终端连接 |
+
+> 所有 API（除 `/health` 和 `/auth/login` 外）均需在请求头中携带 `Authorization: Bearer <token>`
 
 ---
 
-## �🔒 安全特性
+## 🔒 安全特性
 
 > **生产环境部署必读**: [完整安全指南](SECURITY.md)
 
@@ -636,46 +834,15 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 ---
 
-## 📡 API 文档
-
-### 认证
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 用户登录，返回 JWT |
-| POST | `/api/auth/change-password` | 修改密码 |
-
-### 监控数据
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/health` | 健康检查 |
-| GET | `/api/v1/latest` | 最新监控数据 |
-| GET | `/api/v1/history` | 历史数据（支持 `limit` 参数） |
-| GET | `/api/v1/trend/compare` | 趋势对比数据（支持 `period` 和 `node_id`） |
-
-### 节点管理
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/nodes` | 获取所有节点 |
-| POST | `/api/v1/nodes` | 添加节点 |
-| DELETE | `/api/v1/nodes/:id` | 删除节点 |
-
-### Docker 管理
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/docker/containers` | 容器列表 |
-| POST | `/api/v1/docker/containers/:id/start` | 启动容器 |
-| POST | `/api/v1/docker/containers/:id/stop` | 停止容器 |
-| GET | `/api/v1/docker/containers/:id/logs` | 容器日志 |
-
-> 所有 API（除登录外）均需在请求头中携带 `Authorization: Bearer <token>`
-
----
-
 ## ❓ 常见问题
+
+### Q: 一键 Docker 部署后如何更新？
+A:
+```bash
+docker pull ghcr.io/gxfdev/devdash:latest
+docker compose -f docker-compose.ghcr.yml up -d
+```
+数据保存在 Docker Volume 中，更新不会丢失。
 
 ### Q: 控制台出现 429 错误？
 A: API 请求频率超过限制（600次/分钟）。请检查前端轮询间隔是否过短，或调整后端 `handler.go` 中的速率限制值。
@@ -688,6 +855,16 @@ A: 请确保：
 
 ### Q: 中文显示乱码？
 A: Docker 部署会自动设置 `LANG=C.UTF-8`、`TZ=Asia/Shanghai`。如仍有问题，请确认终端编码为 UTF-8。
+
+### Q: Web 终端连接失败？
+A: 检查：
+1. WebSocket 连接地址是否正确（应为 `ws://host:port/ws/terminal/self`）
+2. JWT Token 是否有效（过期需重新登录）
+3. 后端终端服务是否正常启动
+4. Windows 上需要 CGO 编译（ConPTY 支持）
+
+### Q: Docker 管理页面显示不可用？
+A: 确保已挂载 Docker Socket：`-v /var/run/docker.sock:/var/run/docker.sock:ro`，且宿主机 Docker 服务正在运行。
 
 ### Q: 如何添加新节点？
 A: 在「主机管理」页面点击「添加节点」，输入 IP 和端口即可。Agent 节点需要先部署 Agent 服务。
@@ -703,7 +880,20 @@ A: 检查：
 A: 趋势对比需要至少 2 个采集周期的数据。请确保系统运行足够长时间，并选择合适的时间范围。
 
 ### Q: 如何切换到 PostgreSQL？
-A: 设置环境变量 `DB_TYPE=postgres`，并配置 `DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`。使用 `docker-compose.prod.yml` 会自动配置 PostgreSQL。
+A: 设置环境变量 `DB_TYPE=postgres`，并配置 `DB_HOST`、`DB_PORT`、`DB_USER`、`DB_PASSWORD`、`DB_NAME`。使用 `docker-compose.yml` 会自动配置 PostgreSQL（需启用 `postgres` profile）。
+
+### Q: 如何备份数据？
+A:
+```bash
+# SQLite
+docker cp devdash:/data/devdash.db ./backup/
+
+# PostgreSQL
+docker exec devdash-postgres pg_dump -U devdash devdash > backup.sql
+```
+
+### Q: Windows 二进制无法运行？
+A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinGW-w64](https://www.mingw-w64.org/) 或 Visual Studio Build Tools。推荐使用 Docker 部署方式。
 
 ---
 

@@ -1,0 +1,47 @@
+services:
+  devdash:
+    image: ghcr.io/gxfdev/devdash:latest
+    container_name: devdash
+    ports:
+      - "${PORT:-9090}:9090"
+    volumes:
+      - devdash-data:/data
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+      - /etc/hostname:/etc/hostname:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PORT=9090
+      - INTERVAL=${INTERVAL:-5}
+      - DB_PATH=/data/devdash.db
+      - "JWT_SECRET=${JWT_SECRET:?ERROR: JWT_SECRET required. Generate with: openssl rand -hex 32}"
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - AGENT_TOKEN=${AGENT_TOKEN:-}
+      - STATIC_DIR=/srv/www
+      - TZ=${TZ:-Asia/Shanghai}
+      - LANG=C.UTF-8
+      - GIN_MODE=${GIN_MODE:-release}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_DEV=/host/dev
+      - HOST_ETC=/host/etc
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: "2.0"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9090/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  devdash-data:
+    driver: local

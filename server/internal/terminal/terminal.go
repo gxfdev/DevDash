@@ -2,11 +2,9 @@ package terminal
 
 import (
 	"context"
-	"fmt"
-	"io"
+	"encoding/json"
 	"log"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -19,14 +17,22 @@ import (
 const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 8192
+	maxMessageSize = 32768
+	defaultCols    = 120
+	defaultRows    = 30
 )
+
+type resizeMessage struct {
+	Type string `json:"type"`
+	Cols int16  `json:"cols"`
+	Rows int16  `json:"rows"`
+}
 
 type TerminalSession struct {
 	NodeID string
 	Shell  string
 	Conn   *websocket.Conn
-	cmd    *exec.Cmd
+	proc   *ptyProcess
 	mu     sync.Mutex
 	closed int32
 	ctx    context.Context
@@ -57,29 +63,33 @@ func (s *TerminalSession) Handle() {
 		return nil
 	})
 
-	cmd, stdin, stdout, stderr, err := s.createCommand()
+	shell := s.resolvedShell()
+
+	proc, err := createPtyProcess(shell, defaultCols, defaultRows)
 	if err != nil {
 		s.sendMsg("\r\n\x1b[1;31mError: " + err.Error() + "\x1b[0m\r\n")
 		return
 	}
-	s.cmd = cmd
+	s.proc = proc
 
-	if err := cmd.Start(); err != nil {
-		s.sendMsg("\r\n\x1b[1;31mFailed to start shell: " + err.Error() + "\x1b[0m\r\n")
-		return
+	ptyType := "PTY"
+	if runtime.GOOS == "windows" {
+		if proc.IsConPty() {
+			ptyType = "ConPTY"
+		} else {
+			ptyType = "Pipe"
+		}
 	}
 
-	shellPath := s.resolvedShell()
-	log.Printf("[terminal] session started for node=%s pid=%d shell=%s", s.NodeID, cmd.Process.Pid, shellPath)
-	s.sendMsg("\x1b[1;32mDevDash Terminal Connected (" + runtime.GOOS + " - " + shellPath + ")\r\n\x1b[0m")
+	log.Printf("[terminal] session started for node=%s pid=%d shell=%s mode=%s", s.NodeID, proc.Pid(), shell, ptyType)
+	s.sendMsg("\x1b[1;32mDevDash Terminal Connected (" + runtime.GOOS + " - " + ptyType + " - " + shell + ")\r\n\x1b[0m")
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(3)
 
 	go s.pinger(&wg)
-	go s.streamReader(stdout, &wg, false)
-	go s.streamReader(stderr, &wg, true)
-	go s.handleInput(stdin, &wg)
+	go s.outputReader(&wg)
+	go s.inputHandler(&wg)
 
 	done := make(chan struct{})
 	go func() {
@@ -97,45 +107,127 @@ func (s *TerminalSession) Handle() {
 	time.Sleep(100 * time.Millisecond)
 }
 
-func (s *TerminalSession) createCommand() (*exec.Cmd, io.WriteCloser, io.Reader, io.Reader, error) {
-	var cmd *exec.Cmd
+func (s *TerminalSession) outputReader(wg *sync.WaitGroup) {
+	defer wg.Done()
 
-	shell := s.resolvedShell()
-
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command(shell)
-		cmd.Env = append(os.Environ(),
-			"TERM=xterm-256color",
-		)
-		if strings.Contains(strings.ToLower(shell), "cmd") {
-			cmd = exec.Command(shell, "/U", "/K", "prompt $P$G")
+	buf := make([]byte, 8192)
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
 		}
-	} else {
-		cmd = exec.Command(shell)
-		cmd.Env = append(os.Environ(),
-			"TERM=xterm-256color",
-			"COLUMNS=120",
-			"LINES=30",
-		)
-		setSysProcAttr(cmd)
+
+		n, err := s.proc.Read(buf)
+		if n > 0 {
+			data := buf[:n]
+			s.mu.Lock()
+			if atomic.LoadInt32(&s.closed) == 0 {
+				if writeErr := s.Conn.WriteMessage(websocket.BinaryMessage, data); writeErr != nil {
+					log.Printf("[terminal] write error: %v", writeErr)
+					s.mu.Unlock()
+					s.cancel()
+					return
+				}
+			}
+			s.mu.Unlock()
+		}
+		if err != nil {
+			if err.Error() != "EOF" {
+				log.Printf("[terminal] output read error: %v", err)
+			}
+			return
+		}
+	}
+}
+
+func (s *TerminalSession) inputHandler(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
+
+		_, msg, err := s.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				log.Printf("[terminal] read error: %v", err)
+			}
+			return
+		}
+
+		if len(msg) == 0 {
+			continue
+		}
+
+		var resize resizeMessage
+		if err := json.Unmarshal(msg, &resize); err == nil && resize.Type == "resize" {
+			if resize.Cols > 0 && resize.Rows > 0 {
+				if err := s.proc.Resize(resize.Cols, resize.Rows); err != nil {
+					log.Printf("[terminal] resize error: %v", err)
+				}
+			}
+			continue
+		}
+
+		if _, err := s.proc.Write(msg); err != nil {
+			log.Printf("[terminal] stdin write error: %v", err)
+			return
+		}
+	}
+}
+
+func (s *TerminalSession) pinger(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	ticker := time.NewTicker(pingPeriod)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			if atomic.LoadInt32(&s.closed) == 1 {
+				return
+			}
+			s.mu.Lock()
+			err := s.Conn.WriteMessage(websocket.PingMessage, nil)
+			s.mu.Unlock()
+			if err != nil {
+				log.Printf("[terminal] ping error: %v", err)
+				s.cancel()
+				return
+			}
+		}
+	}
+}
+
+func (s *TerminalSession) safeClose() {
+	if !atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
+		return
 	}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("stdin pipe: %w", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.proc != nil {
+		s.proc.Close()
 	}
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("stdout pipe: %w", err)
+	if s.Conn != nil {
+		s.Conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[1;31mDisconnected\x1b[0m\r\n"))
+		s.Conn.Close()
 	}
+}
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("stderr pipe: %w", err)
+func (s *TerminalSession) sendMsg(msg string) {
+	if s.Conn != nil && atomic.LoadInt32(&s.closed) == 0 {
+		s.Conn.WriteMessage(websocket.TextMessage, []byte(msg))
 	}
-
-	return cmd, stdin, stdout, stderr, nil
 }
 
 func (s *TerminalSession) resolvedShell() string {
@@ -271,157 +363,6 @@ func AvailableShells() []ShellOption {
 	}
 
 	return shells
-}
-
-func (s *TerminalSession) streamReader(r io.Reader, wg *sync.WaitGroup, isStderr bool) {
-	defer wg.Done()
-
-	buf := make([]byte, 4096)
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-		}
-
-		n, err := r.Read(buf)
-		if n > 0 {
-			data := buf[:n]
-			s.mu.Lock()
-			if atomic.LoadInt32(&s.closed) == 0 {
-				if writeErr := s.Conn.WriteMessage(websocket.TextMessage, data); writeErr != nil {
-					log.Printf("[terminal] write error: %v", writeErr)
-					s.mu.Unlock()
-					s.cancel()
-					return
-				}
-			}
-			s.mu.Unlock()
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("[terminal] read error (%v): %v", map[bool]string{true: "stderr", false: "stdout"}[isStderr], err)
-			}
-			return
-		}
-	}
-}
-
-func (s *TerminalSession) handleInput(w io.WriteCloser, wg *sync.WaitGroup) {
-	defer wg.Done()
-	defer func() {
-		if w != nil {
-			w.Close()
-		}
-	}()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-		}
-
-		_, msg, err := s.Conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				log.Printf("[terminal] read error: %v", err)
-			}
-			return
-		}
-
-		if len(msg) > 0 {
-			data := string(msg)
-
-			switch data {
-			case "\x04":
-				w.Close()
-				time.Sleep(150 * time.Millisecond)
-				s.cancel()
-				return
-			case "\x03":
-				if s.cmd != nil && s.cmd.Process != nil {
-					s.cmd.Process.Signal(os.Interrupt)
-				}
-				continue
-			case "\r", "\n":
-				if runtime.GOOS == "windows" {
-					data = "\r\n"
-				} else {
-					data = "\r"
-				}
-			}
-
-			if _, err := w.Write([]byte(data)); err != nil {
-				log.Printf("[terminal] stdin write error: %v", err)
-				return
-			}
-		}
-	}
-}
-
-func (s *TerminalSession) pinger(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	ticker := time.NewTicker(pingPeriod)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-ticker.C:
-			if atomic.LoadInt32(&s.closed) == 1 {
-				return
-			}
-			s.mu.Lock()
-			err := s.Conn.WriteMessage(websocket.PingMessage, nil)
-			s.mu.Unlock()
-			if err != nil {
-				log.Printf("[terminal] ping error: %v", err)
-				s.cancel()
-				return
-			}
-		}
-	}
-}
-
-func (s *TerminalSession) safeClose() {
-	if !atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.cmd != nil && s.cmd.Process != nil {
-		if runtime.GOOS == "windows" {
-			s.cmd.Process.Kill()
-		} else {
-			s.cmd.Process.Signal(os.Interrupt)
-			time.Sleep(200 * time.Millisecond)
-			s.cmd.Process.Kill()
-		}
-	}
-
-	s.Conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[1;31mDisconnected\x1b[0m\r\n"))
-	s.Conn.Close()
-}
-
-func (s *TerminalSession) Write(data []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if atomic.LoadInt32(&s.closed) == 0 {
-		if err := s.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			return 0, err
-		}
-		return len(data), nil
-	}
-	return 0, io.ErrClosedPipe
-}
-
-func (s *TerminalSession) sendMsg(msg string) {
-	s.Conn.WriteMessage(websocket.TextMessage, []byte(msg))
 }
 
 func IsClosed(s *TerminalSession) bool {

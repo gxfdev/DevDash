@@ -4,8 +4,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.server
     container_name: devdash
-    ports:
-      - "9090:9090"
+    expose:
+      - "9090"
     volumes:
       - devdash-data:/data
       - /proc:/host/proc:ro
@@ -23,7 +23,7 @@ services:
       - TZ=Asia/Shanghai
       - LANG=C.UTF-8
       - GIN_MODE=${GIN_MODE:-release}
-      - CORS_ORIGINS=http://localhost:9090,http://127.0.0.1:9090
+      - CORS_ORIGINS=http://localhost,http://localhost:80,http://localhost:9090
       - HOST_PROC=/host/proc
       - HOST_SYS=/host/sys
       - HOST_DEV=/host/dev
@@ -55,6 +55,50 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - devdash-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: devdash-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx-logs:/var/log/nginx
+    depends_on:
+      devdash:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: "1.0"
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/cache/nginx:size=32m,mode=1777
+      - /var/run:size=8m,mode=1733
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - devdash-net
 
   postgres:
     image: postgres:16-alpine
@@ -82,10 +126,11 @@ services:
         max-file: "3"
     profiles:
       - postgres
+    networks:
+      - devdash-net
 
 networks:
-  default:
-    name: devdash-net
+  devdash-net:
     driver: bridge
     ipam:
       config:
@@ -95,4 +140,6 @@ volumes:
   devdash-data:
     driver: local
   postgres-data:
+    driver: local
+  nginx-logs:
     driver: local

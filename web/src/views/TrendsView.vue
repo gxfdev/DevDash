@@ -379,7 +379,7 @@ function makeLineSeries(name: string, color: string, areaOpacity: number, yAxisI
     areaStyle: areaOpacity > 0 ? { color: createGradientColor(color, areaOpacity) } : undefined,
     data: [],
     emphasis: { focus: 'series', lineStyle: { width: 3 } },
-    connectNulls: true,
+    connectNulls: false,
   }
   if (lineType) {
     series.lineStyle.type = lineType

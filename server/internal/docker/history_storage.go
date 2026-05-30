@@ -6,19 +6,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"gorm.io/gorm"
 )
 
 type HistoryStorage struct {
-	db             *gorm.DB
-	buffer         []model.ContainerHistoryRecord
-	bufferMutex    sync.Mutex
-	flushInterval  time.Duration
-	maxBufferSize  int
-	stopChan       chan struct{}
+	db            *gorm.DB
+	buffer        []model.ContainerHistoryRecord
+	bufferMutex   sync.Mutex
+	flushInterval time.Duration
+	maxBufferSize int
+	stopChan      chan struct{}
 }
 
 func NewHistoryStorage(db *gorm.DB) *HistoryStorage {
@@ -112,7 +112,7 @@ func (hs *HistoryStorage) flushBuffer() {
 
 	if err := hs.db.Create(&buffer).Error; err != nil {
 		logger.ErrorLogger(err, "Failed to flush container metrics buffer")
-		
+
 		hs.bufferMutex.Lock()
 		hs.buffer = append(buffer, hs.buffer...)
 		hs.bufferMutex.Unlock()
@@ -123,11 +123,11 @@ func (hs *HistoryStorage) GetContainerHistory(containerID string, startTime, end
 	var records []model.ContainerHistoryRecord
 
 	query := hs.db.Where("container_id = ?", containerID)
-	
+
 	if !startTime.IsZero() {
 		query = query.Where("timestamp >= ?", startTime)
 	}
-	
+
 	if !endTime.IsZero() {
 		query = query.Where("timestamp <= ?", endTime)
 	}
@@ -187,7 +187,7 @@ func (hs *HistoryStorage) GetAggregatedMetrics(containerID string, interval stri
 
 func (hs *HistoryStorage) CleanupOldRecords(retentionDays int) error {
 	cutoffDate := time.Now().AddDate(0, 0, -retentionDays)
-	
+
 	result := hs.db.Where("timestamp < ?", cutoffDate).Delete(&model.ContainerHistoryRecord{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to cleanup old records: %v", result.Error)

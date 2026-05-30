@@ -250,14 +250,14 @@ func (h *AgentHandler) GetOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"total_hosts":     totalHosts,
-			"online_hosts":    onlineHosts,
-			"offline_hosts":   offlineHosts,
-			"total_containers": totalContainers,
-			"avg_cpu_percent":    avgCPU,
+			"total_hosts":           totalHosts,
+			"online_hosts":          onlineHosts,
+			"offline_hosts":         offlineHosts,
+			"total_containers":      totalContainers,
+			"avg_cpu_percent":       avgCPU,
 			"total_memory_used_gb":  totalMemoryUsedGB,
 			"total_memory_total_gb": totalMemoryTotalGB,
-			"hosts":            hosts,
+			"hosts":                 hosts,
 		},
 	})
 }

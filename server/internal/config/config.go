@@ -9,8 +9,8 @@ import (
 type DBType string
 
 const (
-	DBSQLite       DBType = "sqlite"
-	DBPostgreSQL   DBType = "postgres"
+	DBSQLite     DBType = "sqlite"
+	DBPostgreSQL DBType = "postgres"
 )
 
 type Config struct {

@@ -152,36 +152,80 @@ docker-compose up -d --build
 
 访问：`http://localhost:9090`
 
-### 方式三：本地开发
+### 方式三：本地开发（一键脚本）
 
 **前置要求：**
-- Go 1.22+
-- Node.js 18+
-- npm 或 pnpm
+- Go 1.26+
+- Node.js 20+
+- npm 11+
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/devdash.git
-cd devdash
+git clone https://github.com/gxfdev/DevDash.git
+cd DevDash
 
-# 2. 启动后端
-cd server
-go mod download
-go run ./cmd/server
+# 2. 配置环境变量
+cp .env.example .env.local
+# .env.local 已包含开发默认值，无需额外修改
 
-# 3. 新终端，启动前端
-cd web
-npm install
-npm run dev
+# 3. 一键启动（Linux/macOS）
+bash dev.sh start
+
+# 3. 一键启动（Windows PowerShell）
+.\dev.ps1 start
 ```
 
 访问：
 - Web UI: http://localhost:5173
 - API: http://localhost:9090/api/v1
 
+**脚本参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `SKIP_BACKEND=1` | 仅启动前端 |
+| `SKIP_FRONTEND=1` | 仅启动后端 |
+| `HOT_RELOAD=0` | 禁用后端热重载 |
+| `VITE_BACKEND_URL` | 自定义后端地址 |
+
+```bash
+# 示例：仅启动后端
+SKIP_FRONTEND=1 bash dev.sh start
+
+# 示例：仅启动前端
+SKIP_BACKEND=1 bash dev.sh start
+
+# 查看服务状态
+bash dev.sh status
+
+# 查看日志
+bash dev.sh logs backend
+bash dev.sh logs frontend
+
+# 停止所有服务
+bash dev.sh stop
+
+# 重启所有服务
+bash dev.sh restart
+```
+
+### 方式三（备选）：手动启动
+
+```bash
+# 1. 启动后端
+cd server
+go mod download
+JWT_SECRET=devdash-dev-secret-key-min-32ch!! ENCRYPTION_KEY=devdash-encryption-key-32ch!! go run ./cmd/server
+
+# 2. 新终端，启动前端
+cd web
+npm install
+VITE_BACKEND_URL=http://localhost:9090 npm run dev
+```
+
 ### 方式四：二进制部署
 
-从 [Releases](https://github.com/your-username/devdash/releases) 下载对应平台：
+从 [Releases](https://github.com/gxfdev/DevDash/releases) 下载对应平台：
 
 ```bash
 # Linux amd64
@@ -440,9 +484,116 @@ DevDash/
 └── LICENSE                          # MIT 许可证
 ```
 
+## � 部署工具
+
+### 一键部署脚本
+
+支持通过 SSH 一键部署到远程服务器，包含环境检查、自动备份、文件传输、服务启停和回滚功能。
+
+```bash
+# Linux/macOS
+DEPLOY_HOST=your-server-ip bash deploy.sh deploy
+
+# Windows PowerShell
+.\deploy.ps1 -DeployHost your-server-ip -Command deploy
+```
+
+**部署命令：**
+
+| 命令 | 说明 |
+|------|------|
+| `deploy` | 完整部署（构建 → 备份 → 传输 → 启动 → 验证） |
+| `check` | 检查服务器环境（Docker、磁盘、端口等） |
+| `rollback` | 回滚到上一个部署版本 |
+| `status` | 查看远程服务状态 |
+
+**环境切换：**
+
+```bash
+# 部署到生产环境
+DEPLOY_HOST=prod.example.com DEPLOY_ENV=production bash deploy.sh deploy
+
+# 部署到测试环境
+DEPLOY_HOST=staging.example.com DEPLOY_ENV=staging bash deploy.sh deploy
+```
+
+**部署配置文件：**
+
+| 文件 | 用途 |
+|------|------|
+| `.env.prod` | 生产环境配置模板 |
+| `.env.example` | 本地开发环境配置模板 |
+
+### Docker Compose 部署
+
+```bash
+# 生产环境（含 Nginx 反向代理）
+docker compose up -d --build
+
+# 开发环境（含热重载）
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+### Makefile 快捷命令
+
+| 命令 | 说明 |
+|------|------|
+| `make dev-start` | 一键启动开发环境 |
+| `make dev-stop` | 停止开发环境 |
+| `make dev-status` | 查看服务状态 |
+| `make dev-logs` | 查看服务日志 |
+| `make deploy` | 部署到服务器 |
+| `make deploy-check` | 检查服务器环境 |
+| `make deploy-rollback` | 回滚部署 |
+| `make lint` | 代码检查（前后端） |
+| `make security-scan` | 安全漏洞扫描 |
+| `make test` | 运行所有测试 |
+| `make test-unit` | 仅运行单元测试 |
+| `make test-integration` | 仅运行集成测试 |
+| `make docker-up` | 启动 Docker 容器 |
+| `make docker-dev-up` | 启动开发环境容器 |
+
 ---
 
-## 🔒 安全特性
+## 📖 API 文档
+
+完整的 RESTful API 文档位于 `docs/openapi.yaml`，可使用 [Swagger Editor](https://editor.swagger.io/) 在线查看。
+
+### API 规范
+
+- **基础路径**: `/api/v1`
+- **认证方式**: Bearer Token (JWT)
+- **响应格式**:
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {}
+}
+```
+
+### 主要端点
+
+| 分类 | 端点 | 方法 | 说明 |
+|------|------|------|------|
+| 认证 | `/auth/login` | POST | 用户登录 |
+| 认证 | `/auth/refresh` | POST | 刷新Token |
+| 指标 | `/snapshot` | GET | 获取系统快照 |
+| 指标 | `/latest` | GET | 获取最新指标 |
+| 指标 | `/history` | GET | 获取历史指标 |
+| 节点 | `/nodes` | GET | 节点列表 |
+| 节点 | `/node/:id/metrics` | GET | 节点指标 |
+| 文件 | `/node/:id/fs/list` | GET | 目录列表 |
+| 文件 | `/node/:id/fs/upload` | POST | 上传文件 |
+| 告警 | `/alerts` | GET | 告警列表 |
+| 告警 | `/alert-rules` | POST | 创建告警规则 |
+| 设置 | `/settings` | GET/PUT | 系统设置 |
+| 备份 | `/backup` | POST | 创建备份 |
+
+---
+
+## �🔒 安全特性
 
 > **生产环境部署必读**: [完整安全指南](SECURITY.md)
 

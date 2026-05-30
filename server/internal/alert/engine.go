@@ -310,20 +310,20 @@ func (e *Engine) checkCondition(value float64, op string, threshold float64) boo
 
 func (e *Engine) generateMessage(metric string, value float64, op string, threshold float64) string {
 	metricNames := map[string]string{
-		"cpu":              "CPU使用率",
-		"memory":           "内存使用率",
-		"mem":              "内存使用率",
-		"disk":             "磁盘使用率",
-		"load1":            "1分钟负载",
-		"load5":            "5分钟负载",
-		"load15":           "15分钟负载",
-		"load":             "1分钟负载",
-		"net_recv_rate":    "网络入流量",
-		"net_sent_rate":    "网络出流量",
-		"disk_read_rate":   "磁盘读取速率",
-		"disk_write_rate":  "磁盘写入速率",
-		"swap_usage":       "Swap使用率",
-		"tcp_established":  "TCP连接数",
+		"cpu":             "CPU使用率",
+		"memory":          "内存使用率",
+		"mem":             "内存使用率",
+		"disk":            "磁盘使用率",
+		"load1":           "1分钟负载",
+		"load5":           "5分钟负载",
+		"load15":          "15分钟负载",
+		"load":            "1分钟负载",
+		"net_recv_rate":   "网络入流量",
+		"net_sent_rate":   "网络出流量",
+		"disk_read_rate":  "磁盘读取速率",
+		"disk_write_rate": "磁盘写入速率",
+		"swap_usage":      "Swap使用率",
+		"tcp_established": "TCP连接数",
 	}
 	name, ok := metricNames[metric]
 	if !ok {
@@ -486,7 +486,7 @@ func (e *Engine) sendFeishuNotification(cfg settings.AlertSettings, alert map[st
 				{
 					"tag": "div",
 					"text": map[string]string{
-						"tag":     "lark_md",
+						"tag": "lark_md",
 						"content": fmt.Sprintf("**主机**: %s\n**指标**: %s\n**当前值**: %.2f\n**阈值**: %.1f\n**消息**: %s",
 							alert["node_name"], alert["metric"],
 							alert["value"].(float64), alert["threshold"].(float64),

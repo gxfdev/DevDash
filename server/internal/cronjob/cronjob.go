@@ -16,8 +16,8 @@ import (
 )
 
 var validTypes = map[string]bool{
-	"shell":    true,
-	"systemd":  true,
+	"shell":     true,
+	"systemd":   true,
 	"scheduled": true,
 }
 

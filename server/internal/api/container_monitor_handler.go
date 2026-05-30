@@ -14,11 +14,11 @@ import (
 )
 
 type ContainerMonitorHandler struct {
-	dockerHandler *DockerHandler
-	k8sMonitor    *kubernetes.K8sMonitor
-	dockerMonitor *docker.ContainerMonitor
+	dockerHandler  *DockerHandler
+	k8sMonitor     *kubernetes.K8sMonitor
+	dockerMonitor  *docker.ContainerMonitor
 	historyStorage *docker.HistoryStorage
-	streamService *docker.ContainerStreamService
+	streamService  *docker.ContainerStreamService
 }
 
 func NewContainerMonitorHandler(dockerHandler *DockerHandler) (*ContainerMonitorHandler, error) {
@@ -51,7 +51,7 @@ func (h *ContainerMonitorHandler) RegisterRoutes(r *gin.RouterGroup) {
 	monitor := r.Group("/monitor")
 	{
 		monitor.GET("/overview", h.getOverview)
-		
+
 		docker := monitor.Group("/docker")
 		{
 			docker.GET("/containers/realtime", h.getDockerRealtimeMetrics)
@@ -62,7 +62,7 @@ func (h *ContainerMonitorHandler) RegisterRoutes(r *gin.RouterGroup) {
 			docker.GET("/summary", h.getDockerSummary)
 			docker.GET("/ws", h.handleWebSocket)
 		}
-		
+
 		kubernetes := monitor.Group("/kubernetes")
 		{
 			kubernetes.GET("/clusters", h.listK8sClusters)
@@ -203,11 +203,11 @@ func (h *ContainerMonitorHandler) getContainerHistory(c *gin.Context) {
 	aggregated, _ := h.historyStorage.GetAggregatedMetrics(containerID, interval, limit)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":       true,
-		"raw_data":      records,
-		"aggregated":    aggregated,
-		"duration":      durationStr,
-		"record_count":  len(records),
+		"success":      true,
+		"raw_data":     records,
+		"aggregated":   aggregated,
+		"duration":     durationStr,
+		"record_count": len(records),
 	})
 }
 
@@ -334,11 +334,11 @@ func (h *ContainerMonitorHandler) listK8sClusters(c *gin.Context) {
 }
 
 type AddClusterRequest struct {
-	Name       string `json:"name"`
-	Kubeconfig string `json:"kubeconfig,omitempty"`
+	Name        string `json:"name"`
+	Kubeconfig  string `json:"kubeconfig,omitempty"`
 	APIEndpoint string `json:"api_endpoint,omitempty"`
-	CACert     string `json:"ca_cert,omitempty"`
-	Token      string `json:"token,omitempty"`
+	CACert      string `json:"ca_cert,omitempty"`
+	Token       string `json:"token,omitempty"`
 }
 
 func (h *ContainerMonitorHandler) addK8sCluster(c *gin.Context) {

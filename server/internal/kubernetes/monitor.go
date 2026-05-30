@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -241,13 +241,13 @@ func (km *K8sMonitor) convertNodeToModel(node *corev1.Node) model.K8sNode {
 	podsRunning := int(node.Status.Capacity.Pods().Value() - node.Status.Allocatable.Pods().Value())
 
 	return model.K8sNode{
-		Name:              node.Name,
-		Ready:             isNodeReady(node),
-		Architecture:      node.Status.NodeInfo.Architecture,
-		OSImage:           node.Status.NodeInfo.OSImage,
-		KernelVersion:     node.Status.NodeInfo.KernelVersion,
-		KubeletVersion:    node.Status.NodeInfo.KubeletVersion,
-		ContainerRuntime:  node.Status.NodeInfo.ContainerRuntimeVersion,
+		Name:             node.Name,
+		Ready:            isNodeReady(node),
+		Architecture:     node.Status.NodeInfo.Architecture,
+		OSImage:          node.Status.NodeInfo.OSImage,
+		KernelVersion:    node.Status.NodeInfo.KernelVersion,
+		KubeletVersion:   node.Status.NodeInfo.KubeletVersion,
+		ContainerRuntime: node.Status.NodeInfo.ContainerRuntimeVersion,
 		CPU: model.K8sResourceInfo{
 			Capacity:    capacityCPU,
 			Allocatable: allocatableCPU,
@@ -372,25 +372,25 @@ func (km *K8sMonitor) convertPodToModel(pod *corev1.Pod, conn *K8sClusterConnect
 	qosClass := getQOSClass(pod)
 
 	return model.K8sPod{
-		Name:            pod.Name,
-		Namespace:       pod.Namespace,
-		Status:          string(pod.Status.Phase),
-		Phase:           string(pod.Status.Phase),
-		NodeName:        pod.Spec.NodeName,
-		IP:              pod.Status.PodIP,
-		StartTime:       pod.Status.StartTime.Time,
-		RestartCount:    restartCount,
-		ReadyContainers: readyContainers,
-		TotalContainers: totalContainers,
-		Labels:          pod.Labels,
-		Annotations:     pod.Annotations,
-		OwnerReference:  ownerRef,
-		Containers:      containers,
+		Name:             pod.Name,
+		Namespace:        pod.Namespace,
+		Status:           string(pod.Status.Phase),
+		Phase:            string(pod.Status.Phase),
+		NodeName:         pod.Spec.NodeName,
+		IP:               pod.Status.PodIP,
+		StartTime:        pod.Status.StartTime.Time,
+		RestartCount:     restartCount,
+		ReadyContainers:  readyContainers,
+		TotalContainers:  totalContainers,
+		Labels:           pod.Labels,
+		Annotations:      pod.Annotations,
+		OwnerReference:   ownerRef,
+		Containers:       containers,
 		ResourceRequests: resourceRequests,
-		ResourceLimits:  resourceLimits,
-		Conditions:      conditions,
-		Events:          events,
-		QOSClass:        qosClass,
+		ResourceLimits:   resourceLimits,
+		Conditions:       conditions,
+		Events:           events,
+		QOSClass:         qosClass,
 	}
 }
 

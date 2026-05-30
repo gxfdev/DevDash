@@ -8,14 +8,14 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
-jobs:
-  build-and-push:
-    name: Build & Push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+permissions:
+  contents: write
+  packages: write
 
+jobs:
+  build-and-push-image:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,8 +41,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -56,13 +56,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  release-assets:
-    name: Release Binaries
+  build-binaries:
+    name: Build Binaries
     runs-on: ubuntu-latest
-    needs: build-and-push
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -77,19 +73,92 @@ jobs:
         working-directory: server
         run: go mod download
 
-      - name: Build binaries
+      - name: Build Linux & macOS binaries
         env:
           GOWORK: "off"
         run: |
           mkdir -p dist
           cd server
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../dist/devdash-linux-amd64 ./cmd/server
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../dist/devdash-linux-arm64 ./cmd/server
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o ../dist/devdash-windows-amd64.exe ./cmd/server
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../dist/devdash-darwin-amd64 ./cmd/server
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../dist/devdash-darwin-arm64 ./cmd/server
-          cd ..
-          ls -lh dist/
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-linux-arm64 ./cmd/server
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-darwin-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-darwin-arm64 ./cmd/server
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-mac-binaries
+          path: dist/
+
+  build-windows-binary:
+    name: Build Windows Binary
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      - name: Download dependencies
+        working-directory: server
+        run: go mod download
+
+      - name: Build Windows binary (CGO for ConPTY)
+        working-directory: server
+        env:
+          CGO_ENABLED: "1"
+          GOWORK: "off"
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ../dist/devdash-windows-amd64.exe ./cmd/server
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/devdash-windows-amd64.exe
+
+  build-frontend:
+    name: Build Frontend Dist
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Create archive
+        run: |
+          cd dist
+          tar -czf ../../dist/frontend-dist.tar.gz .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/frontend-dist.tar.gz
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-and-push-image, build-binaries, build-windows-binary, build-frontend]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lhR dist/
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -100,4 +169,36 @@ jobs:
             dist/devdash-windows-amd64.exe
             dist/devdash-darwin-amd64
             dist/devdash-darwin-arm64
+            dist/frontend-dist.tar.gz
           generate_release_notes: true
+          body: |
+            ## Docker Image
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ```
+
+            ## Quick Start
+
+            ```bash
+            # Docker Compose
+            curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+            export JWT_SECRET=$(openssl rand -hex 32)
+            docker compose up -d
+            ```
+
+            ## Binary
+
+            Download the binary for your platform below, then:
+
+            ```bash
+            # Linux
+            chmod +x devdash-linux-amd64
+            JWT_SECRET=$(openssl rand -hex 32) ./devdash-linux-amd64
+
+            # Windows
+            set JWT_SECRET=your-random-secret
+            devdash-windows-amd64.exe
+            ```
+
+            Default login: `admin` / `admin123` (change immediately after first login)

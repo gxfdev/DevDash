@@ -44,7 +44,7 @@ echo "----------------------------------------"
 
 check_command() {
     if command -v $1 &> /dev/null; then
-        pass "$1 已安装 ($(command -v $1 | cut -d' ' -f3))"
+        pass "$1 已安装 ($(command -v $1))"
         return 0
     else
         fail "$1 未安装"
@@ -57,15 +57,29 @@ check_command node
 check_command npm
 check_command git
 
+version_gte() {
+    local v1="$1" v2="$2"
+    local IFS=.
+    read -ra a <<< "$v1"
+    read -ra b <<< "$v2"
+    local i
+    for i in "${!b[@]}"; do
+        local va="${a[i]:-0}" vb="${b[i]:-0}"
+        if ((va > vb)); then return 0; fi
+        if ((va < vb)); then return 1; fi
+    done
+    return 0
+}
+
 GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-if [[ $(echo "$GO_VERSION >= 1.21" | bc -l) -eq 1 ]]; then
+if version_gte "$GO_VERSION" "1.21"; then
     pass "Go版本符合要求 ($GO_VERSION >= 1.21)"
 else
     warn "Go版本较低 ($GO_VERSION)，建议升级到1.21+"
 fi
 
 NODE_VERSION=$(node --version | sed 's/v//')
-if [[ $(echo "$NODE_VERSION >= 18" | bc -l) -eq 1 ]]; then
+if version_gte "$NODE_VERSION" "18"; then
     pass "Node版本符合要求 ($NODE_VERSION >= 18)"
 else
     fail "Node版本过低 ($NODE_VERSION < 18)"
@@ -251,8 +265,8 @@ if [ -f "docker/nginx.ssl.conf" ]; then
             pass "安全头: $header"
         else
             warn "缺少安全头: $header"
-        done
-    fi
+        fi
+    done
 else
     fail "nginx.ssl.conf 缺失"
 fi

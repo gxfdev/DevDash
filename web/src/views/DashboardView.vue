@@ -262,7 +262,7 @@ function makeLineSeries(name: string, color: string, areaOpacity: number, yAxisI
     areaStyle: { color: createGradientColor(color, areaOpacity) },
     data: [],
     emphasis: { focus: 'series', lineStyle: { width: 3 } },
-    connectNulls: true,
+    connectNulls: false,
   }
 }
 
@@ -530,6 +530,28 @@ function handleResize() {
   try { cpuChart?.resize(); memChart?.resize(); diskChart?.resize(); netChart?.resize() } catch {}
 }
 
+const GAP_THRESHOLD_MS = 120000
+
+function pushHistoryPoint(h: any, t: number) {
+  cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
+  memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
+  diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
+  diskReadData.push([t, typeof h.disk_io?.read_rate_mb === 'number' ? h.disk_io.read_rate_mb : 0])
+  diskWriteData.push([t, typeof h.disk_io?.write_rate_mb === 'number' ? h.disk_io.write_rate_mb : 0])
+  netRecvData.push([t, typeof h.network?.recv_rate_mb === 'number' ? h.network.recv_rate_mb : 0])
+  netSentData.push([t, typeof h.network?.sent_rate_mb === 'number' ? h.network.sent_rate_mb : 0])
+}
+
+function pushZeroPoint(ts: number) {
+  cpuData.push([ts, 0])
+  memData.push([ts, 0])
+  diskData.push([ts, 0])
+  diskReadData.push([ts, 0])
+  diskWriteData.push([ts, 0])
+  netRecvData.push([ts, 0])
+  netSentData.push([ts, 0])
+}
+
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
   await nodesStore.fetchNodes()
@@ -543,53 +565,17 @@ onMounted(async () => {
         const h = hist[i]
         const t = new Date(h.timestamp).getTime()
         if (isNaN(t)) continue
-        cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
-        memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
-        diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
 
-        if (typeof h.disk_io?.read_rate_mb === 'number' && h.disk_io.read_rate_mb > 0) {
-          diskReadData.push([t, h.disk_io.read_rate_mb])
-          diskWriteData.push([t, h.disk_io.write_rate_mb ?? 0])
-        } else if (i > 0) {
-          const prev = hist[i - 1]
-          const prevT = new Date(prev.timestamp).getTime()
-          const dt = (t - prevT) / 1000
-          if (dt > 0) {
-            const readRate = Math.max(0, ((h.disk_io?.read_mb ?? 0) - (prev.disk_io?.read_mb ?? 0)) / dt)
-            const writeRate = Math.max(0, ((h.disk_io?.write_mb ?? 0) - (prev.disk_io?.write_mb ?? 0)) / dt)
-            diskReadData.push([t, parseFloat(readRate.toFixed(2))])
-            diskWriteData.push([t, parseFloat(writeRate.toFixed(2))])
-          } else {
-            diskReadData.push([t, 0])
-            diskWriteData.push([t, 0])
+        if (i > 0) {
+          const prevT = new Date(hist[i - 1].timestamp).getTime()
+          const gapMs = t - prevT
+          if (gapMs > GAP_THRESHOLD_MS) {
+            pushZeroPoint(prevT + 60000)
+            pushZeroPoint(t - 60000)
           }
-        } else {
-          diskReadData.push([t, 0])
-          diskWriteData.push([t, 0])
         }
 
-        if (typeof h.network?.recv_rate_mb === 'number' && h.network.recv_rate_mb > 0) {
-          netRecvData.push([t, h.network.recv_rate_mb])
-          netSentData.push([t, h.network.sent_rate_mb ?? 0])
-        } else if (i > 0) {
-          const prev = hist[i - 1]
-          const prevT = new Date(prev.timestamp).getTime()
-          const dtSec = (t - prevT) / 1000
-          if (dtSec > 0) {
-            const curRecv = (h.network?.bytes_recv ?? 0) / 1024 / 1024
-            const curSent = (h.network?.bytes_sent ?? 0) / 1024 / 1024
-            const prevRecv = (prev.network?.bytes_recv ?? 0) / 1024 / 1024
-            const prevSent = (prev.network?.bytes_sent ?? 0) / 1024 / 1024
-            netRecvData.push([t, parseFloat(Math.max(0, (curRecv - prevRecv) / dtSec).toFixed(3))])
-            netSentData.push([t, parseFloat(Math.max(0, (curSent - prevSent) / dtSec).toFixed(3))])
-          } else {
-            netRecvData.push([t, 0])
-            netSentData.push([t, 0])
-          }
-        } else {
-          netRecvData.push([t, 0])
-          netSentData.push([t, 0])
-        }
+        pushHistoryPoint(h, t)
       }
       while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
       updateCharts()

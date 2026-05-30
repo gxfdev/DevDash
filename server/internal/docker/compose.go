@@ -16,19 +16,19 @@ import (
 )
 
 type ComposeProject struct {
-	Name        string            `json:"name"`
-	Path        string            `json:"path"`
-	Status      string            `json:"status"`
-	Services    []ComposeService  `json:"services"`
-	Created     time.Time         `json:"created"`
-	ConfigFile  string            `json:"config_file"`
+	Name       string           `json:"name"`
+	Path       string           `json:"path"`
+	Status     string           `json:"status"`
+	Services   []ComposeService `json:"services"`
+	Created    time.Time        `json:"created"`
+	ConfigFile string           `json:"config_file"`
 }
 
 type ComposeService struct {
-	Name    string `json:"name"`
-	State   string `json:"state"`
-	Health  string `json:"health"`
-	Ports   []string `json:"ports"`
+	Name   string   `json:"name"`
+	State  string   `json:"state"`
+	Health string   `json:"health"`
+	Ports  []string `json:"ports"`
 }
 
 type ComposeManager struct {
@@ -47,7 +47,7 @@ func (cm *ComposeManager) CheckComposeInstalled() bool {
 	if err == nil {
 		return true
 	}
-	
+
 	cmd2 := exec.CommandContext(ctx, "docker", "compose", "version")
 	err2 := cmd2.Run()
 	return err2 == nil
@@ -57,7 +57,7 @@ func (cm *ComposeManager) ListProjects() ([]ComposeProject, error) {
 	if !cm.CheckComposeInstalled() {
 		return nil, fmt.Errorf("docker compose is not installed")
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "compose", "ls", "--format", "json")
@@ -65,26 +65,26 @@ func (cm *ComposeManager) ListProjects() ([]ComposeProject, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list compose projects: %v, output: %s", err, string(output))
 	}
-	
+
 	var projects []ComposeProject
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		var project struct {
-			Name       string `json:"Name"`
-			Status     string `json:"Status"`
+			Name        string `json:"Name"`
+			Status      string `json:"Status"`
 			ConfigFiles string `json:"ConfigFiles"`
 		}
-		
+
 		if err := json.Unmarshal([]byte(line), &project); err != nil {
 			continue
 		}
-		
+
 		configFile := ""
 		if project.ConfigFiles != "" {
 			files := strings.Split(project.ConfigFiles, ",")
@@ -92,25 +92,25 @@ func (cm *ComposeManager) ListProjects() ([]ComposeProject, error) {
 				configFile = strings.TrimSpace(files[0])
 			}
 		}
-		
+
 		p := ComposeProject{
 			Name:       project.Name,
 			Status:     project.Status,
 			ConfigFile: configFile,
 		}
-		
+
 		if configFile != "" {
 			p.Path = filepath.Dir(configFile)
 		}
-		
+
 		services, err := cm.GetProjectServices(project.Name)
 		if err == nil {
 			p.Services = services
 		}
-		
+
 		projects = append(projects, p)
 	}
-	
+
 	return projects, nil
 }
 
@@ -122,40 +122,40 @@ func (cm *ComposeManager) GetProjectServices(projectName string) ([]ComposeServi
 	if err != nil {
 		return nil, fmt.Errorf("failed to get services for project %s: %v", projectName, err)
 	}
-	
+
 	var services []ComposeService
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		var svc struct {
 			Name   string `json:"Name"`
 			State  string `json:"State"`
 			Health string `json:"Health"`
 			Ports  string `json:"Publishers"`
 		}
-		
+
 		if err := json.Unmarshal([]byte(line), &svc); err != nil {
 			continue
 		}
-		
+
 		service := ComposeService{
 			Name:   svc.Name,
 			State:  svc.State,
 			Health: svc.Health,
 		}
-		
+
 		if svc.Ports != "" {
 			service.Ports = strings.Split(svc.Ports, ",")
 		}
-		
+
 		services = append(services, service)
 	}
-	
+
 	return services, nil
 }
 
@@ -163,10 +163,10 @@ func (cm *ComposeManager) StartProject(composePath string) (io.ReadCloser, error
 	if !isPathSafe(composePath) {
 		return nil, fmt.Errorf("compose path must be absolute and must not contain path traversal")
 	}
-	
+
 	dir := filepath.Dir(composePath)
 	file := filepath.Base(composePath)
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -191,20 +191,20 @@ func (cm *ComposeManager) StopProject(composePath string) error {
 	if !isPathSafe(composePath) {
 		return fmt.Errorf("compose path must be absolute and must not contain path traversal")
 	}
-	
+
 	dir := filepath.Dir(composePath)
 	file := filepath.Base(composePath)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", file, "down")
 	cmd.Dir = dir
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to stop project: %v, output: %s", err, string(output))
 	}
-	
+
 	return nil
 }
 
@@ -215,20 +215,20 @@ func (cm *ComposeManager) RestartService(composePath, serviceName string) error 
 	if !isValidServiceName(serviceName) {
 		return fmt.Errorf("invalid service name: %s", serviceName)
 	}
-	
+
 	dir := filepath.Dir(composePath)
 	file := filepath.Base(composePath)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", file, "restart", serviceName)
 	cmd.Dir = dir
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to restart service %s: %v, output: %s", serviceName, err, string(output))
 	}
-	
+
 	return nil
 }
 
@@ -242,16 +242,16 @@ func (cm *ComposeManager) GetServiceLogs(composePath, serviceName string, tail s
 	if !isValidTailValue(tail) {
 		return nil, fmt.Errorf("invalid tail value: %s", tail)
 	}
-	
+
 	dir := filepath.Dir(composePath)
 	file := filepath.Base(composePath)
-	
+
 	args := []string{"compose", "-f", file, "logs", "--tail", tail}
 	if follow {
 		args = append(args, "-f")
 	}
 	args = append(args, serviceName)
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -268,7 +268,7 @@ func (cm *ComposeManager) GetServiceLogs(composePath, serviceName string, tail s
 			fmt.Fprintf(w, "\nError: %v\n", err)
 		}
 	}()
-	
+
 	return r, nil
 }
 
@@ -277,15 +277,15 @@ func (cm *ComposeManager) CreateComposeFile(path string, content []byte) error {
 		return fmt.Errorf("compose path must be absolute and must not contain path traversal")
 	}
 	dir := filepath.Dir(path)
-	
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
-	
+
 	if err := os.WriteFile(path, content, 0644); err != nil {
 		return fmt.Errorf("failed to write compose file: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -298,12 +298,12 @@ func (cm *ComposeManager) ValidateCompose(content []byte) error {
 		return fmt.Errorf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
-	
+
 	if _, err := tmpFile.Write(content); err != nil {
 		return fmt.Errorf("failed to write temp file: %v", err)
 	}
 	tmpFile.Close()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "compose", "-f", tmpFile.Name(), "config")
@@ -311,7 +311,7 @@ func (cm *ComposeManager) ValidateCompose(content []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid compose file: %v, output: %s", err, string(output))
 	}
-	
+
 	return nil
 }
 
@@ -330,7 +330,7 @@ func (cm *ComposeManager) DeployFromTemplate(templateType string, config map[str
 	}
 
 	var composeContent bytes.Buffer
-	
+
 	switch templateType {
 	case "nginx":
 		composeContent.WriteString(`version: '3.8'
@@ -438,17 +438,17 @@ networks:
 	default:
 		return nil, fmt.Errorf("unknown template type: %s", templateType)
 	}
-	
+
 	projectName := "devdash-" + templateType
 	projectDir := filepath.Join(os.TempDir(), "devdash-deployments", projectName)
 	composePath := filepath.Join(projectDir, "docker-compose.yml")
-	
+
 	if err := cm.CreateComposeFile(composePath, composeContent.Bytes()); err != nil {
 		return nil, err
 	}
-	
+
 	services, _ := cm.GetProjectServices(projectName)
-	
+
 	project := &ComposeProject{
 		Name:       projectName,
 		Path:       projectDir,
@@ -457,7 +457,7 @@ networks:
 		ConfigFile: composePath,
 		Created:    time.Now(),
 	}
-	
+
 	return project, nil
 }
 

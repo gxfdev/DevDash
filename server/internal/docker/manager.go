@@ -18,39 +18,39 @@ import (
 )
 
 type ContainerInfo struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Image         string                 `json:"image"`
-	ImageID       string                 `json:"image_id"`
-	State         string                 `json:"state"`
-	Status        string                 `json:"status"`
-	Created       time.Time              `json:"created"`
-	Ports         []string               `json:"ports"`
-	Networks      []string               `json:"networks"`
-	Command       string                 `json:"command"`
-	RestartPolicy string                 `json:"restart_policy"`
-	Labels        map[string]string      `json:"labels"`
-	Stats         *ContainerStats        `json:"stats,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Image         string            `json:"image"`
+	ImageID       string            `json:"image_id"`
+	State         string            `json:"state"`
+	Status        string            `json:"status"`
+	Created       time.Time         `json:"created"`
+	Ports         []string          `json:"ports"`
+	Networks      []string          `json:"networks"`
+	Command       string            `json:"command"`
+	RestartPolicy string            `json:"restart_policy"`
+	Labels        map[string]string `json:"labels"`
+	Stats         *ContainerStats   `json:"stats,omitempty"`
 }
 
 type ContainerStats struct {
 	CPUPercentage    float64 `json:"cpu_percentage"`
-	MemoryUsage     uint64  `json:"memory_usage"`
-	MemoryLimit     uint64  `json:"memory_limit"`
+	MemoryUsage      uint64  `json:"memory_usage"`
+	MemoryLimit      uint64  `json:"memory_limit"`
 	MemoryPercentage float64 `json:"memory_percentage"`
-	NetworkRx       uint64  `json:"network_rx"`
-	NetworkTx       uint64  `json:"network_tx"`
-	BlockRead       uint64  `json:"block_read"`
-	BlockWrite      uint64  `json:"block_write"`
-	PIDs            uint64  `json:"pids"`
+	NetworkRx        uint64  `json:"network_rx"`
+	NetworkTx        uint64  `json:"network_tx"`
+	BlockRead        uint64  `json:"block_read"`
+	BlockWrite       uint64  `json:"block_write"`
+	PIDs             uint64  `json:"pids"`
 }
 
 type ImageInfo struct {
-	ID          string    `json:"id"`
-	RepoTags    []string  `json:"repo_tags"`
-	Size        int64     `json:"size"`
-	Created     time.Time `json:"created"`
-	Labels      map[string]string `json:"labels"`
+	ID       string            `json:"id"`
+	RepoTags []string          `json:"repo_tags"`
+	Size     int64             `json:"size"`
+	Created  time.Time         `json:"created"`
+	Labels   map[string]string `json:"labels"`
 }
 
 type NetworkInfo struct {
@@ -65,10 +65,10 @@ type NetworkInfo struct {
 }
 
 type VolumeInfo struct {
-	Name       string   `json:"name"`
-	Driver     string   `json:"driver"`
-	Mountpoint string   `json:"mountpoint"`
-	Created    time.Time `json:"created"`
+	Name       string            `json:"name"`
+	Driver     string            `json:"driver"`
+	Mountpoint string            `json:"mountpoint"`
+	Created    time.Time         `json:"created"`
 	Labels     map[string]string `json:"labels"`
 }
 
@@ -101,42 +101,42 @@ func (dm *DockerManager) ListContainers(all bool) ([]ContainerInfo, error) {
 	options := container.ListOptions{
 		All: all,
 	}
-	
+
 	containers, err := dm.cli.ContainerList(ctx, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %v", err)
 	}
-	
+
 	result := make([]ContainerInfo, 0, len(containers))
 	for _, c := range containers {
 		info := ContainerInfo{
-			ID:            c.ID[:12],
-			Name:         strings.TrimPrefix(c.Names[0], "/"),
-			Image:        c.Image,
-			ImageID:      c.ImageID[:12],
-			State:        string(c.State),
-			Status:       c.Status,
-			Created:       time.Unix(c.Created, 0),
-			Command:       c.Command,
-			Labels:       c.Labels,
+			ID:      c.ID[:12],
+			Name:    strings.TrimPrefix(c.Names[0], "/"),
+			Image:   c.Image,
+			ImageID: c.ImageID[:12],
+			State:   string(c.State),
+			Status:  c.Status,
+			Created: time.Unix(c.Created, 0),
+			Command: c.Command,
+			Labels:  c.Labels,
 		}
-		
+
 		for _, port := range c.Ports {
 			if port.PublicPort != 0 {
 				portStr := fmt.Sprintf("%d->%d/%s", port.PublicPort, port.PrivatePort, port.Type)
 				info.Ports = append(info.Ports, portStr)
 			}
 		}
-		
+
 		if c.NetworkSettings != nil {
 			for net := range c.NetworkSettings.Networks {
 				info.Networks = append(info.Networks, net)
 			}
 		}
-		
+
 		result = append(result, info)
 	}
-	
+
 	return result, nil
 }
 
@@ -147,25 +147,25 @@ func (dm *DockerManager) GetContainer(id string) (*ContainerInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container %s: %v", id, err)
 	}
-	
+
 	info := &ContainerInfo{
 		ID:            containerJSON.ID[:12],
-		Name:         strings.TrimPrefix(containerJSON.Name, "/"),
-		Image:        containerJSON.Config.Image,
-		ImageID:      containerJSON.Image[:12],
-		State:        string(containerJSON.State.Status),
-		Status:       string(containerJSON.State.Status),
+		Name:          strings.TrimPrefix(containerJSON.Name, "/"),
+		Image:         containerJSON.Config.Image,
+		ImageID:       containerJSON.Image[:12],
+		State:         string(containerJSON.State.Status),
+		Status:        string(containerJSON.State.Status),
 		Command:       strings.Join(containerJSON.Config.Cmd, " "),
 		RestartPolicy: string(containerJSON.HostConfig.RestartPolicy.Name),
-		Labels:       containerJSON.Config.Labels,
+		Labels:        containerJSON.Config.Labels,
 	}
-	
+
 	if t, err := time.Parse(time.RFC3339, containerJSON.Created); err == nil {
 		info.Created = t
 	} else if t, err := time.Parse(time.RFC3339Nano, containerJSON.Created); err == nil {
 		info.Created = t
 	}
-	
+
 	for _, port := range containerJSON.NetworkSettings.Ports {
 		for _, p := range port {
 			if p.HostPort != "" {
@@ -174,11 +174,11 @@ func (dm *DockerManager) GetContainer(id string) (*ContainerInfo, error) {
 			}
 		}
 	}
-	
+
 	for network := range containerJSON.NetworkSettings.Networks {
 		info.Networks = append(info.Networks, network)
 	}
-	
+
 	return info, nil
 }
 
@@ -235,12 +235,12 @@ func (dm *DockerManager) GetContainerLogs(id string, tail string, follow bool) (
 		Follow:     follow,
 		Timestamps: true,
 	}
-	
+
 	reader, err := dm.cli.ContainerLogs(ctx, id, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs for container %s: %v", id, err)
 	}
-	
+
 	return reader, nil
 }
 
@@ -252,12 +252,12 @@ func (dm *DockerManager) GetContainerStats(id string) (*ContainerStats, error) {
 		return nil, fmt.Errorf("failed to get stats for container %s: %v", id, err)
 	}
 	defer stats.Body.Close()
-	
+
 	var stat container.StatsResponse
 	if err := json.NewDecoder(stats.Body).Decode(&stat); err != nil {
 		return nil, fmt.Errorf("failed to decode stats: %v", err)
 	}
-	
+
 	cpuDelta := float64(stat.CPUStats.CPUUsage.TotalUsage - stat.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(stat.CPUStats.SystemUsage - stat.PreCPUStats.SystemUsage)
 	cpuPercent := 0.0
@@ -268,27 +268,27 @@ func (dm *DockerManager) GetContainerStats(id string) (*ContainerStats, error) {
 		}
 		cpuPercent = (cpuDelta / systemDelta) * numCPUs * 100.0
 	}
-	
+
 	memPercent := 0.0
 	if stat.MemoryStats.Limit != 0 {
 		memPercent = float64(stat.MemoryStats.Usage) / float64(stat.MemoryStats.Limit) * 100.0
 	}
-	
+
 	result := &ContainerStats{
 		CPUPercentage:    cpuPercent,
-		MemoryUsage:     stat.MemoryStats.Usage,
-		MemoryLimit:     stat.MemoryStats.Limit,
+		MemoryUsage:      stat.MemoryStats.Usage,
+		MemoryLimit:      stat.MemoryStats.Limit,
 		MemoryPercentage: memPercent,
-		PIDs:            stat.PidsStats.Current,
+		PIDs:             stat.PidsStats.Current,
 	}
-	
+
 	if stat.Networks != nil {
 		for _, v := range stat.Networks {
 			result.NetworkRx += v.RxBytes
 			result.NetworkTx += v.TxBytes
 		}
 	}
-	
+
 	if len(stat.BlkioStats.IoServiceBytesRecursive) > 0 {
 		for _, bio := range stat.BlkioStats.IoServiceBytesRecursive {
 			switch bio.Op {
@@ -299,7 +299,7 @@ func (dm *DockerManager) GetContainerStats(id string) (*ContainerStats, error) {
 			}
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -310,7 +310,7 @@ func (dm *DockerManager) ListImages() ([]ImageInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list images: %v", err)
 	}
-	
+
 	result := make([]ImageInfo, 0, len(images))
 	for _, img := range images {
 		info := ImageInfo{
@@ -326,7 +326,7 @@ func (dm *DockerManager) ListImages() ([]ImageInfo, error) {
 		}
 		result = append(result, info)
 	}
-	
+
 	return result, nil
 }
 
@@ -360,7 +360,7 @@ func (dm *DockerManager) ListNetworks() ([]NetworkInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list networks: %v", err)
 	}
-	
+
 	result := make([]NetworkInfo, 0, len(networks))
 	for _, net := range networks {
 		info := NetworkInfo{
@@ -370,23 +370,23 @@ func (dm *DockerManager) ListNetworks() ([]NetworkInfo, error) {
 			Scope:  net.Scope,
 			Labels: net.Labels,
 		}
-		
+
 		if len(net.IPAM.Config) > 0 {
 			info.IPv4 = net.IPAM.Config[0].Subnet
 			if len(net.IPAM.Config) > 1 {
 				info.IPv6 = net.IPAM.Config[1].Subnet
 			}
 		}
-		
+
 		if net.Containers != nil {
 			for c := range net.Containers {
 				info.Containers = append(info.Containers, c[:12])
 			}
 		}
-		
+
 		result = append(result, info)
 	}
-	
+
 	return result, nil
 }
 
@@ -397,7 +397,7 @@ func (dm *DockerManager) ListVolumes() ([]VolumeInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list volumes: %v", err)
 	}
-	
+
 	result := make([]VolumeInfo, 0, len(volumes.Volumes))
 	for _, vol := range volumes.Volumes {
 		info := VolumeInfo{
@@ -413,7 +413,7 @@ func (dm *DockerManager) ListVolumes() ([]VolumeInfo, error) {
 		}
 		result = append(result, info)
 	}
-	
+
 	return result, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,12 +55,13 @@ var upgrader = websocket.Upgrader{
 			return false
 		}
 		host := u.Hostname()
-		allowedHosts := map[string]bool{
-			"localhost": true,
-			"127.0.0.1": true,
-		}
-		if allowedHosts[host] {
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 			return true
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.IsLoopback() || ip.IsPrivate() {
+				return true
+			}
 		}
 		defaultOrigins := map[string]bool{
 			"http://localhost:3000": true,
@@ -99,6 +101,10 @@ func NewHandler(c *collector.Collector, s *store.Store, nm *node.NodeManager) *H
 }
 
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
+	ws := r.Group("/ws")
+	ws.Use(auth.WSMiddleware())
+	ws.GET("/terminal/:nodeId", h.terminalWS)
+
 	r.Use(requestSizeLimit(10 * 1024 * 1024))
 	r.Use(apiRateLimit())
 	r.Use(securityHeaders())
@@ -198,8 +204,6 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.GET("/backup/list", h.listBackups)
 	v1.POST("/backup/restore", auth.RequireRole("admin"), h.restoreBackup)
 	v1.DELETE("/backup/:name", auth.RequireRole("admin"), h.deleteBackup)
-
-	r.GET("/ws/terminal/:nodeId", auth.WSMiddleware(), h.terminalWS)
 
 	v1.GET("/terminal/shells", h.listShells)
 
@@ -1924,6 +1928,25 @@ func (h *Handler) terminalWS(c *gin.Context) {
 		nodeID = "self"
 	}
 	shell := c.Query("shell")
+
+	if nodeID != "self" {
+		node, err := h.store.GetNode(nodeID)
+		if err != nil || node == nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[1;31mError: node not found ("+nodeID+")\x1b[0m\r\n"))
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(4004, "node not found"))
+			conn.Close()
+			return
+		}
+		if node.Status != "online" {
+			conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[1;31mError: node "+nodeID+" is offline\x1b[0m\r\n"))
+			conn.WriteMessage(websocket.CloseMessage,
+				websocket.FormatCloseMessage(4004, "node offline"))
+			conn.Close()
+			return
+		}
+	}
+
 	session := terminal.NewSession(nodeID, shell, conn)
 	session.Handle()
 }

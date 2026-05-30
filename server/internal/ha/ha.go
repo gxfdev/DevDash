@@ -15,11 +15,11 @@ import (
 )
 
 type HealthStatus struct {
-	Status    string            `json:"status"`
-	Timestamp string            `json:"timestamp"`
-	Uptime    string            `json:"uptime"`
-	Checks    map[string]Check  `json:"checks"`
-	System    SystemInfo        `json:"system"`
+	Status    string           `json:"status"`
+	Timestamp string           `json:"timestamp"`
+	Uptime    string           `json:"uptime"`
+	Checks    map[string]Check `json:"checks"`
+	System    SystemInfo       `json:"system"`
 }
 
 type Check struct {
@@ -29,12 +29,12 @@ type Check struct {
 }
 
 type SystemInfo struct {
-	GoVersion    string `json:"go_version"`
-	OS           string `json:"os"`
-	Arch         string `json:"arch"`
-	Goroutines   int    `json:"goroutines"`
-	HeapAllocMB  string `json:"heap_alloc_mb"`
-	NumCPU       int    `json:"num_cpu"`
+	GoVersion   string `json:"go_version"`
+	OS          string `json:"os"`
+	Arch        string `json:"arch"`
+	Goroutines  int    `json:"goroutines"`
+	HeapAllocMB string `json:"heap_alloc_mb"`
+	NumCPU      int    `json:"num_cpu"`
 }
 
 var startTime = time.Now()

@@ -15,19 +15,19 @@ import (
 
 var (
 	loginAttempts = make(map[string]*loginRecord)
-	loginMu      sync.RWMutex
+	loginMu       sync.RWMutex
 )
 
 type loginRecord struct {
-	attempts  int
-	lastAttempt time.Time
+	attempts     int
+	lastAttempt  time.Time
 	blockedUntil time.Time
 }
 
 const (
-	maxLoginAttempts    = 5
-	lockoutDuration     = 15 * time.Minute
-	cleanupInterval     = 5 * time.Minute
+	maxLoginAttempts = 5
+	lockoutDuration  = 15 * time.Minute
+	cleanupInterval  = 5 * time.Minute
 )
 
 func init() {
@@ -68,8 +68,8 @@ func CheckLoginRateLimit(ip string) error {
 
 	if !exists {
 		loginAttempts[ip] = &loginRecord{
-			attempts:      1,
-			lastAttempt:   now,
+			attempts:    1,
+			lastAttempt: now,
 		}
 	} else {
 		record.attempts++

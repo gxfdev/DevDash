@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/gxfdev/DevDash/server/internal/agent"
-	"github.com/gxfdev/DevDash/server/internal/api"
 	"github.com/gxfdev/DevDash/server/internal/alert"
+	"github.com/gxfdev/DevDash/server/internal/api"
 	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/collector"
 	"github.com/gxfdev/DevDash/server/internal/config"

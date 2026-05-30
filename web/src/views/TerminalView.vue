@@ -6,6 +6,7 @@
         <n-space>
           <n-select v-model:value="selectedNode" :options="nodeOptions" style="width:180px" placeholder="选择节点" />
           <n-select v-model:value="selectedShell" :options="shellOptions" style="width:180px" placeholder="选择 Shell" />
+          <n-tag :type="statusTagType" size="small" round>{{ statusText }}</n-tag>
           <n-button size="small" @click="reconnect">重连</n-button>
           <n-button size="small" type="error" @click="disconnect">断开</n-button>
         </n-space>
@@ -32,12 +33,18 @@ const nodesStore = useNodesStore()
 const selectedNode = ref<string | null>(null)
 const selectedShell = ref('')
 const termRef = ref<HTMLDivElement>()
+const connStatus = ref<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
 let term: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 let dataDisposable: { dispose(): void } | null = null
+let resizeDisposable: { dispose(): void } | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-let isConnecting = false
+let connectTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+let reconnectAttempts = 0
+let watchReady = false
+const MAX_RECONNECT_ATTEMPTS = 5
+const CONNECT_TIMEOUT_MS = 10000
 
 interface ShellOption {
   name: string
@@ -46,11 +53,33 @@ interface ShellOption {
 
 const shellList = ref<ShellOption[]>([])
 
-const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
+const nodeOptions = computed(() => {
+  const selfOpt = { label: '本机 (self)', value: 'self' }
+  const nodeOpts = nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id }))
+  return [selfOpt, ...nodeOpts]
+})
 
 const shellOptions = computed(() => {
   const opts = shellList.value.map(s => ({ label: `${s.name} (${s.path})`, value: s.path }))
   return [{ label: '默认 Shell', value: '' }, ...opts]
+})
+
+const statusText = computed(() => {
+  switch (connStatus.value) {
+    case 'connected': return '已连接'
+    case 'connecting': return '连接中...'
+    case 'error': return '连接失败'
+    default: return '未连接'
+  }
+})
+
+const statusTagType = computed(() => {
+  switch (connStatus.value) {
+    case 'connected': return 'success'
+    case 'connecting': return 'warning'
+    case 'error': return 'error'
+    default: return 'default'
+  }
 })
 
 async function fetchShells() {
@@ -75,7 +104,7 @@ function createTerminal() {
     scrollback: 10000,
     allowProposedApi: true,
     convertEol: false,
-    windowsMode: navigator.userAgent.indexOf('Windows') > -1,
+    windowsMode: false,
   })
 
   fitAddon = new FitAddon()
@@ -94,7 +123,15 @@ function disposeTerminal() {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
+  if (connectTimeoutTimer) {
+    clearTimeout(connectTimeoutTimer)
+    connectTimeoutTimer = null
+  }
 
+  if (resizeDisposable) {
+    try { resizeDisposable.dispose() } catch {}
+    resizeDisposable = null
+  }
   if (dataDisposable) {
     try { dataDisposable.dispose() } catch {}
     dataDisposable = null
@@ -120,16 +157,29 @@ function buildWSUrl(): string {
   return url
 }
 
+function sendResize(cols: number, rows: number) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+  }
+}
+
 function connectWS() {
   disconnectWS()
-  isConnecting = true
+  connStatus.value = 'connecting'
 
-  if (!selectedNode.value || !term) {
+  if (!term) {
     createTerminal()
-    if (!selectedNode.value || !term) {
-      isConnecting = false
+    if (!term) {
+      connStatus.value = 'error'
       return
     }
+  }
+
+  const token = localStorage.getItem('token')
+  if (!token) {
+    term.write('\r\n\x1b[1;31m✗ 未登录，请先登录\x1b[0m\r\n')
+    connStatus.value = 'error'
+    return
   }
 
   const url = buildWSUrl()
@@ -139,17 +189,38 @@ function connectWS() {
     ws = new WebSocket(url)
   } catch (e: unknown) {
     console.warn('[terminal] WebSocket create error:', (e as Error)?.message || e)
-    term?.write('\r\n\x1b[1;31m✗ WebSocket 创建失败\x1b[0m\r\n')
-    isConnecting = false
+    term.write('\r\n\x1b[1;31m✗ WebSocket 创建失败\x1b[0m\r\n')
+    connStatus.value = 'error'
     scheduleReconnect()
     return
   }
 
   ws.binaryType = 'arraybuffer'
 
+  connectTimeoutTimer = setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.CONNECTING) {
+      term?.write('\r\n\x1b[1;31m✗ 连接超时 (10s)\x1b[0m\r\n')
+      ws.close()
+      ws = null
+      connStatus.value = 'error'
+      scheduleReconnect()
+    }
+  }, CONNECT_TIMEOUT_MS)
+
   ws.onopen = () => {
-    isConnecting = false
-    try { fitAddon?.fit() } catch {}
+    if (connectTimeoutTimer) {
+      clearTimeout(connectTimeoutTimer)
+      connectTimeoutTimer = null
+    }
+    connStatus.value = 'connected'
+    reconnectAttempts = 0
+    term?.write('\x1b[1;32m✓ 连接成功\x1b[0m\r\n')
+    try {
+      fitAddon?.fit()
+      if (term) {
+        sendResize(term.cols, term.rows)
+      }
+    } catch {}
   }
 
   ws.onmessage = (event) => {
@@ -161,30 +232,58 @@ function connectWS() {
   }
 
   ws.onclose = (event) => {
+    if (connectTimeoutTimer) {
+      clearTimeout(connectTimeoutTimer)
+      connectTimeoutTimer = null
+    }
     console.log('[terminal] closed:', event.code, event.reason)
     ws = null
-    isConnecting = false
+    connStatus.value = 'disconnected'
 
-    if (event.code !== 1000 && event.code !== 1001) {
+    if (event.code === 1000 || event.code === 1001) {
+      return
+    }
+
+    if (event.code === 4001 || event.code === 4010) {
+      term?.write('\r\n\x1b[1;31m✗ 认证失败，请重新登录\x1b[0m\r\n')
+      connStatus.value = 'error'
+    } else if (event.code === 4004) {
+      term?.write('\r\n\x1b[1;31m✗ 节点不存在或已离线\x1b[0m\r\n')
+      connStatus.value = 'error'
+    } else if (event.code === 4030) {
+      term?.write('\r\n\x1b[1;31m✗ 权限不足\x1b[0m\r\n')
+      connStatus.value = 'error'
+    } else {
+      term?.write(`\r\n\x1b[1;31m✗ 连接关闭 (code: ${event.code})\x1b[0m\r\n`)
       scheduleReconnect()
     }
   }
 
-  ws.onerror = () => {
-    isConnecting = false
+  ws.onerror = (event) => {
+    console.error('[terminal] error:', event)
+    connStatus.value = 'error'
+    term?.write('\r\n\x1b[1;31m✗ 连接错误，请检查网络或后端服务\x1b[0m\r\n')
   }
 }
 
 function scheduleReconnect() {
   if (reconnectTimer) return
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    term?.write('\r\n\x1b[1;31m✗ 已达到最大重连次数，请手动重连\x1b[0m\r\n')
+    return
+  }
+
+  reconnectAttempts++
+  const delay = Math.min(3000 * reconnectAttempts, 15000)
+
+  term?.write(`\r\n\x1b[1;33m⚠ ${delay / 1000}秒后重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...\x1b[0m\r\n`)
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     if (!ws || ws.readyState === WebSocket.CLOSED) {
-      term?.write('\r\n\x1b[1;33m⚠ 连接断开，尝试重连...\x1b[0m\r\n')
       connectWS()
     }
-  }, 3000)
+  }, delay)
 }
 
 function setupDataHandler() {
@@ -193,9 +292,15 @@ function setupDataHandler() {
   dataDisposable = term.onData((data: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data)
-    } else if (!isConnecting) {
-      term?.write('\r\n')
     }
+  })
+}
+
+function setupResizeHandler() {
+  if (!term || resizeDisposable) return
+
+  resizeDisposable = term.onResize(({ cols, rows }) => {
+    sendResize(cols, rows)
   })
 }
 
@@ -204,31 +309,42 @@ function disconnectWS() {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
+  if (connectTimeoutTimer) {
+    clearTimeout(connectTimeoutTimer)
+    connectTimeoutTimer = null
+  }
 
   if (ws) {
     try { ws.close(1000, 'User disconnected') } catch {}
     ws = null
   }
-  isConnecting = false
+  connStatus.value = 'disconnected'
 }
 
 function connect() {
   connectWS()
   setupDataHandler()
+  setupResizeHandler()
 }
 
 function disconnect() {
   disconnectWS()
+  reconnectAttempts = 0
   term?.write('\r\n\x1b[1;33m已断开\x1b[0m\r\n')
 }
 
 function reconnect() {
   disconnectWS()
+  reconnectAttempts = 0
   term?.clear()
   connect()
 }
 
-function handleResize() { try { fitAddon?.fit() } catch {} }
+function handleResize() {
+  try {
+    fitAddon?.fit()
+  } catch {}
+}
 
 onMounted(async () => {
   await nodesStore.fetchNodes()
@@ -238,16 +354,19 @@ onMounted(async () => {
   createTerminal()
   window.addEventListener('resize', handleResize)
 
-  if (nodesStore.nodes.length) {
-    selectedNode.value = nodesStore.nodes[0]?.id
-    await nextTick()
-    connect()
-  }
+  selectedNode.value = 'self'
+  await nextTick()
+  connect()
+  watchReady = true
 })
 
-watch(selectedNode, async () => {
-  await nextTick()
-  if (termRef.value) connect()
+watch(selectedNode, () => {
+  if (!watchReady) return
+  if (connStatus.value === 'connected' || connStatus.value === 'connecting') {
+    disconnectWS()
+    term?.clear()
+  }
+  nextTick(() => connect())
 })
 
 watch(selectedShell, () => {

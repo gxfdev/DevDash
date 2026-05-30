@@ -53,8 +53,12 @@ test_*.go
 # === Environment ===
 .env
 .env.local
-.env.*.local
 .env.production
+
+# === Dev Script Temp ===
+.pids/
+.logs/
+server/tmp/
 
 # === Secrets ===
 *.pem

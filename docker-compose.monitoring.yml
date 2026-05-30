@@ -78,8 +78,7 @@ services:
 
 networks:
   devdash-net:
-    external: true
-    name: devdash-net
+    driver: bridge
 
 volumes:
   prometheus-data:

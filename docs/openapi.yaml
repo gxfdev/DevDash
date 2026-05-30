@@ -1,0 +1,655 @@
+openapi: 3.0.3
+info:
+  title: DevDash API
+  description: |
+    DevDash 运维面板 RESTful API 文档。
+    
+    ## 认证方式
+    所有需要认证的接口使用 Bearer Token (JWT) 方式，在请求头中添加：
+    ```
+    Authorization: Bearer <token>
+    ```
+    
+    ## 响应格式
+    所有接口统一返回格式：
+    ```json
+    {
+      "code": 0,
+      "message": "success",
+      "data": {}
+    }
+    ```
+    
+    ## 错误码
+    | HTTP Status | 说明 |
+    |------------|------|
+    | 400 | 请求参数错误 |
+    | 401 | 未认证或Token过期 |
+    | 403 | 权限不足 |
+    | 404 | 资源不存在 |
+    | 500 | 服务器内部错误 |
+  version: 1.0.0
+  contact:
+    name: DevDash Team
+
+servers:
+  - url: http://localhost:9090/api/v1
+    description: 本地开发环境
+  - url: https://your-domain.com/api/v1
+    description: 生产环境
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: 认证相关
+  - name: Metrics
+    description: 系统指标
+  - name: Nodes
+    description: 节点管理
+  - name: Alerts
+    description: 告警管理
+  - name: Files
+    description: 文件管理
+  - name: Docker
+    description: Docker容器管理
+  - name: Settings
+    description: 系统设置
+  - name: Terminal
+    description: Web终端
+  - name: Backup
+    description: 备份恢复
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 用户登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  format: password
+                  example: admin123
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  must_change_pwd:
+                    type: boolean
+        '401':
+          description: 用户名或密码错误
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新Token
+      responses:
+        '200':
+          description: Token刷新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: 修改密码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password:
+                  type: string
+                  format: password
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        '200':
+          description: 密码修改成功
+        '400':
+          description: 旧密码错误或新密码不符合要求
+
+  /health:
+    get:
+      tags: [Auth]
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /snapshot:
+    get:
+      tags: [Metrics]
+      summary: 获取系统快照
+      responses:
+        '200':
+          description: 系统快照数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSnapshot'
+
+  /latest:
+    get:
+      tags: [Metrics]
+      summary: 获取最新指标
+      responses:
+        '200':
+          description: 最新指标数据
+
+  /history:
+    get:
+      tags: [Metrics]
+      summary: 获取历史指标
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [1h, 6h, 24h, 7d, 30d]
+            default: 24h
+      responses:
+        '200':
+          description: 历史指标数据
+
+  /trend/compare:
+    get:
+      tags: [Metrics]
+      summary: 趋势对比分析
+      parameters:
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [cpu, mem, disk, load]
+        - name: period
+          in: query
+          schema:
+            type: string
+            default: 7d
+      responses:
+        '200':
+          description: 趋势对比数据
+
+  /nodes:
+    get:
+      tags: [Nodes]
+      summary: 获取节点列表
+      responses:
+        '200':
+          description: 节点列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NodeInfo'
+
+  /node/{id}:
+    get:
+      tags: [Nodes]
+      summary: 获取节点详情
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '200':
+          description: 节点详情
+        '404':
+          description: 节点不存在
+
+  /node/{id}/metrics:
+    get:
+      tags: [Nodes]
+      summary: 获取节点指标
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      responses:
+        '200':
+          description: 节点指标数据
+
+  /node/{id}/fs/list:
+    get:
+      tags: [Files]
+      summary: 列出目录内容
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+            example: /tmp
+      responses:
+        '200':
+          description: 目录列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileEntry'
+        '400':
+          description: 路径不安全
+        '500':
+          description: 目录不存在
+
+  /node/{id}/fs/mkdir:
+    post:
+      tags: [Files]
+      summary: 创建目录
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+      responses:
+        '200':
+          description: 创建成功
+        '400':
+          description: 路径不安全或已存在
+
+  /node/{id}/fs/mkfile:
+    post:
+      tags: [Files]
+      summary: 创建文件
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '200':
+          description: 创建成功
+
+  /node/{id}/fs/remove:
+    delete:
+      tags: [Files]
+      summary: 删除文件或目录
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 删除成功
+
+  /node/{id}/fs/read:
+    get:
+      tags: [Files]
+      summary: 读取文件内容
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 文件内容
+
+  /node/{id}/fs/upload:
+    post:
+      tags: [Files]
+      summary: 上传文件
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, path]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                path:
+                  type: string
+      responses:
+        '200':
+          description: 上传成功
+
+  /node/{id}/fs/download:
+    get:
+      tags: [Files]
+      summary: 下载文件
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 文件内容
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /alerts:
+    get:
+      tags: [Alerts]
+      summary: 获取告警列表
+      responses:
+        '200':
+          description: 告警列表
+
+  /alerts/active:
+    get:
+      tags: [Alerts]
+      summary: 获取活跃告警
+      responses:
+        '200':
+          description: 活跃告警列表
+
+  /alert-rules:
+    get:
+      tags: [Alerts]
+      summary: 获取告警规则
+      responses:
+        '200':
+          description: 告警规则列表
+    post:
+      tags: [Alerts]
+      summary: 创建告警规则
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleCreate'
+      responses:
+        '201':
+          description: 创建成功
+        '400':
+          description: 参数验证失败
+
+  /alert-rules/{id}:
+    put:
+      tags: [Alerts]
+      summary: 更新告警规则
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleCreate'
+      responses:
+        '200':
+          description: 更新成功
+    delete:
+      tags: [Alerts]
+      summary: 删除告警规则
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+
+  /settings:
+    get:
+      tags: [Settings]
+      summary: 获取系统设置
+      responses:
+        '200':
+          description: 系统设置
+    put:
+      tags: [Settings]
+      summary: 更新系统设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: 更新成功
+
+  /backup:
+    post:
+      tags: [Backup]
+      summary: 创建备份
+      responses:
+        '200':
+          description: 备份创建成功
+    get:
+      tags: [Backup]
+      summary: 获取备份列表
+      responses:
+        '200':
+          description: 备份列表
+
+  /backup/restore:
+    post:
+      tags: [Backup]
+      summary: 恢复备份
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: 恢复成功
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    NodeId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: 节点ID (self 表示本机)
+
+  schemas:
+    SystemSnapshot:
+      type: object
+      properties:
+        node_id:
+          type: string
+        cpu:
+          $ref: '#/components/schemas/CPUInfo'
+        memory:
+          $ref: '#/components/schemas/MemoryInfo'
+        disk:
+          $ref: '#/components/schemas/DiskInfo'
+        load:
+          $ref: '#/components/schemas/LoadInfo'
+        uptime:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    CPUInfo:
+      type: object
+      properties:
+        usage_percent:
+          type: number
+        core_count:
+          type: integer
+        model_name:
+          type: string
+
+    MemoryInfo:
+      type: object
+      properties:
+        total:
+          type: integer
+        used:
+          type: integer
+        available:
+          type: integer
+        usage_percent:
+          type: number
+
+    DiskInfo:
+      type: object
+      properties:
+        total:
+          type: integer
+        used:
+          type: integer
+        available:
+          type: integer
+        usage_percent:
+          type: number
+
+    LoadInfo:
+      type: object
+      properties:
+        load1:
+          type: number
+        load5:
+          type: number
+        load15:
+          type: number
+
+    NodeInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        os:
+          type: string
+        arch:
+          type: string
+        ip:
+          type: string
+        role:
+          type: string
+          enum: [self, agent, full]
+        status:
+          type: string
+          enum: [online, offline]
+        last_heartbeat:
+          type: string
+          format: date-time
+
+    FileEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+        mode:
+          type: string
+        mod_time:
+          type: string
+          format: date-time
+        is_dir:
+          type: boolean
+
+    AlertRuleCreate:
+      type: object
+      required: [metric, op, threshold, level]
+      properties:
+        metric:
+          type: string
+          enum: [cpu, mem, disk, load, cpu_usage, mem_usage, disk_usage]
+          description: 监控指标 (支持别名如 cpu_usage->cpu)
+        op:
+          type: string
+          enum: ['>', '>=', '<', '<=']
+        threshold:
+          type: number
+          exclusiveMinimum: 0
+        level:
+          type: string
+          enum: [info, warning, critical]
+        channels:
+          type: array
+          items:
+            type: string
+          description: 通知渠道
+        enabled:
+          type: boolean
+          default: true

@@ -59,8 +59,8 @@ if (-not (Test-Path $serverDir)) {
 }
 
 Push-Location $serverDir
-$env:CGO_ENABLED = "0"
-go build -o "$InstallDir\devdash-server.exe" ./cmd/server
+$env:CGO_ENABLED = "1"
+go build -ldflags="-s -w" -o "$InstallDir\devdash-server.exe" ./cmd/server
 if ($LASTEXITCODE -ne 0) {
     Write-Err "后端编译失败"
     Pop-Location
@@ -76,7 +76,7 @@ if (-not (Test-Path $webDir)) {
 }
 
 Push-Location $webDir
-npm install --production
+npm ci --omit=dev
 npm run build
 if ($LASTEXITCODE -ne 0) {
     Write-Err "前端构建失败"
@@ -84,7 +84,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$distDir = Join-Location $webDir "dist"
+$distDir = Join-Path $webDir "dist"
 $staticDir = "$DataDir\www"
 if (Test-Path $distDir) {
     Copy-Item -Path "$distDir\*" -Destination $staticDir -Recurse -Force

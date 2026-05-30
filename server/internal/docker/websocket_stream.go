@@ -30,9 +30,9 @@ var upgrader = websocket.Upgrader{
 			}
 		}
 		defaultOrigins := map[string]bool{
-			"http://localhost:3000":  true,
-			"http://localhost:5173":  true,
-			"http://localhost:9090":  true,
+			"http://localhost:3000": true,
+			"http://localhost:5173": true,
+			"http://localhost:9090": true,
 			"http://127.0.0.1:3000": true,
 			"http://127.0.0.1:5173": true,
 			"http://127.0.0.1:9090": true,
@@ -44,9 +44,9 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSClient struct {
-	conn     *websocket.Conn
-	send     chan []byte
-	hub      *WSHub
+	conn        *websocket.Conn
+	send        chan []byte
+	hub         *WSHub
 	containerID string
 }
 
@@ -179,9 +179,9 @@ func (c *WSClient) writePump() {
 }
 
 type ContainerStreamService struct {
-	hub       *WSHub
-	monitor   *ContainerMonitor
-	storage   *HistoryStorage
+	hub     *WSHub
+	monitor *ContainerMonitor
+	storage *HistoryStorage
 }
 
 func NewContainerStreamService(monitor *ContainerMonitor, storage *HistoryStorage) *ContainerStreamService {
@@ -203,9 +203,9 @@ func (s *ContainerStreamService) HandleWebSocket(c *gin.Context) {
 	}
 
 	client := &WSClient{
-		hub:   s.hub,
-		conn:  conn,
-		send:  make(chan []byte, 256),
+		hub:  s.hub,
+		conn: conn,
+		send: make(chan []byte, 256),
 	}
 
 	s.hub.register <- client

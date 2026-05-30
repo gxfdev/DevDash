@@ -663,7 +663,7 @@ func (s *Store) GetMetricsHistoryRange(nodeID string, start, end time.Time) ([]m
 			},
 		})
 	}
-	return result, nil
+	return fillGapsWithZero(result), nil
 }
 
 func (s *Store) GetGPUMetricsHistory(nodeID string, hours int) ([]model.GPUMetricRow, error) {
@@ -891,7 +891,111 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 			},
 		})
 	}
-	return result
+	return fillGapsWithZero(result)
+}
+
+const gapThresholdSeconds = 120
+
+func fillGapsWithZero(data []map[string]any) []map[string]any {
+	if len(data) < 2 {
+		return data
+	}
+
+	var filled []map[string]any
+	filled = append(filled, data[0])
+
+	for i := 1; i < len(data); i++ {
+		prevTs, ok1 := data[i-1]["timestamp"].(time.Time)
+		curTs, ok2 := data[i]["timestamp"].(time.Time)
+		if !ok1 || !ok2 {
+			filled = append(filled, data[i])
+			continue
+		}
+
+		gapSeconds := curTs.Sub(prevTs).Seconds()
+		if gapSeconds > gapThresholdSeconds {
+			nid, _ := data[i]["node_id"].(string)
+			zeroPoint := map[string]any{
+				"node_id":   nid,
+				"timestamp": prevTs.Add(time.Duration(gapThresholdSeconds/2) * time.Second),
+				"cpu": map[string]any{
+					"usage_percent": float64(0),
+					"cores":         data[i-1]["cpu"].(map[string]any)["cores"],
+				},
+				"memory": map[string]any{
+					"total_gb":      float64(0),
+					"used_gb":       float64(0),
+					"usage_percent": float64(0),
+				},
+				"disk": map[string]any{
+					"total_gb":      float64(0),
+					"used_gb":       float64(0),
+					"usage_percent": float64(0),
+				},
+				"disk_io": map[string]any{
+					"read_mb":       float64(0),
+					"write_mb":      float64(0),
+					"iops":          float64(0),
+					"read_rate_mb":  float64(0),
+					"write_rate_mb": float64(0),
+				},
+				"network": map[string]any{
+					"bytes_recv":   int64(0),
+					"bytes_sent":   int64(0),
+					"recv_rate_mb": float64(0),
+					"sent_rate_mb": float64(0),
+				},
+				"load": map[string]any{
+					"load1":  float64(0),
+					"load5":  float64(0),
+					"load15": float64(0),
+				},
+			}
+			filled = append(filled, zeroPoint)
+
+			endZeroPoint := map[string]any{
+				"node_id":   nid,
+				"timestamp": curTs.Add(-time.Duration(gapThresholdSeconds/2) * time.Second),
+				"cpu": map[string]any{
+					"usage_percent": float64(0),
+					"cores":         data[i]["cpu"].(map[string]any)["cores"],
+				},
+				"memory": map[string]any{
+					"total_gb":      float64(0),
+					"used_gb":       float64(0),
+					"usage_percent": float64(0),
+				},
+				"disk": map[string]any{
+					"total_gb":      float64(0),
+					"used_gb":       float64(0),
+					"usage_percent": float64(0),
+				},
+				"disk_io": map[string]any{
+					"read_mb":       float64(0),
+					"write_mb":      float64(0),
+					"iops":          float64(0),
+					"read_rate_mb":  float64(0),
+					"write_rate_mb": float64(0),
+				},
+				"network": map[string]any{
+					"bytes_recv":   int64(0),
+					"bytes_sent":   int64(0),
+					"recv_rate_mb": float64(0),
+					"sent_rate_mb": float64(0),
+				},
+				"load": map[string]any{
+					"load1":  float64(0),
+					"load5":  float64(0),
+					"load15": float64(0),
+				},
+			}
+			filled = append(filled, endZeroPoint)
+		}
+
+		filled = append(filled, data[i])
+	}
+
+	return filled
 }
 
 func (s *Store) Ping() error {

@@ -35,17 +35,17 @@ func init() {
 }
 
 type Collector struct {
-	mu          sync.RWMutex
-	lastNet     psnet.IOCountersStat
-	lastNetTime time.Time
-	lastRecv    uint64
-	lastSent    uint64
-	prevCPUPer  float64
-	prevCPUTime time.Time
+	mu            sync.RWMutex
+	lastNet       psnet.IOCountersStat
+	lastNetTime   time.Time
+	lastRecv      uint64
+	lastSent      uint64
+	prevCPUPer    float64
+	prevCPUTime   time.Time
 	lastDiskRead  uint64
 	lastDiskWrite uint64
 	lastDiskTime  time.Time
-	gpu         *GPUCollector
+	gpu           *GPUCollector
 }
 
 func NewCollector() *Collector {
@@ -332,7 +332,7 @@ func (c *Collector) collectGPU(ctx context.Context) *model.GPUMetrics {
 	return total
 }
 
-func (c *Collector) collectSensors(_ context.Context) *model.SensorInfo    { return nil }
+func (c *Collector) collectSensors(_ context.Context) *model.SensorInfo { return nil }
 
 func (c *Collector) collectDiskIO(_ context.Context) *model.DiskIOMetrics {
 	io, err := disk.IOCounters()

@@ -490,7 +490,9 @@ let refreshInterval: number | null = null
 
 onMounted(async () => {
   await checkDockerStatus()
-  await refreshContainers()
+  if (dockerStatus.value.connected) {
+    await refreshContainers()
+  }
   startAutoRefresh()
 })
 
@@ -500,7 +502,7 @@ onUnmounted(() => {
 
 function startAutoRefresh() {
   refreshInterval = window.setInterval(() => {
-    if (activeTab.value === 'containers') {
+    if (dockerStatus.value.connected && activeTab.value === 'containers') {
       refreshContainers()
     }
   }, 10000)
@@ -516,21 +518,29 @@ function stopAutoRefresh() {
 async function checkDockerStatus() {
   try {
     const response = await dockerApi.ping()
-    dockerStatus.value.connected = response.success
+    dockerStatus.value.connected = !!response.success
 
     if (dockerStatus.value.connected) {
-      const infoResponse = await dockerApi.info()
-      if (infoResponse.success) {
-        dockerStatus.value.info = infoResponse.data
-      }
+      try {
+        const infoResponse = await dockerApi.info()
+        if (infoResponse.success) {
+          dockerStatus.value.info = infoResponse.data
+        }
+      } catch {}
+    } else {
+      dockerStatus.value.info = null
     }
-  } catch (error) {
-    console.warn('Docker service unavailable:', (error as Error)?.message || error)
+  } catch {
     dockerStatus.value.connected = false
+    dockerStatus.value.info = null
   }
 }
 
 async function refreshContainers() {
+  if (!dockerStatus.value.connected) {
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const response = await dockerApi.listContainers(showAll.value)

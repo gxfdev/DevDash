@@ -26,7 +26,7 @@ type RemoteHost struct {
 }
 
 type HostMetrics struct {
-	Snapshot   *model.Snapshot     `json:"snapshot,omitempty"`
+	Snapshot   *model.Snapshot       `json:"snapshot,omitempty"`
 	Containers []model.ContainerInfo `json:"containers,omitempty"`
 }
 

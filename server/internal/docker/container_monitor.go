@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/logger"
+	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"github.com/docker/docker/api/types/container"
 )

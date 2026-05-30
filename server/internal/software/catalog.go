@@ -18,10 +18,10 @@ func DetectOS() OSInfo {
 }
 
 type SoftwareCatalog struct {
-	Name         string
-	Category     string
-	Versions     []string
-	InstallCmd   map[string]map[string]string
+	Name       string
+	Category   string
+	Versions   []string
+	InstallCmd map[string]map[string]string
 }
 
 var Catalog = []SoftwareCatalog{
@@ -108,7 +108,9 @@ func GetInstallCommand(name, version, osName, arch string) string {
 func ListByCategory(category string) []SoftwareCatalog {
 	var result []SoftwareCatalog
 	for _, s := range Catalog {
-		if s.Category == category { result = append(result, s) }
+		if s.Category == category {
+			result = append(result, s)
+		}
 	}
 	return result
 }

@@ -5,7 +5,14 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
 
 func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -82,15 +89,18 @@ func WSMiddleware() gin.HandlerFunc {
 					token = parts[1]
 				}
 			}
+			if token == "" {
+				token = c.GetHeader("Sec-WebSocket-Protocol")
+			}
 		}
 		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			rejectWSAuth(c, "missing token")
 			return
 		}
 
 		claims, err := ValidateAccessToken(token)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			rejectWSAuth(c, "invalid or expired token")
 			return
 		}
 
@@ -103,4 +113,17 @@ func WSMiddleware() gin.HandlerFunc {
 		c.Set("role", role)
 		c.Next()
 	}
+}
+
+func rejectWSAuth(c *gin.Context, reason string) {
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		c.Header("Connection", "close")
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[1;31m✗ 认证失败: "+reason+"\x1b[0m\r\n"))
+	conn.WriteMessage(websocket.CloseMessage,
+		websocket.FormatCloseMessage(4001, reason))
+	conn.Close()
 }

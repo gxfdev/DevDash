@@ -10,8 +10,10 @@ import (
 )
 
 type DockerHandler struct {
-	dm *docker.DockerManager
-	cm *docker.ComposeManager
+	dm       *docker.DockerManager
+	cm       *docker.ComposeManager
+	avail    bool
+	availMsg string
 }
 
 func NewDockerHandler() (*DockerHandler, error) {
@@ -19,25 +21,52 @@ func NewDockerHandler() (*DockerHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	
-	return &DockerHandler{
+
+	h := &DockerHandler{
 		dm: dm,
 		cm: docker.NewComposeManager(dm),
-	}, nil
+	}
+
+	if pingErr := dm.Ping(); pingErr != nil {
+		h.avail = false
+		h.availMsg = pingErr.Error()
+	} else {
+		h.avail = true
+	}
+
+	return h, nil
 }
 
 func (h *DockerHandler) DockerManager() *docker.DockerManager {
 	return h.dm
 }
 
+func (h *DockerHandler) requireDocker() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !h.avail {
+			c.JSON(http.StatusOK, gin.H{
+				"success":         false,
+				"error":           "Docker daemon is not running",
+				"details":         h.availMsg,
+				"docker_available": false,
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
 	docker := r.Group("/docker")
 	{
 		docker.GET("/ping", h.ping)
-		docker.GET("/info", h.info)
-		docker.GET("/usage", h.usage)
-		
-		containers := docker.Group("/containers")
+
+		ops := docker.Group("", h.requireDocker())
+		ops.GET("/info", h.info)
+		ops.GET("/usage", h.usage)
+
+		containers := ops.Group("/containers")
 		{
 			containers.GET("", h.listContainers)
 			containers.GET("/:id", h.getContainer)
@@ -48,25 +77,25 @@ func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
 			containers.GET("/:id/logs", h.getContainerLogs)
 			containers.GET("/:id/stats", h.getContainerStats)
 		}
-		
-		images := docker.Group("/images")
+
+		images := ops.Group("/images")
 		{
 			images.GET("", h.listImages)
 			images.POST("/pull", h.pullImage)
 			images.DELETE("/:id", h.removeImage)
 		}
-		
-		networks := docker.Group("/networks")
+
+		networks := ops.Group("/networks")
 		{
 			networks.GET("", h.listNetworks)
 		}
-		
-		volumes := docker.Group("/volumes")
+
+		volumes := ops.Group("/volumes")
 		{
 			volumes.GET("", h.listVolumes)
 		}
-		
-		compose := docker.Group("/compose")
+
+		compose := ops.Group("/compose")
 		{
 			compose.GET("/projects", h.listComposeProjects)
 			compose.POST("/start", h.startComposeProject)
@@ -82,14 +111,14 @@ func (h *DockerHandler) RegisterRoutes(r *gin.RouterGroup) {
 func (h *DockerHandler) ping(c *gin.Context) {
 	err := h.dm.Ping()
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"error":   "Docker daemon is not running",
 			"details": err.Error(),
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Docker daemon is running",
@@ -106,7 +135,7 @@ func (h *DockerHandler) info(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    info,
@@ -123,7 +152,7 @@ func (h *DockerHandler) usage(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    usage,
@@ -132,7 +161,7 @@ func (h *DockerHandler) usage(c *gin.Context) {
 
 func (h *DockerHandler) listContainers(c *gin.Context) {
 	all := c.DefaultQuery("all", "false") == "true"
-	
+
 	containers, err := h.dm.ListContainers(all)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -142,7 +171,7 @@ func (h *DockerHandler) listContainers(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    containers,
@@ -152,7 +181,7 @@ func (h *DockerHandler) listContainers(c *gin.Context) {
 
 func (h *DockerHandler) getContainer(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	container, err := h.dm.GetContainer(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -162,7 +191,7 @@ func (h *DockerHandler) getContainer(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    container,
@@ -171,7 +200,7 @@ func (h *DockerHandler) getContainer(c *gin.Context) {
 
 func (h *DockerHandler) startContainer(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	err := h.dm.StartContainer(id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -181,7 +210,7 @@ func (h *DockerHandler) startContainer(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Container started successfully",
@@ -192,7 +221,7 @@ func (h *DockerHandler) stopContainer(c *gin.Context) {
 	id := c.Param("id")
 	timeoutStr := c.DefaultQuery("timeout", "10")
 	timeout, _ := strconv.Atoi(timeoutStr)
-	
+
 	err := h.dm.StopContainer(id, &timeout)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -202,7 +231,7 @@ func (h *DockerHandler) stopContainer(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Container stopped successfully",
@@ -213,7 +242,7 @@ func (h *DockerHandler) restartContainer(c *gin.Context) {
 	id := c.Param("id")
 	timeoutStr := c.DefaultQuery("timeout", "10")
 	timeout, _ := strconv.Atoi(timeoutStr)
-	
+
 	err := h.dm.RestartContainer(id, &timeout)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -223,7 +252,7 @@ func (h *DockerHandler) restartContainer(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Container restarted successfully",
@@ -234,7 +263,7 @@ func (h *DockerHandler) removeContainer(c *gin.Context) {
 	id := c.Param("id")
 	force := c.DefaultQuery("force", "false") == "true"
 	volumes := c.DefaultQuery("volumes", "false") == "true"
-	
+
 	err := h.dm.RemoveContainer(id, force, volumes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -244,7 +273,7 @@ func (h *DockerHandler) removeContainer(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Container removed successfully",
@@ -255,7 +284,7 @@ func (h *DockerHandler) getContainerLogs(c *gin.Context) {
 	id := c.Param("id")
 	tail := c.DefaultQuery("tail", "100")
 	follow := c.DefaultQuery("follow", "false") == "true"
-	
+
 	reader, err := h.dm.GetContainerLogs(id, tail, follow)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -266,7 +295,7 @@ func (h *DockerHandler) getContainerLogs(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Stream(func(w io.Writer) bool {
 		buf := make([]byte, 1024)
@@ -286,7 +315,7 @@ func (h *DockerHandler) getContainerLogs(c *gin.Context) {
 
 func (h *DockerHandler) getContainerStats(c *gin.Context) {
 	id := c.Param("id")
-	
+
 	stats, err := h.dm.GetContainerStats(id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -296,7 +325,7 @@ func (h *DockerHandler) getContainerStats(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    stats,
@@ -313,7 +342,7 @@ func (h *DockerHandler) listImages(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    images,
@@ -325,7 +354,7 @@ func (h *DockerHandler) pullImage(c *gin.Context) {
 	var req struct {
 		Image string `json:"image" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -333,7 +362,7 @@ func (h *DockerHandler) pullImage(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	reader, err := h.dm.PullImage(req.Image)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -344,7 +373,7 @@ func (h *DockerHandler) pullImage(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	c.Header("Content-Type", "application/json; charset=utf-8")
 	c.Stream(func(w io.Writer) bool {
 		buf := make([]byte, 1024)
@@ -365,7 +394,7 @@ func (h *DockerHandler) pullImage(c *gin.Context) {
 func (h *DockerHandler) removeImage(c *gin.Context) {
 	id := c.Param("id")
 	force := c.DefaultQuery("force", "false") == "true"
-	
+
 	items, err := h.dm.RemoveImage(id, force)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -375,7 +404,7 @@ func (h *DockerHandler) removeImage(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Image removed successfully",
@@ -393,7 +422,7 @@ func (h *DockerHandler) listNetworks(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    networks,
@@ -411,7 +440,7 @@ func (h *DockerHandler) listVolumes(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    volumes,
@@ -429,7 +458,7 @@ func (h *DockerHandler) listComposeProjects(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    projects,
@@ -441,7 +470,7 @@ func (h *DockerHandler) startComposeProject(c *gin.Context) {
 	var req struct {
 		Path string `json:"path" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -449,7 +478,7 @@ func (h *DockerHandler) startComposeProject(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	reader, err := h.cm.StartProject(req.Path)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -460,7 +489,7 @@ func (h *DockerHandler) startComposeProject(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Stream(func(w io.Writer) bool {
 		buf := make([]byte, 1024)
@@ -482,7 +511,7 @@ func (h *DockerHandler) stopComposeProject(c *gin.Context) {
 	var req struct {
 		Path string `json:"path" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -490,7 +519,7 @@ func (h *DockerHandler) stopComposeProject(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	err := h.cm.StopProject(req.Path)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -500,7 +529,7 @@ func (h *DockerHandler) stopComposeProject(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Compose project stopped successfully",
@@ -509,10 +538,10 @@ func (h *DockerHandler) stopComposeProject(c *gin.Context) {
 
 func (h *DockerHandler) restartComposeService(c *gin.Context) {
 	var req struct {
-		Path       string `json:"path" binding:"required"`
+		Path        string `json:"path" binding:"required"`
 		ServiceName string `json:"service_name" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -520,7 +549,7 @@ func (h *DockerHandler) restartComposeService(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	err := h.cm.RestartService(req.Path, req.ServiceName)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -530,7 +559,7 @@ func (h *DockerHandler) restartComposeService(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Service restarted successfully",
@@ -542,7 +571,7 @@ func (h *DockerHandler) getComposeLogs(c *gin.Context) {
 	serviceName := c.Query("service_name")
 	tail := c.DefaultQuery("tail", "100")
 	follow := c.DefaultQuery("follow", "false") == "true"
-	
+
 	reader, err := h.cm.GetServiceLogs(path, serviceName, tail, follow)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -553,7 +582,7 @@ func (h *DockerHandler) getComposeLogs(c *gin.Context) {
 		return
 	}
 	defer reader.Close()
-	
+
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Stream(func(w io.Writer) bool {
 		buf := make([]byte, 1024)
@@ -575,7 +604,7 @@ func (h *DockerHandler) validateCompose(c *gin.Context) {
 	var req struct {
 		Content string `json:"content" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -583,7 +612,7 @@ func (h *DockerHandler) validateCompose(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	err := h.cm.ValidateCompose([]byte(req.Content))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -593,7 +622,7 @@ func (h *DockerHandler) validateCompose(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Compose file is valid",
@@ -605,7 +634,7 @@ func (h *DockerHandler) deployFromTemplate(c *gin.Context) {
 		TemplateType string            `json:"template_type" binding:"required"`
 		Config       map[string]string `json:"config"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -613,7 +642,7 @@ func (h *DockerHandler) deployFromTemplate(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	project, err := h.cm.DeployFromTemplate(req.TemplateType, req.Config)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -623,7 +652,7 @@ func (h *DockerHandler) deployFromTemplate(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Compose project created successfully",

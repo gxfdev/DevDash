@@ -25,7 +25,7 @@ type DBConnection struct {
 }
 
 type poolEntry struct {
-	db      *sql.DB
+	db       *sql.DB
 	lastUsed time.Time
 }
 

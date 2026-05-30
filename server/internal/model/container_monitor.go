@@ -3,15 +3,15 @@ package model
 import "time"
 
 type ContainerMetrics struct {
-	ContainerID   string                    `json:"container_id"`
-	ContainerName string                    `json:"container_name"`
-	Image         string                    `json:"image"`
-	Timestamp     time.Time                 `json:"timestamp"`
-	CPU           ContainerCPUMetrics       `json:"cpu"`
-	Memory        ContainerMemoryMetrics    `json:"memory"`
-	Network       ContainerNetworkMetrics   `json:"network"`
-	DiskIO        ContainerDiskIOMetrics    `json:"disk_io"`
-	PIDs          uint64                    `json:"pids"`
+	ContainerID   string                  `json:"container_id"`
+	ContainerName string                  `json:"container_name"`
+	Image         string                  `json:"image"`
+	Timestamp     time.Time               `json:"timestamp"`
+	CPU           ContainerCPUMetrics     `json:"cpu"`
+	Memory        ContainerMemoryMetrics  `json:"memory"`
+	Network       ContainerNetworkMetrics `json:"network"`
+	DiskIO        ContainerDiskIOMetrics  `json:"disk_io"`
+	PIDs          uint64                  `json:"pids"`
 }
 
 type ContainerCPUMetrics struct {
@@ -54,13 +54,13 @@ type ContainerNetworkMetrics struct {
 }
 
 type ContainerDiskIOMetrics struct {
-	ReadBytes    uint64  `json:"read_bytes"`
-	WriteBytes   uint64  `json:"write_bytes"`
-	ReadCount    uint64  `json:"read_count"`
-	WriteCount   uint64  `json:"write_count"`
-	ReadRateMBPS float64 `json:"read_rate_mbps"`
+	ReadBytes     uint64  `json:"read_bytes"`
+	WriteBytes    uint64  `json:"write_bytes"`
+	ReadCount     uint64  `json:"read_count"`
+	WriteCount    uint64  `json:"write_count"`
+	ReadRateMBPS  float64 `json:"read_rate_mbps"`
 	WriteRateMBPS float64 `json:"write_rate_mbps"`
-	IOPS         float64 `json:"iops"`
+	IOPS          float64 `json:"iops"`
 }
 
 type ContainerHistoryRecord struct {
@@ -93,20 +93,20 @@ type KubernetesCluster struct {
 }
 
 type K8sNode struct {
-	Name             string          `json:"name"`
-	Ready            bool            `json:"ready"`
-	Architecture     string          `json:"architecture"`
-	OSImage          string          `json:"os_image"`
-	KernelVersion    string          `json:"kernel_version"`
-	KubeletVersion   string          `json:"kubelet_version"`
-	ContainerRuntime string          `json:"container_runtime"`
-	CPU              K8sResourceInfo `json:"cpu"`
-	Memory           K8sResourceInfo `json:"memory"`
-	PodsAllocatable  int             `json:"pods_allocatable"`
-	PodsCurrent      int             `json:"pods_current"`
-	Conditions       []NodeCondition `json:"conditions"`
+	Name             string            `json:"name"`
+	Ready            bool              `json:"ready"`
+	Architecture     string            `json:"architecture"`
+	OSImage          string            `json:"os_image"`
+	KernelVersion    string            `json:"kernel_version"`
+	KubeletVersion   string            `json:"kubelet_version"`
+	ContainerRuntime string            `json:"container_runtime"`
+	CPU              K8sResourceInfo   `json:"cpu"`
+	Memory           K8sResourceInfo   `json:"memory"`
+	PodsAllocatable  int               `json:"pods_allocatable"`
+	PodsCurrent      int               `json:"pods_current"`
+	Conditions       []NodeCondition   `json:"conditions"`
 	Labels           map[string]string `json:"labels"`
-	CreatedAt        time.Time       `json:"created_at"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 type K8sResourceInfo struct {
@@ -146,17 +146,17 @@ type K8sPod struct {
 }
 
 type K8sContainer struct {
-	Name            string               `json:"name"`
-	Image           string               `json:"image"`
-	ImageID         string               `json:"image_id"`
-	Ready           bool                 `json:"ready"`
-	RestartCount    int32                `json:"restart_count"`
-	State           string               `json:"state"`
-	CurrentMetrics  ContainerMetrics     `json:"current_metrics"`
-	ResourceRequest ResourceSpec         `json:"resource_request"`
-	ResourceLimit   ResourceSpec         `json:"resource_limit"`
-	VolumeMounts    []VolumeMount        `json:"volume_mounts"`
-	Ports           []ContainerPort      `json:"ports"`
+	Name            string           `json:"name"`
+	Image           string           `json:"image"`
+	ImageID         string           `json:"image_id"`
+	Ready           bool             `json:"ready"`
+	RestartCount    int32            `json:"restart_count"`
+	State           string           `json:"state"`
+	CurrentMetrics  ContainerMetrics `json:"current_metrics"`
+	ResourceRequest ResourceSpec     `json:"resource_request"`
+	ResourceLimit   ResourceSpec     `json:"resource_limit"`
+	VolumeMounts    []VolumeMount    `json:"volume_mounts"`
+	Ports           []ContainerPort  `json:"ports"`
 }
 
 type ResourceSpec struct {
@@ -214,18 +214,18 @@ type ResourceQuota struct {
 }
 
 type K8sDeployment struct {
-	Name                 string               `json:"name"`
-	Namespace            string               `json:"namespace"`
-	Replicas             int32                `json:"replicas"`
-	ReadyReplicas        int32                `json:"ready_replicas"`
-	UpdatedReplicas      int32                `json:"updated_replicas"`
-	AvailableReplicas    int32                `json:"available_replicas"`
-	UnavailableReplicas  int32                `json:"unavailable_replicas"`
-	Strategy             string               `json:"strategy"`
-	Selector             map[string]string    `json:"selector"`
-	Conditions           []DeploymentCondition `json:"conditions"`
-	CreatedAt            time.Time            `json:"created_at"`
-	Labels               map[string]string    `json:"labels"`
+	Name                string                `json:"name"`
+	Namespace           string                `json:"namespace"`
+	Replicas            int32                 `json:"replicas"`
+	ReadyReplicas       int32                 `json:"ready_replicas"`
+	UpdatedReplicas     int32                 `json:"updated_replicas"`
+	AvailableReplicas   int32                 `json:"available_replicas"`
+	UnavailableReplicas int32                 `json:"unavailable_replicas"`
+	Strategy            string                `json:"strategy"`
+	Selector            map[string]string     `json:"selector"`
+	Conditions          []DeploymentCondition `json:"conditions"`
+	CreatedAt           time.Time             `json:"created_at"`
+	Labels              map[string]string     `json:"labels"`
 }
 
 type DeploymentCondition struct {

@@ -28,13 +28,19 @@ jobs:
           echo "=== Go version ==="
           go version
           echo "=== Go env ==="
-          go env GOMOD GOWORK GOROOT
+          go env GOMOD GOWORK GOROOT GOPATH
           echo "=== go.mod ==="
           head -5 go.mod
           echo "=== Directory structure ==="
           ls -la internal/ | head -20
           echo "=== internal/agent ==="
           ls -la internal/agent/ 2>&1 || echo "MISSING"
+          echo "=== internal/agent/agent.go head ==="
+          head -3 internal/agent/agent.go 2>&1 || echo "MISSING"
+          echo "=== All .go files with 'agent' in path ==="
+          find . -path "*/agent*" -name "*.go" 2>&1
+      - name: Download dependencies
+        run: go mod download
       - name: Build check
         run: go build ./...
       - name: Vet

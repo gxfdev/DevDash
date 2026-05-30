@@ -131,13 +131,15 @@
 
 ## 🚀 快速开始
 
+> 🐳 **Docker 镜像已发布到 GitHub Container Registry (GHCR)**，支持 `linux/amd64` 和 `linux/arm64` 双架构。
+> 镜像地址：`ghcr.io/gxfdev/devdash` | [查看所有版本](https://github.com/gxfdev/DevDash/pkgs/container/devdash)
+
 ### 方式一：一键 Docker 部署（推荐）
 
 无需克隆代码，直接拉取预构建镜像运行，**30 秒内启动**：
 
 ```bash
-# 1. 生成随机密钥并启动（Linux / macOS）
-export JWT_SECRET=$(openssl rand -hex 32)
+# Linux / macOS — 一键启动
 docker run -d \
   --name devdash \
   --restart unless-stopped \
@@ -148,7 +150,7 @@ docker run -d \
   -v /dev:/host/dev:ro \
   -v /etc/hostname:/etc/hostname:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -e JWT_SECRET=$JWT_SECRET \
+  -e "JWT_SECRET=$(openssl rand -hex 32)" \
   -e HOST_PROC=/host/proc \
   -e HOST_SYS=/host/sys \
   -e HOST_DEV=/host/dev \
@@ -159,14 +161,13 @@ docker run -d \
 ```
 
 ```powershell
-# Windows PowerShell
-$jwtSecret = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+# Windows PowerShell — 一键启动
 docker run -d `
   --name devdash `
   --restart unless-stopped `
   -p 9090:9090 `
   -v devdash-data:/data `
-  -e "JWT_SECRET=$jwtSecret" `
+  -e "JWT_SECRET=$(-join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) }))" `
   -e GIN_MODE=release `
   -e TZ=Asia/Shanghai `
   ghcr.io/gxfdev/devdash:latest
@@ -180,10 +181,10 @@ docker run -d `
 #### 使用 Docker Compose 一键部署（更推荐）
 
 ```bash
-# 下载编排文件
+# 1. 下载编排文件
 curl -O https://raw.githubusercontent.com/gxfdev/DevDash/main/docker-compose.ghcr.yml
 
-# 生成密钥并启动
+# 2. 生成密钥并启动
 export JWT_SECRET=$(openssl rand -hex 32)
 docker compose -f docker-compose.ghcr.yml up -d
 ```
@@ -195,14 +196,83 @@ $env:JWT_SECRET = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Max
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
+#### CentOS 7 部署（NAT 模式虚拟机）
+
+CentOS 7 已 EOL，需切换镜像源后安装 Docker：
+
+```bash
+# 1. 切换 yum 源（官方源已下线）
+sudo sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo
+sudo sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=https://mirrors.aliyun.com|g' /etc/yum.repos.d/CentOS-Base.repo
+
+# 2. 安装 Docker（兼容版本 20.10.x）
+sudo yum remove -y docker docker-client docker-common docker-engine 2>/dev/null
+sudo yum install -y yum-utils device-mapper-persistent-data lvm2
+sudo yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+sudo yum install -y docker-ce-20.10.24 docker-ce-cli-20.10.24 containerd.io
+sudo systemctl start docker && sudo systemctl enable docker
+
+# 3. 配置镜像加速（国内网络必须）
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "registry-mirrors": ["https://docker.1ms.run", "https://docker.xuanyuan.me"]
+}
+EOF
+sudo systemctl daemon-reload && sudo systemctl restart docker
+
+# 4. 拉取并运行 DevDash
+docker run -d \
+  --name devdash \
+  --restart unless-stopped \
+  -p 9090:9090 \
+  -v devdash-data:/data \
+  -v /proc:/host/proc:ro \
+  -v /sys:/host/sys:ro \
+  -v /dev:/host/dev:ro \
+  -v /etc/hostname:/etc/hostname:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e "JWT_SECRET=$(openssl rand -hex 32)" \
+  -e HOST_PROC=/host/proc \
+  -e HOST_SYS=/host/sys \
+  -e HOST_DEV=/host/dev \
+  -e HOST_ETC=/host/etc \
+  -e GIN_MODE=release \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/gxfdev/devdash:latest
+
+# 5. 开放防火墙端口
+sudo firewall-cmd --permanent --add-port=9090/tcp
+sudo firewall-cmd --reload
+
+# 6. 查看虚拟机 IP
+ip addr show | grep "inet " | grep -v 127.0.0.1
+```
+
+然后在 Windows 宿主机浏览器访问 `http://虚拟机IP:9090`。  
+如果 NAT 模式下无法直接访问，需在 VMware/VirtualBox 中配置端口转发（主机端口 9090 → 虚拟机端口 9090），然后访问 `http://localhost:9090`。
+
 #### 指定版本
 
 ```bash
 # 使用特定版本
-docker run -d ... ghcr.io/gxfdev/devdash:v1.0.0
+docker pull ghcr.io/gxfdev/devdash:v0.1.0
+docker run -d ... ghcr.io/gxfdev/devdash:v0.1.0
 
 # 查看所有可用版本
 # https://github.com/gxfdev/DevDash/pkgs/container/devdash
+```
+
+#### 常用管理命令
+
+```bash
+docker ps                          # 查看运行状态
+docker logs -f devdash             # 查看实时日志
+docker restart devdash             # 重启容器
+docker pull ghcr.io/gxfdev/devdash:latest && docker restart devdash  # 更新
+
+# 备份数据
+docker cp devdash:/data/devdash.db ./backup-$(date +%Y%m%d).db
 ```
 
 ### 方式二：Docker Compose 部署

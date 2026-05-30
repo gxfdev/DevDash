@@ -45,9 +45,9 @@ func (h *DockerHandler) requireDocker() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !h.avail {
 			c.JSON(http.StatusOK, gin.H{
-				"success":         false,
-				"error":           "Docker daemon is not running",
-				"details":         h.availMsg,
+				"success":          false,
+				"error":            "Docker daemon is not running",
+				"details":          h.availMsg,
 				"docker_available": false,
 			})
 			c.Abort()

@@ -1,0 +1,31 @@
+services:
+  webshell:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: webshell
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - webshell-data:/data
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+      - /etc/hostname:/etc/hostname:ro
+    environment:
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-secret-at-least-32-chars}
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_DEV=/host/dev
+      - HOST_ETC=/host/etc
+      - GIN_MODE=release
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  webshell-data:

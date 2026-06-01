@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Server Lint & Vet
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+      - run: go fmt ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+
+  test:
+    name: Server Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+      - run: go mod download
+      - run: CGO_ENABLED=1 go build ./...
+      - run: CGO_ENABLED=1 go test ./internal/... -v -timeout 120s
+
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx vue-tsc --noEmit
+      - run: npm run build
+
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f docker/Dockerfile -t webshell-ci .
+      - name: Health check
+        run: |
+          docker run -d --name test -p 9090:9090 -e JWT_SECRET=test-secret-key-min-32-characters!! webshell-ci
+          sleep 5
+          curl -sf http://localhost:9090/api/health | grep -q ok
+          docker rm -f test

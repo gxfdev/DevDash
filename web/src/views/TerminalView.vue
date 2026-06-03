@@ -4,7 +4,6 @@
       <div class="page-header">
         <h2>Web 终端</h2>
         <n-space>
-          <n-select v-model:value="selectedNode" :options="nodeOptions" style="width:180px" placeholder="选择节点" />
           <n-select v-model:value="selectedShell" :options="shellOptions" style="width:180px" placeholder="选择 Shell" />
           <n-tag :type="statusTagType" size="small" round>{{ statusText }}</n-tag>
           <n-button size="small" @click="reconnect">重连</n-button>
@@ -25,12 +24,8 @@ import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 import AppLayout from '@/components/AppLayout.vue'
-import { useNodesStore } from '@/stores/nodes'
 import client from '@/api/client'
 
-const nodesStore = useNodesStore()
-
-const selectedNode = ref<string | null>(null)
 const selectedShell = ref('')
 const termRef = ref<HTMLDivElement>()
 const connStatus = ref<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected')
@@ -52,12 +47,6 @@ interface ShellOption {
 }
 
 const shellList = ref<ShellOption[]>([])
-
-const nodeOptions = computed(() => {
-  const selfOpt = { label: '本机 (self)', value: 'self' }
-  const nodeOpts = nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id }))
-  return [selfOpt, ...nodeOpts]
-})
 
 const shellOptions = computed(() => {
   const opts = shellList.value.map(s => ({ label: `${s.name} (${s.path})`, value: s.path }))
@@ -149,8 +138,7 @@ function disposeTerminal() {
 function buildWSUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = localStorage.getItem('token') || ''
-  const nodeId = encodeURIComponent(selectedNode.value || 'self')
-  let url = `${proto}//${location.host}/ws/terminal/${nodeId}?token=${encodeURIComponent(token)}`
+  let url = `${proto}//${location.host}/ws/terminal/self?token=${encodeURIComponent(token)}`
   if (selectedShell.value) {
     url += `&shell=${encodeURIComponent(selectedShell.value)}`
   }
@@ -247,9 +235,6 @@ function connectWS() {
     if (event.code === 4001 || event.code === 4010) {
       term?.write('\r\n\x1b[1;31m✗ 认证失败，请重新登录\x1b[0m\r\n')
       connStatus.value = 'error'
-    } else if (event.code === 4004) {
-      term?.write('\r\n\x1b[1;31m✗ 节点不存在或已离线\x1b[0m\r\n')
-      connStatus.value = 'error'
     } else if (event.code === 4030) {
       term?.write('\r\n\x1b[1;31m✗ 权限不足\x1b[0m\r\n')
       connStatus.value = 'error'
@@ -259,8 +244,7 @@ function connectWS() {
     }
   }
 
-  ws.onerror = (event) => {
-    console.error('[terminal] error:', event)
+  ws.onerror = () => {
     connStatus.value = 'error'
     term?.write('\r\n\x1b[1;31m✗ 连接错误，请检查网络或后端服务\x1b[0m\r\n')
   }
@@ -288,7 +272,6 @@ function scheduleReconnect() {
 
 function setupDataHandler() {
   if (!term || dataDisposable) return
-
   dataDisposable = term.onData((data: string) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data)
@@ -298,7 +281,6 @@ function setupDataHandler() {
 
 function setupResizeHandler() {
   if (!term || resizeDisposable) return
-
   resizeDisposable = term.onResize(({ cols, rows }) => {
     sendResize(cols, rows)
   })
@@ -347,29 +329,19 @@ function handleResize() {
 }
 
 onMounted(async () => {
-  await nodesStore.fetchNodes()
   await fetchShells()
   await nextTick()
 
   createTerminal()
   window.addEventListener('resize', handleResize)
 
-  selectedNode.value = 'self'
   await nextTick()
   connect()
   watchReady = true
 })
 
-watch(selectedNode, () => {
-  if (!watchReady) return
-  if (connStatus.value === 'connected' || connStatus.value === 'connecting') {
-    disconnectWS()
-    term?.clear()
-  }
-  nextTick(() => connect())
-})
-
 watch(selectedShell, () => {
+  if (!watchReady) return
   if (ws && ws.readyState === WebSocket.OPEN) {
     disconnectWS()
     term?.clear()

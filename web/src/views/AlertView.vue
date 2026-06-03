@@ -4,7 +4,6 @@
       <div class="page-header">
         <h2>告警中心</h2>
         <n-space>
-          <n-select v-model:value="selectedNode" :options="nodeOptions" style="width:180px" placeholder="全部节点" clearable />
           <n-button type="primary" size="small" @click="showRule = true">添加规则</n-button>
         </n-space>
       </div>
@@ -16,7 +15,7 @@
             <div v-for="a in activeAlerts" :key="a.id" class="alert-item" :class="a.level || 'warning'">
               <div class="alert-icon">{{ (a.level || 'warning') === 'critical' ? '🔴' : '🟡' }}</div>
               <div class="alert-body">
-                <div class="alert-name">{{ a.node_name || a.node_id || 'unknown' }} · {{ a.metric || a.type || '--' }}</div>
+                <div class="alert-name">{{ a.node_name || '本机' }} · {{ a.metric || '--' }}</div>
                 <div class="alert-detail">{{ a.message || `${a.value?.toFixed(1) || '?'}% 超过阈值` }} · {{ formatTime(a.created_at) }}</div>
               </div>
               <n-button size="tiny" :loading="silencingId === a.id" @click="silenceAlert(a)">静默</n-button>
@@ -33,7 +32,6 @@
         </n-tab-pane>
       </n-tabs>
 
-      <!-- 添加规则弹窗 -->
       <n-modal v-model:show="showRule" preset="card" title="添加告警规则" style="width:440px">
         <n-form :model="ruleForm" label-placement="top">
           <n-form-item label="指标">
@@ -67,17 +65,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, h } from 'vue'
+import { ref, onMounted, onUnmounted, h } from 'vue'
 import { NButton, NTag, useMessage, useDialog } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import { useNodesStore } from '@/stores/nodes'
-import client, { getErrorMessage } from '@/api/client'
+import { alertAPI } from '@/api'
+import { getErrorMessage } from '@/api/client'
 
-const nodesStore = useNodesStore()
 const message = useMessage()
 const dialog = useDialog()
 
-const selectedNode = ref<string | null>(null)
 const activeAlerts = ref<any[]>([])
 const historyList = ref<any[]>([])
 const rules = ref<any[]>([])
@@ -89,11 +85,6 @@ const ruleForm = ref({ metric: 'cpu', op: '>', threshold: 90, level: 'warning' a
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const POLL_INTERVAL = 15000
-
-const nodeOptions = computed(() => [
-  { label: '全部节点', value: null },
-  ...nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.id, value: n.id })),
-])
 
 const metricOptions = [
   { label: 'CPU 使用率', value: 'cpu' },
@@ -127,7 +118,7 @@ function formatTime(ts: string | number): string {
   try { return new Date(num * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return String(num) }
 }
 
-function showBrowserNotification(alert: { metric?: string; node_name?: string; value?: number; id?: string; message?: string; level?: string }) {
+function showBrowserNotification(alert: { metric?: string; node_name?: string; value?: number; id?: string | number; message?: string }) {
   if (!('Notification' in window)) return
   if (Notification.permission === 'granted') {
     const notification = new Notification(`DevDash 告警: ${alert.metric}`, {
@@ -145,35 +136,32 @@ function showBrowserNotification(alert: { metric?: string; node_name?: string; v
 
 async function fetchAlerts() {
   loading.value = true
-  const params: Record<string, unknown> = {}
-  if (selectedNode.value) params.node_id = selectedNode.value
-  
+
   try {
-    const { data: activeData } = await client.get('/alerts/active', { params })
+    const { data: activeData } = await alertAPI.active()
     const newAlerts = Array.isArray(activeData) ? activeData : []
-    
-    const prevIds = new Set(activeAlerts.value.map((a: Record<string, unknown>) => a.id))
-    const trulyNew = newAlerts.filter((a: Record<string, unknown>) => !prevIds.has(a.id))
-    
+
+    const prevIds = new Set(activeAlerts.value.map((a: any) => a.id))
+    const trulyNew = newAlerts.filter((a: any) => !prevIds.has(a.id))
+
     if (trulyNew.length > 0 && document.hidden) {
-      trulyNew.forEach((a: Record<string, unknown>) => showBrowserNotification(a))
+      trulyNew.forEach((a: any) => showBrowserNotification(a))
     }
-    
+
     activeAlerts.value = newAlerts
   } catch (e: unknown) {
     console.warn('Alerts service unavailable:', (e as Error)?.message || e)
-    message.error('加载活跃告警失败')
   }
 
   try {
-    const { data } = await client.get('/alerts/history', { params })
+    const { data } = await alertAPI.history()
     historyList.value = Array.isArray(data) ? data : []
   } catch (e: unknown) {
     console.warn('Alert history unavailable:', (e as Error)?.message || e)
   }
 
   try {
-    const { data } = await client.get('/alert-rules')
+    const { data } = await alertAPI.rules()
     rules.value = Array.isArray(data) ? data : []
   } catch (e: unknown) {
     console.warn('Alert rules unavailable:', (e as Error)?.message || e)
@@ -193,29 +181,29 @@ function stopPolling() {
 }
 
 const historyColumns = [
-  { title: '时间', key: 'time', render: (r: Record<string, unknown>) => formatTime(String(r.time || r.created_at || Date.now())) },
-  { title: '节点', key: 'node_name', render: (r: Record<string, unknown>) => r.node_name || r.node_id || '--' },
-  { title: '指标', key: 'metric', render: (r: Record<string, unknown>) => r.metric || r.type || '--' },
-  { title: '值', key: 'value', render: (r: Record<string, unknown>) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
+  { title: '时间', key: 'time', render: (r: any) => formatTime(String(r.time || r.created_at || Date.now())) },
+  { title: '节点', key: 'node_name', render: (r: any) => r.node_name || '本机' },
+  { title: '指标', key: 'metric', render: (r: any) => r.metric || '--' },
+  { title: '值', key: 'value', render: (r: any) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
   {
     title: '级别', key: 'level',
-    render: (r: Record<string, unknown>) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告'),
+    render: (r: any) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告'),
   },
-  { title: '状态', key: 'status', render: (r: Record<string, unknown>) => h(NTag, { size: 'small', type: r.status === 'firing' ? 'error' : r.status === 'silenced' ? 'default' : 'info' }, () => r.status === 'firing' ? '触发中' : r.status === 'silenced' ? '已静默' : r.status || '--') },
+  { title: '状态', key: 'status', render: (r: any) => h(NTag, { size: 'small', type: r.status === 'firing' ? 'error' : r.status === 'silenced' ? 'default' : 'info' }, () => r.status === 'firing' ? '触发中' : r.status === 'silenced' ? '已静默' : r.status || '--') },
 ]
 
 const ruleColumns = [
-  { title: '指标', key: 'metric', render: (r: Record<string, unknown>) => metricOptions.find(m => m.value === r.metric)?.label || r.metric || '--' },
-  { title: '条件', key: 'condition', render: (r: Record<string, unknown>) => `${r.op || '>'} ${typeof r.threshold === 'number' ? r.threshold : '--'}%` },
-  { title: '级别', key: 'level', render: (r: Record<string, unknown>) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告') },
-  { title: '渠道', key: 'channels', render: (r: Record<string, unknown>) => Array.isArray(r.channels) ? r.channels.join(', ') : 'browser' },
-  { title: '状态', key: 'enabled', render: (r: Record<string, unknown>) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
+  { title: '指标', key: 'metric', render: (r: any) => metricOptions.find(m => m.value === r.metric)?.label || r.metric || '--' },
+  { title: '条件', key: 'condition', render: (r: any) => `${r.op || '>'} ${typeof r.threshold === 'number' ? r.threshold : '--'}%` },
+  { title: '级别', key: 'level', render: (r: any) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告') },
+  { title: '渠道', key: 'channels', render: (r: any) => Array.isArray(r.channels) ? r.channels.join(', ') : 'browser' },
+  { title: '状态', key: 'enabled', render: (r: any) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
 ]
 
 async function addRule() {
   saving.value = true
   try {
-    await client.post('/alert-rules', ruleForm.value)
+    await alertAPI.createRule(ruleForm.value)
     message.success('规则已创建')
     showRule.value = false
     ruleForm.value = { metric: 'cpu', op: '>', threshold: 90, level: 'warning', channels: ['browser'], enabled: true }
@@ -225,9 +213,9 @@ async function addRule() {
   } finally { saving.value = false }
 }
 
-async function silenceAlert(a: { id?: number; node_name?: string; metric?: string; [k: string]: unknown }) {
+async function silenceAlert(a: any) {
   if (!a.id) return
-  
+
   dialog.warning({
     title: '确认静默',
     content: `确定要静默此告警吗？${a.node_name || ''} - ${a.metric || ''}`,
@@ -236,7 +224,7 @@ async function silenceAlert(a: { id?: number; node_name?: string; metric?: strin
     onPositiveClick: async () => {
       silencingId.value = a.id ?? null
       try {
-        await client.post(`/alerts/${a.id}/silence`)
+        await alertAPI.silence(String(a.id))
         message.success('已静默')
         await fetchAlerts()
       } catch (e: unknown) {
@@ -247,12 +235,9 @@ async function silenceAlert(a: { id?: number; node_name?: string; metric?: strin
 }
 
 onMounted(async () => {
-  await nodesStore.fetchNodes()
-  if (nodesStore.nodes.length) {
-    await fetchAlerts()
-    startPolling()
-  }
-  
+  await fetchAlerts()
+  startPolling()
+
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission()
   }

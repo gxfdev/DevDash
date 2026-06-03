@@ -13,15 +13,32 @@ import (
 	"time"
 
 	"github.com/gxfdev/DevDash/server/internal/model"
-	"github.com/gxfdev/DevDash/server/internal/settings"
 	"github.com/gxfdev/DevDash/server/internal/store"
 )
+
+type AlertConfig struct {
+	Browser        bool   `json:"browser"`
+	EmailEnabled   bool   `json:"email_enabled"`
+	EmailSMTP      string `json:"email_smtp"`
+	EmailPort      int    `json:"email_port"`
+	EmailUser      string `json:"email_user"`
+	EmailPassword  string `json:"email_password"`
+	EmailFrom      string `json:"email_from"`
+	EmailTo        string `json:"email_to"`
+	WebhookEnabled bool   `json:"webhook_enabled"`
+	WebhookURL     string `json:"webhook_url"`
+	WebhookSecret  string `json:"webhook_secret"`
+	Feishu         bool   `json:"feishu"`
+	FeishuURL      string `json:"feishu_url"`
+}
 
 type Engine struct {
 	store       *store.Store
 	lastAlerts  map[string]time.Time
 	alertsMu    sync.RWMutex
 	cooldownSec int
+	config      AlertConfig
+	configMu    sync.RWMutex
 }
 
 func NewEngine(s *store.Store) *Engine {
@@ -29,7 +46,20 @@ func NewEngine(s *store.Store) *Engine {
 		store:       s,
 		lastAlerts:  make(map[string]time.Time),
 		cooldownSec: 300,
+		config:      AlertConfig{Browser: true},
 	}
+}
+
+func (e *Engine) GetConfig() AlertConfig {
+	e.configMu.RLock()
+	defer e.configMu.RUnlock()
+	return e.config
+}
+
+func (e *Engine) SetConfig(cfg AlertConfig) {
+	e.configMu.Lock()
+	defer e.configMu.Unlock()
+	e.config = cfg
 }
 
 func (e *Engine) Evaluate(snap *model.Snapshot) {
@@ -353,7 +383,7 @@ func (e *Engine) setCooldown(key string) {
 }
 
 func (e *Engine) sendNotifications(alert map[string]interface{}) {
-	cfg := settings.GetAlertSettings()
+	cfg := e.GetConfig()
 
 	if cfg.Browser {
 		log.Printf("[alert] system notification: %s", alert["message"])
@@ -372,7 +402,7 @@ func (e *Engine) sendNotifications(alert map[string]interface{}) {
 	}
 }
 
-func (e *Engine) sendEmailNotification(cfg settings.AlertSettings, alert map[string]interface{}) {
+func (e *Engine) sendEmailNotification(cfg AlertConfig, alert map[string]interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[alert] email notification panic: %v", r)
@@ -414,7 +444,7 @@ func (e *Engine) sendEmailNotification(cfg settings.AlertSettings, alert map[str
 	log.Printf("[alert] email notification sent to %s", cfg.EmailTo)
 }
 
-func (e *Engine) sendWebhookNotification(cfg settings.AlertSettings, alert map[string]interface{}) {
+func (e *Engine) sendWebhookNotification(cfg AlertConfig, alert map[string]interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[alert] webhook notification panic: %v", r)
@@ -458,7 +488,7 @@ func (e *Engine) sendWebhookNotification(cfg settings.AlertSettings, alert map[s
 	}
 }
 
-func (e *Engine) sendFeishuNotification(cfg settings.AlertSettings, alert map[string]interface{}) {
+func (e *Engine) sendFeishuNotification(cfg AlertConfig, alert map[string]interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[alert] feishu notification panic: %v", r)

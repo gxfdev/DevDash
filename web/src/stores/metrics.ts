@@ -43,18 +43,18 @@ export const useMetricsStore = defineStore('metrics', () => {
     }
   }
 
-  async function fetchHistory(nodeId: string, duration = '1h') {
+  async function fetchHistory(duration = '1h') {
     try {
-      const { data } = await client.get<MetricSnapshot[]>(`/node/${nodeId}/history?duration=${duration}`)
+      const { data } = await client.get<MetricSnapshot[]>(`/history?duration=${duration}`)
       history.value = data
     } catch (err) {
       console.error('[metrics] fetchHistory failed:', err)
     }
   }
 
-  async function fetchGPUHistory(nodeId: string, hours = 1) {
+  async function fetchGPUHistory(hours = 1) {
     try {
-      const { data } = await client.get<GPUMetricHistoryPoint[]>(`/node/${nodeId}/gpu/history?hours=${hours}`)
+      const { data } = await client.get<GPUMetricHistoryPoint[]>(`/gpu/history?hours=${hours}`)
       gpuHistory.value = data
     } catch (err) {
       console.error('[metrics] fetchGPUHistory failed:', err)

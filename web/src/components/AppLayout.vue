@@ -1,6 +1,5 @@
 <template>
   <div class="layout">
-    <!-- 侧边栏 -->
     <aside class="sidebar">
       <div class="logo">
         <span class="logo-icon">🦞</span>
@@ -25,9 +24,7 @@
       </div>
     </aside>
 
-    <!-- 主内容 -->
     <div class="main-wrapper">
-      <!-- 顶栏 -->
       <header class="topbar">
         <div class="topbar-left">
           <n-breadcrumb>
@@ -50,7 +47,6 @@
         </div>
       </header>
 
-      <!-- 页面内容 -->
       <main class="main-content">
         <slot />
       </main>
@@ -64,12 +60,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { NButton, NTooltip, NDropdown, useMessage, useDialog } from 'naive-ui'
 import { Refresh as RefreshIcon } from '@vicons/ionicons5'
 import { useAuthStore } from '@/stores/auth'
-import { useNodesStore } from '@/stores/nodes'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const nodesStore = useNodesStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -96,13 +90,9 @@ const menuOptions = [
     icon: renderIcon('📊'),
   },
   {
-    label: '主机管理',
-    key: 'host-group',
-    icon: renderIcon('🖥️'),
-    children: [
-      { label: '主机列表', key: 'hosts', icon: renderIcon('📋') },
-      { label: '软件商店', key: 'store', icon: renderIcon('🏪') },
-    ],
+    label: 'Web终端',
+    key: 'terminal',
+    icon: renderIcon('💻'),
   },
   {
     label: '文件管理',
@@ -110,24 +100,14 @@ const menuOptions = [
     icon: renderIcon('📁'),
   },
   {
-    label: '防火墙',
-    key: 'firewall',
-    icon: renderIcon('🔥'),
-  },
-  {
     label: '计划任务',
     key: 'cron',
     icon: renderIcon('⏰'),
   },
   {
-    label: '数据库',
-    key: 'database',
-    icon: renderIcon('🗄️'),
-  },
-  {
-    label: 'Web终端',
-    key: 'terminal',
-    icon: renderIcon('💻'),
+    label: '脚本管理',
+    key: 'scripts',
+    icon: renderIcon('📜'),
   },
   {
     label: '告警中心',
@@ -141,15 +121,6 @@ const menuOptions = [
   },
   { type: 'divider', key: 'd2' },
   {
-    label: '容器',
-    key: 'container-group',
-    icon: renderIcon('🐳'),
-    children: [
-      { label: 'Docker管理', key: 'docker', icon: renderIcon('📦') },
-      { label: '容器监控', key: 'container-monitor', icon: renderIcon('📊') },
-    ],
-  },
-  {
     label: '系统设置',
     key: 'settings',
     icon: renderIcon('⚙️'),
@@ -158,35 +129,23 @@ const menuOptions = [
 
 const labelMap: Record<string, string> = {
   dashboard: '仪表板',
-  hosts: '主机列表',
-  'host-detail': '主机详情',
-  store: '软件商店',
   files: '文件管理',
-  firewall: '防火墙',
   cron: '计划任务',
-  database: '数据库',
+  scripts: '脚本管理',
   terminal: 'Web终端',
   alerts: '告警中心',
   trends: '趋势分析',
-  docker: 'Docker管理',
-  'container-monitor': '容器监控',
   settings: '系统设置',
 }
 
 const groupMap: Record<string, string> = {
   dashboard: '概览',
-  hosts: '主机管理',
-  'host-detail': '主机管理',
-  store: '主机管理',
   files: '工具',
-  firewall: '工具',
   cron: '工具',
-  database: '工具',
+  scripts: '工具',
   terminal: '工具',
   alerts: '运维',
   trends: '运维',
-  docker: '容器',
-  'container-monitor': '容器',
   settings: '系统',
 }
 
@@ -199,7 +158,6 @@ function onMenu(key: string) {
 }
 
 function refresh() {
-  nodesStore.fetchNodes()
   message.info('数据已刷新')
 }
 

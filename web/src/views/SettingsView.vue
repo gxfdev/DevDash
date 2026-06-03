@@ -47,6 +47,21 @@
 
         <n-tab-pane name="system" tab="⚙️ 系统设置">
           <div class="section-card">
+            <div class="section-title">告警规则</div>
+            <n-space vertical style="max-width:500px">
+              <div v-if="alertRules.length === 0" style="color:#8b949e;font-size:13px">暂无告警规则</div>
+              <div v-for="rule in alertRules" :key="rule.id" class="rule-item">
+                <div class="rule-info">
+                  <n-tag :type="rule.enabled ? 'success' : 'default'" size="small">{{ rule.enabled ? '启用' : '禁用' }}</n-tag>
+                  <span class="rule-metric">{{ rule.metric }} {{ rule.op }} {{ rule.threshold }}%</span>
+                  <n-tag size="small" :type="rule.level === 'critical' ? 'error' : rule.level === 'warning' ? 'warning' : 'info'">{{ rule.level }}</n-tag>
+                </div>
+                <n-switch size="small" :value="rule.enabled" @update:value="(v: boolean) => toggleRule(rule, v)" />
+              </div>
+            </n-space>
+          </div>
+
+          <div class="section-card" style="margin-top:16px">
             <div class="section-title">采集配置</div>
             <n-space vertical style="max-width:500px">
               <div class="threshold-row">
@@ -60,40 +75,7 @@
                 <span>天</span>
               </div>
             </n-space>
-            <n-button type="primary" style="margin-top:16px" :loading="saving" @click="saveSystemSettings">保存采集配置</n-button>
-          </div>
-
-          <div class="section-card" style="margin-top:16px">
-            <div class="section-title">告警配置</div>
-            <n-space vertical style="max-width:500px">
-              <div class="section-subtitle">通知渠道</div>
-              <n-checkbox v-model:checked="alertSettings.browser">浏览器通知</n-checkbox>
-              <n-checkbox v-model:checked="alertSettings.feishu">飞书机器人</n-checkbox>
-              <div v-if="alertSettings.feishu" style="margin-top:8px;max-width:500px">
-                <n-form-item label="飞书 Webhook URL">
-                  <n-input v-model:value="alertSettings.feishuUrl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxx" />
-                </n-form-item>
-                <n-button type="primary" size="small" @click="testFeishu">测试</n-button>
-              </div>
-              <div class="section-subtitle" style="margin-top:16px">告警阈值</div>
-              <div class="threshold-row">
-                <span>CPU 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.cpuThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
-              </div>
-              <div class="threshold-row">
-                <span>内存 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.memThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
-              </div>
-              <div class="threshold-row">
-                <span>磁盘 告警阈值</span>
-                <n-input-number v-model:value="alertSettings.diskThreshold" :min="0" :max="100" size="small" style="width:100px" /> %
-              </div>
-              <div class="threshold-row">
-                <span>告警冷却时间</span>
-                <n-input-number v-model:value="alertSettings.cooldownMin" :min="1" :max="60" size="small" style="width:100px" /> 分钟
-              </div>
-            </n-space>
-            <n-button type="primary" style="margin-top:16px" :loading="saving" @click="saveAlertSettings">保存设置</n-button>
+            <n-button type="primary" style="margin-top:16px" @click="saveSystemSettingsLocal">保存采集配置</n-button>
           </div>
         </n-tab-pane>
 
@@ -103,7 +85,7 @@
             <div class="about-info">
               <p>版本：<strong>1.0.0</strong></p>
               <p>前端：Vue 3 + Vite + TypeScript + Naive UI + ECharts</p>
-              <p>后端：Go + Gin + WebSocket + SQLite/PostgreSQL</p>
+              <p>后端：Go + Gin + WebSocket + SQLite</p>
               <p>终端：xterm.js</p>
             </div>
           </div>
@@ -118,8 +100,8 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import client, { authClient, getErrorMessage } from '@/api/client'
-import { authAPI } from '@/api'
+import { authClient, getErrorMessage } from '@/api/client'
+import { authAPI, alertAPI } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 
@@ -132,7 +114,7 @@ const { themeColor: currentThemeColor, setColor: setThemeColor, densityMode, set
 const activeTab = ref((route.query.tab as string) || 'profile')
 
 watch(() => route.query.tab, (tab) => {
-  if (tab === 'system' || tab === 'profile') {
+  if (tab === 'system' || tab === 'profile' || tab === 'about') {
     activeTab.value = tab
   }
 })
@@ -141,25 +123,15 @@ const usernameLoading = ref(false)
 const usernameForm = reactive({ newUsername: '' })
 const pwdLoading = ref(false)
 const pwdForm = reactive({ old: '', new: '', confirm: '' })
-const saving = ref(false)
 const themeColor = ref(currentThemeColor.value)
 const density = ref(densityMode.value)
+const alertRules = ref<any[]>([])
 
 watch(density, (v) => { setDensity(v) })
 
 const systemSettings = reactive({
   collectInterval: 5,
   retentionDays: 30,
-})
-
-const alertSettings = reactive({
-  browser: true,
-  feishu: false,
-  feishuUrl: '',
-  cpuThreshold: 90,
-  memThreshold: 90,
-  diskThreshold: 90,
-  cooldownMin: 5,
 })
 
 const colors = [
@@ -205,30 +177,29 @@ async function changePwd() {
   finally { pwdLoading.value = false }
 }
 
-async function saveAlertSettings() {
-  saving.value = true
+async function fetchAlertRules() {
   try {
-    await client.put('/alert-settings', alertSettings)
-    message.success('已保存')
-  } catch { message.error('保存失败') }
-  finally { saving.value = false }
+    const { data } = await alertAPI.rules()
+    alertRules.value = Array.isArray(data) ? data : []
+  } catch {
+    alertRules.value = []
+  }
 }
 
-async function saveSystemSettings() {
-  saving.value = true
+async function toggleRule(rule: any, enabled: boolean) {
   try {
-    await client.put('/system-settings', systemSettings)
-    message.success('已保存')
-  } catch { message.error('保存失败') }
-  finally { saving.value = false }
+    await alertAPI.updateRule(String(rule.id), { enabled })
+    rule.enabled = enabled
+    message.success(enabled ? '已启用' : '已禁用')
+  } catch {
+    message.error('操作失败')
+  }
 }
 
-async function testFeishu() {
-  if (!alertSettings.feishuUrl) { message.warning('请先填写飞书 Webhook URL'); return }
-  try {
-    await client.post('/alert/test-feishu', { url: alertSettings.feishuUrl })
-    message.success('测试消息已发送')
-  } catch { message.error('发送失败，请检查 URL') }
+function saveSystemSettingsLocal() {
+  localStorage.setItem('devdash_collect_interval', String(systemSettings.collectInterval))
+  localStorage.setItem('devdash_retention_days', String(systemSettings.retentionDays))
+  message.success('已保存')
 }
 
 function setColor(c: string) {
@@ -237,27 +208,11 @@ function setColor(c: string) {
 }
 
 onMounted(async () => {
-  try {
-    const { data } = await client.get('/alert-settings')
-    if (data) {
-      Object.assign(alertSettings, {
-        browser: data.browser ?? true,
-        feishu: data.feishu ?? false,
-        feishuUrl: data.feishuUrl ?? '',
-        cpuThreshold: data.cpuThreshold ?? 90,
-        memThreshold: data.memThreshold ?? 90,
-        diskThreshold: data.diskThreshold ?? 90,
-        cooldownMin: data.cooldownMin ?? 5,
-      })
-    }
-  } catch {}
-  try {
-    const { data } = await client.get('/system-settings')
-    if (data) {
-      systemSettings.collectInterval = data.collect_interval ?? 5
-      systemSettings.retentionDays = data.retention_days ?? 30
-    }
-  } catch {}
+  fetchAlertRules()
+  const ci = localStorage.getItem('devdash_collect_interval')
+  const rd = localStorage.getItem('devdash_retention_days')
+  if (ci) systemSettings.collectInterval = Number(ci)
+  if (rd) systemSettings.retentionDays = Number(rd)
 })
 </script>
 
@@ -274,4 +229,8 @@ h2 { font-size: 20px; font-weight: 600; margin: 0 0 20px; }
 .swatch:hover, .swatch.active { border-color: #fff; }
 .about-info p { margin: 0 0 6px; font-size: 13px; color: #8b949e; }
 .about-info strong { color: #e6edf3; }
+.rule-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #21262d; }
+.rule-item:last-child { border-bottom: none; }
+.rule-info { display: flex; align-items: center; gap: 8px; }
+.rule-metric { font-size: 13px; color: #e6edf3; }
 </style>

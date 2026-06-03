@@ -4,7 +4,6 @@
       <div class="page-header">
         <h2>文件管理</h2>
         <n-space>
-          <n-select v-model:value="selectedNode" :options="nodeOptions" placeholder="选择节点" style="width:180px" />
           <n-button size="small" @click="refresh">刷新</n-button>
         </n-space>
       </div>
@@ -70,16 +69,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h, watch, nextTick } from 'vue'
-import { NButton, NTag, NPopconfirm, useMessage } from 'naive-ui'
+import { ref, onMounted, h } from 'vue'
+import { NButton, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import { useNodesStore } from '@/stores/nodes'
-import client, { getErrorMessage } from '@/api/client'
+import { fileAPI } from '@/api'
+import { getErrorMessage } from '@/api/client'
 
-const nodesStore = useNodesStore()
 const message = useMessage()
 
-const selectedNode = ref<string | null>(null)
 const currentDir = ref('')
 const files = ref<any[]>([])
 const dirs = ref<string[]>([])
@@ -94,8 +91,6 @@ const isWindows = navigator.userAgent.indexOf('Windows') > -1
 const showPreview = ref(false)
 const previewContent = ref<string | null>(null)
 const previewLoading = ref(false)
-
-const nodeOptions = computed(() => nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id })))
 
 function getDefaultRoot() {
   return isWindows ? 'C:\\' : '/'
@@ -115,7 +110,7 @@ function normalizePath(p: string): string {
 const fileColumns = [
   {
     title: '', key: 'type', width: 30,
-    render: (r: any) => String(r.type) === 'dir' ? '📁' : Boolean(r.is_dir) ? '📁' : '📄',
+    render: (r: any) => String(r.type) === 'dir' || Boolean(r.is_dir) ? '📁' : '📄',
   },
   { title: '名称', key: 'name', ellipsis: { tooltip: true } },
   { title: '大小', key: 'size', width: 90, render: (r: any) => (r.type === 'dir' || r.is_dir) ? '--' : formatSize(Number(r.size) || 0) },
@@ -157,11 +152,10 @@ function joinPath(base: string, name: string): string {
 }
 
 async function fetchDir() {
-  if (!selectedNode.value) return
   loading.value = true
   try {
     const path = normalizePath(currentDir.value)
-    const { data } = await client.get(`/node/${selectedNode.value}/fs/list`, { params: { path: path.replace(/\\/g, '/') } })
+    const { data } = await fileAPI.list(path.replace(/\\/g, '/'))
     files.value = Array.isArray(data) ? data : []
 
     if (isWindows && !dirs.value.some(d => d === 'C:\\')) {
@@ -169,7 +163,7 @@ async function fetchDir() {
       dirs.value.unshift(...drives.filter(d => !dirs.value.includes(d)))
     }
   } catch (e: unknown) {
-    message.error('读取失败: ' + (getErrorMessage(e, '未知错误')))
+    message.error('读取失败: ' + getErrorMessage(e, '未知错误'))
     files.value = []
   } finally {
     loading.value = false
@@ -192,13 +186,8 @@ async function previewFile(f: any) {
 
   try {
     const fpath = f.path || joinPath(currentDir.value, f.name)
-    const response = await client.get(`/node/${selectedNode.value}/fs/read`, {
-      params: { path: fpath },
-      responseType: 'text',
-      transformResponse: [(data: string) => data],
-    })
-
-    previewContent.value = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+    const { data } = await fileAPI.read(fpath)
+    previewContent.value = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
   } catch (e: unknown) {
     message.error(getErrorMessage(e, '读取文件失败'))
     previewContent.value = null
@@ -208,10 +197,10 @@ async function previewFile(f: any) {
 }
 
 async function createFile() {
-  if (!selectedNode.value || !newFileName.value.trim()) { message.warning('请输入文件名'); return }
+  if (!newFileName.value.trim()) { message.warning('请输入文件名'); return }
   try {
     const fullPath = joinPath(currentDir.value, newFileName.value.trim())
-    await client.post(`/node/${selectedNode.value}/fs/mkfile`, { path: fullPath })
+    await fileAPI.mkfile(fullPath)
     message.success('创建成功')
     showNewFile.value = false
     newFileName.value = ''
@@ -220,10 +209,10 @@ async function createFile() {
 }
 
 async function createDir() {
-  if (!selectedNode.value || !newDirName.value.trim()) { message.warning('请输入目录名'); return }
+  if (!newDirName.value.trim()) { message.warning('请输入目录名'); return }
   try {
     const fullPath = joinPath(currentDir.value, newDirName.value.trim())
-    await client.post(`/node/${selectedNode.value}/fs/mkdir`, { path: fullPath })
+    await fileAPI.mkdir(fullPath)
     message.success('创建成功')
     showNewDir.value = false
     newDirName.value = ''
@@ -234,7 +223,7 @@ async function createDir() {
 async function delFile(f: any) {
   try {
     const fpath = f.path || joinPath(currentDir.value, f.name)
-    await client.delete(`/node/${selectedNode.value}/fs/remove`, { data: { path: fpath } })
+    await fileAPI.remove(fpath)
     message.success('已删除')
     fetchDir()
   } catch (e: unknown) { message.error(getErrorMessage(e, '删除失败')) }
@@ -242,32 +231,24 @@ async function delFile(f: any) {
 
 function downloadFile(f: any) {
   const fpath = f.path || joinPath(currentDir.value, f.name)
-  client.get(`/node/${selectedNode.value}/fs/download`, {
-    params: { path: fpath },
-    responseType: 'blob',
-  }).then((resp) => {
-    const blob = new Blob([resp.data])
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = f.name || 'download'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }).catch(() => { message.error('下载失败') })
+  const url = fileAPI.downloadUrl(fpath)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = f.name || 'download'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function uploadFile() { fileInput.value?.click() }
 
 async function doUpload(e: Event) {
   const input = e.target as HTMLInputElement
-  if (!input.files?.length || !selectedNode.value) return
+  if (!input.files?.length) return
   const form = new FormData()
   for (const f of input.files) form.append('files', f)
-  form.append('path', currentDir.value)
   try {
-    await client.post(`/node/${selectedNode.value}/fs/upload`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    await fileAPI.upload(currentDir.value, form)
     message.success('上传成功')
     fetchDir()
   } catch (e: unknown) { message.error(getErrorMessage(e, '上传失败')) }
@@ -275,22 +256,9 @@ async function doUpload(e: Event) {
 }
 
 onMounted(async () => {
-  await nodesStore.fetchNodes()
-  if (nodesStore.nodes.length) {
-    selectedNode.value = nodesStore.nodes[0]?.id
-    currentDir.value = getDefaultRoot()
-    dirs.value = [getDefaultRoot()]
-    await nextTick()
-    fetchDir()
-  }
-})
-
-watch(selectedNode, async () => {
-  if (selectedNode.value) {
-    currentDir.value = getDefaultRoot()
-    dirs.value = [getDefaultRoot()]
-    await fetchDir()
-  }
+  currentDir.value = getDefaultRoot()
+  dirs.value = [getDefaultRoot()]
+  await fetchDir()
 })
 </script>
 

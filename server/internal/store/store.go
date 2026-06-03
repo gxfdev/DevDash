@@ -8,10 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/config"
 	"github.com/gxfdev/DevDash/server/internal/model"
-
 	"golang.org/x/crypto/bcrypt"
 
 	_ "github.com/lib/pq"
@@ -121,33 +119,6 @@ func (s *Store) runMigrations() {
 		pg   string
 	}{
 		{
-			name: "nodes",
-			sql: `CREATE TABLE IF NOT EXISTS nodes (
-				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				os TEXT DEFAULT '',
-				arch TEXT DEFAULT '',
-				ip TEXT DEFAULT '',
-				role TEXT DEFAULT 'agent',
-				token TEXT DEFAULT '',
-				status TEXT DEFAULT 'online',
-				last_heartbeat DATETIME DEFAULT CURRENT_TIMESTAMP,
-				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-			)`,
-			pg: `CREATE TABLE IF NOT EXISTS nodes (
-				id TEXT PRIMARY KEY,
-				name TEXT NOT NULL,
-				os TEXT DEFAULT '',
-				arch TEXT DEFAULT '',
-				ip TEXT DEFAULT '',
-				role TEXT DEFAULT 'agent',
-				token TEXT DEFAULT '',
-				status TEXT DEFAULT 'online',
-				last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-			)`,
-		},
-		{
 			name: "metrics",
 			sql: `CREATE TABLE IF NOT EXISTS metrics (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -168,8 +139,7 @@ func (s *Store) runMigrations() {
 				net_bytes_sent INTEGER DEFAULT 0,
 				load1 REAL DEFAULT 0,
 				load5 REAL DEFAULT 0,
-				load15 REAL DEFAULT 0,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				load15 REAL DEFAULT 0
 			)`,
 			pg: `CREATE TABLE IF NOT EXISTS metrics (
 				id SERIAL PRIMARY KEY,
@@ -190,8 +160,7 @@ func (s *Store) runMigrations() {
 				net_bytes_sent BIGINT DEFAULT 0,
 				load1 REAL DEFAULT 0,
 				load5 REAL DEFAULT 0,
-				load15 REAL DEFAULT 0,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				load15 REAL DEFAULT 0
 			)`,
 		},
 		{
@@ -204,8 +173,7 @@ func (s *Store) runMigrations() {
 				usage_percent REAL DEFAULT 0,
 				mem_used_mb REAL DEFAULT 0,
 				mem_total_mb REAL DEFAULT 0,
-				temperature_celsius REAL DEFAULT 0,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				temperature_celsius REAL DEFAULT 0
 			)`,
 			pg: `CREATE TABLE IF NOT EXISTS metrics_gpu (
 				id SERIAL PRIMARY KEY,
@@ -215,8 +183,7 @@ func (s *Store) runMigrations() {
 				usage_percent REAL DEFAULT 0,
 				mem_used_mb REAL DEFAULT 0,
 				mem_total_mb REAL DEFAULT 0,
-				temperature_celsius REAL DEFAULT 0,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				temperature_celsius REAL DEFAULT 0
 			)`,
 		},
 		{
@@ -287,25 +254,6 @@ func (s *Store) runMigrations() {
 			)`,
 		},
 		{
-			name: "software",
-			sql: `CREATE TABLE IF NOT EXISTS software (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				node_id TEXT NOT NULL,
-				name TEXT NOT NULL,
-				version TEXT DEFAULT '',
-				status TEXT DEFAULT 'installed',
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
-			)`,
-			pg: `CREATE TABLE IF NOT EXISTS software (
-				id SERIAL PRIMARY KEY,
-				node_id TEXT NOT NULL,
-				name TEXT NOT NULL,
-				version TEXT DEFAULT '',
-				status TEXT DEFAULT 'installed',
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
-			)`,
-		},
-		{
 			name: "cron_jobs",
 			sql: `CREATE TABLE IF NOT EXISTS cron_jobs (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -313,8 +261,7 @@ func (s *Store) runMigrations() {
 				name TEXT NOT NULL,
 				expression TEXT NOT NULL,
 				command TEXT NOT NULL,
-				enabled INTEGER DEFAULT 1,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				enabled INTEGER DEFAULT 1
 			)`,
 			pg: `CREATE TABLE IF NOT EXISTS cron_jobs (
 				id SERIAL PRIMARY KEY,
@@ -322,8 +269,7 @@ func (s *Store) runMigrations() {
 				name TEXT NOT NULL,
 				expression TEXT NOT NULL,
 				command TEXT NOT NULL,
-				enabled BOOLEAN DEFAULT TRUE,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				enabled BOOLEAN DEFAULT TRUE
 			)`,
 		},
 		{
@@ -337,8 +283,7 @@ func (s *Store) runMigrations() {
 				ext TEXT DEFAULT '',
 				size INTEGER DEFAULT 0,
 				is_dir INTEGER DEFAULT 0,
-				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 			)`,
 			pg: `CREATE TABLE IF NOT EXISTS file_operations (
 				id SERIAL PRIMARY KEY,
@@ -349,8 +294,7 @@ func (s *Store) runMigrations() {
 				ext TEXT DEFAULT '',
 				size BIGINT DEFAULT 0,
 				is_dir BOOLEAN DEFAULT FALSE,
-				timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-				FOREIGN KEY (node_id) REFERENCES nodes(id)
+				timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 			)`,
 		},
 	}
@@ -688,60 +632,6 @@ func (s *Store) GetGPUMetricsHistory(nodeID string, hours int) ([]model.GPUMetri
 	return result, nil
 }
 
-func (s *Store) GetNode(id string) (*model.Node, error) {
-	row := s.db.QueryRow(fmt.Sprintf("SELECT id, name, os, arch, ip, role, token, status, last_heartbeat, created_at FROM nodes WHERE id = %s", s.placeholder(1)), id)
-	var n model.Node
-	if err := row.Scan(&n.ID, &n.Name, &n.OS, &n.Arch, &n.IP, &n.Role, &n.Token, &n.Status, &n.LastHeartbeat, &n.CreatedAt); err != nil {
-		return nil, err
-	}
-	if n.Token != "" {
-		n.Token = "***"
-	}
-	return &n, nil
-}
-
-func (s *Store) ListNodes() ([]model.Node, error) {
-	rows, err := s.db.Query("SELECT id, name, os, arch, ip, role, token, status, last_heartbeat, created_at FROM nodes ORDER BY created_at DESC")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var nodes []model.Node
-	for rows.Next() {
-		var n model.Node
-		if err := rows.Scan(&n.ID, &n.Name, &n.OS, &n.Arch, &n.IP, &n.Role, &n.Token, &n.Status, &n.LastHeartbeat, &n.CreatedAt); err != nil {
-			continue
-		}
-		if n.Token != "" {
-			n.Token = "***"
-		}
-		nodes = append(nodes, n)
-	}
-	return nodes, nil
-}
-
-func (s *Store) SaveNode(n *model.Node) error {
-	var err error
-	if s.IsPostgreSQL() {
-		_, err = s.db.Exec(
-			`INSERT INTO nodes (id, name, os, arch, ip, role, token, status, last_heartbeat, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-			 ON CONFLICT (id) DO UPDATE SET name=$2, os=$3, arch=$4, ip=$5, role=$6, token=$7, status=$8, last_heartbeat=$9`,
-			n.ID, n.Name, n.OS, n.Arch, n.IP, n.Role, n.Token, n.Status, n.LastHeartbeat, n.CreatedAt,
-		)
-	} else {
-		_, err = s.db.Exec(
-			"INSERT OR REPLACE INTO nodes (id, name, os, arch, ip, role, token, status, last_heartbeat, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			n.ID, n.Name, n.OS, n.Arch, n.IP, n.Role, n.Token, n.Status, n.LastHeartbeat, n.CreatedAt,
-		)
-	}
-	return err
-}
-
-func (s *Store) UpdateNodeHeartbeat(id string) error {
-	_, err := s.db.Exec(fmt.Sprintf("UPDATE nodes SET last_heartbeat = CURRENT_TIMESTAMP, status = 'online' WHERE id = %s", s.placeholder(1)), id)
-	return err
-}
-
 func (s *Store) GetUserByUsername(username string) (*model.User, error) {
 	row := s.db.QueryRow(fmt.Sprintf("SELECT id, username, password_hash, role, otp_enabled, must_change_pwd FROM users WHERE username = %s", s.placeholder(1)), username)
 	var u model.User
@@ -820,11 +710,6 @@ func (s *Store) GetUser(username string) (string, error) {
 		return "", err
 	}
 	return hash, nil
-}
-
-func (s *Store) DeleteNode(id string) error {
-	_, err := s.db.Exec(fmt.Sprintf("DELETE FROM nodes WHERE id = %s", s.placeholder(1)), id)
-	return err
 }
 
 func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
@@ -1017,49 +902,6 @@ func (s *Store) UpdateUsername(oldName, newName string) error {
 	return err
 }
 
-func (s *Store) ListSoftware(nodeID string) []map[string]any {
-	var rows *sql.Rows
-	var err error
-	if nodeID == "" {
-		rows, err = s.db.Query("SELECT id, node_id, name, version, status FROM software ORDER BY name")
-	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, name, version, status FROM software WHERE node_id = %s ORDER BY name", s.placeholder(1)), nodeID)
-	}
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var result []map[string]any
-	for rows.Next() {
-		var id int
-		var nid, name, version, status string
-		if err := rows.Scan(&id, &nid, &name, &version, &status); err != nil {
-			continue
-		}
-		result = append(result, map[string]any{
-			"id": id, "node_id": nid, "name": name, "version": version, "status": status,
-		})
-	}
-	return result
-}
-
-func (s *Store) SaveSoftware(data map[string]any) {
-	_, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO software (node_id, name, version, status) VALUES (%s)", s.placeholders(4)),
-		data["node_id"], data["name"], data["version"], data["status"],
-	)
-	if err != nil {
-		log.Printf("[store] SaveSoftware error: %v", err)
-	}
-}
-
-func (s *Store) DeleteSoftware(nodeID, name string) {
-	_, _ = s.db.Exec(
-		fmt.Sprintf("DELETE FROM software WHERE node_id = %s AND name = %s", s.placeholder(1), s.placeholder(2)),
-		nodeID, name,
-	)
-}
-
 func (s *Store) ListCronJobs(nodeID string) []map[string]any {
 	var rows *sql.Rows
 	var err error
@@ -1124,111 +966,6 @@ func (s *Store) SaveCronJob(job map[string]any) (int64, error) {
 func (s *Store) DeleteCronJob(id int) error {
 	_, err := s.db.Exec(fmt.Sprintf("DELETE FROM cron_jobs WHERE id = %s", s.placeholder(1)), id)
 	return err
-}
-
-func (s *Store) ListDBConnections(nodeID string) []map[string]any {
-	tableExists := s.tableExists("db_connections")
-	if !tableExists {
-		return nil
-	}
-	var rows *sql.Rows
-	var err error
-	if nodeID == "" {
-		rows, err = s.db.Query("SELECT id, node_id, name, type, host, port, user, dbname FROM db_connections ORDER BY name")
-	} else {
-		rows, err = s.db.Query(fmt.Sprintf("SELECT id, node_id, name, type, host, port, user, dbname FROM db_connections WHERE node_id = %s ORDER BY name", s.placeholder(1)), nodeID)
-	}
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var result []map[string]any
-	for rows.Next() {
-		var id int
-		var nid, name, dbType, host, user, dbname string
-		var port int
-		if err := rows.Scan(&id, &nid, &name, &dbType, &host, &port, &user, &dbname); err != nil {
-			continue
-		}
-		result = append(result, map[string]any{
-			"id": id, "node_id": nid, "name": name, "type": dbType,
-			"host": host, "port": port, "user": user, "dbname": dbname,
-		})
-	}
-	return result
-}
-
-func (s *Store) SaveDBConnection(conn map[string]any) error {
-	s.ensureDBConnectionsTable()
-	pw, _ := conn["password"].(string)
-	encPW, err := auth.EncryptField(pw)
-	if err != nil {
-		return fmt.Errorf("encrypt password: %w", err)
-	}
-	_, err = s.db.Exec(
-		fmt.Sprintf("INSERT INTO db_connections (node_id, name, type, host, port, user, password, dbname) VALUES (%s)", s.placeholders(8)),
-		conn["node_id"], conn["name"], conn["type"], conn["host"], conn["port"], conn["user"], encPW, conn["dbname"],
-	)
-	return err
-}
-
-func (s *Store) GetDBConnection(id int) (map[string]any, error) {
-	s.ensureDBConnectionsTable()
-	row := s.db.QueryRow(fmt.Sprintf("SELECT id, node_id, name, type, host, port, user, password, dbname FROM db_connections WHERE id = %s", s.placeholder(1)), id)
-	var dbID int
-	var nid, name, dbType, host, user, encPassword, dbname string
-	var port int
-	if err := row.Scan(&dbID, &nid, &name, &dbType, &host, &port, &user, &encPassword, &dbname); err != nil {
-		return nil, err
-	}
-	decPassword, err := auth.DecryptField(encPassword)
-	if err != nil {
-		decPassword = encPassword
-	}
-	return map[string]any{
-		"id": dbID, "node_id": nid, "name": name, "type": dbType,
-		"host": host, "port": port, "user": user, "password": decPassword, "dbname": dbname,
-	}, nil
-}
-
-func (s *Store) DeleteDBConnection(id int) error {
-	_, err := s.db.Exec(fmt.Sprintf("DELETE FROM db_connections WHERE id = %s", s.placeholder(1)), id)
-	return err
-}
-
-func (s *Store) ensureDBConnectionsTable() {
-	if s.tableExists("db_connections") {
-		return
-	}
-	var sql string
-	if s.IsPostgreSQL() {
-		sql = `CREATE TABLE db_connections (
-			id SERIAL PRIMARY KEY,
-			node_id TEXT DEFAULT '',
-			name TEXT NOT NULL,
-			type TEXT DEFAULT '',
-			host TEXT DEFAULT '',
-			port INTEGER DEFAULT 0,
-			user TEXT DEFAULT '',
-			password TEXT DEFAULT '',
-			dbname TEXT DEFAULT ''
-		)`
-	} else {
-		sql = `CREATE TABLE db_connections (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			node_id TEXT DEFAULT '',
-			name TEXT NOT NULL,
-			type TEXT DEFAULT '',
-			host TEXT DEFAULT '',
-			port INTEGER DEFAULT 0,
-			user TEXT DEFAULT '',
-			password TEXT DEFAULT '',
-			dbname TEXT DEFAULT ''
-		)`
-	}
-	if _, err := s.db.Exec(sql); err != nil {
-		log.Printf("[store] warning: create db_connections table: %v", err)
-	}
 }
 
 func (s *Store) tableExists(name string) bool {
@@ -1639,4 +1376,370 @@ func (s *Store) GetRecentMetricValues(nodeID, metric string, limit int) []float6
 		}
 	}
 	return values
+}
+
+func (s *Store) ListUsers() []map[string]any {
+	rows, err := s.db.Query("SELECT id, username, role, must_change_pwd FROM users ORDER BY id")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id int
+		var username, role string
+		var mustChangePwd int
+		if err := rows.Scan(&id, &username, &role, &mustChangePwd); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "username": username, "role": role, "must_change_pwd": mustChangePwd != 0,
+		})
+	}
+	return result
+}
+
+func (s *Store) CreateUser(username, passwordHash, role string) error {
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO users (username, password_hash, role, must_change_pwd) VALUES (%s)", s.placeholders(4)),
+		username, passwordHash, role, 0,
+	)
+	return err
+}
+
+func (s *Store) GetUserByID(id int) (*model.User, error) {
+	row := s.db.QueryRow(fmt.Sprintf("SELECT id, username, password_hash, role, otp_enabled, must_change_pwd FROM users WHERE id = %s", s.placeholder(1)), id)
+	var u model.User
+	var otpEnabled int
+	var mustChangePwd int
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &otpEnabled, &mustChangePwd); err != nil {
+		return nil, err
+	}
+	u.OTPEnabled = otpEnabled != 0
+	u.MustChangePwd = mustChangePwd != 0
+	return &u, nil
+}
+
+func (s *Store) DeleteUser(id int) error {
+	_, err := s.db.Exec(fmt.Sprintf("DELETE FROM users WHERE id = %s", s.placeholder(1)), id)
+	return err
+}
+
+func (s *Store) ListAuditLogs(limit int) []map[string]any {
+	rows, err := s.db.Query(
+		fmt.Sprintf("SELECT id, user_id, node_id, action, detail, result, time FROM audit_logs ORDER BY time DESC LIMIT %s", s.placeholder(1)),
+		limit,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id, userID int
+		var nodeID, action, detail, resultStr string
+		var t time.Time
+		if err := rows.Scan(&id, &userID, &nodeID, &action, &detail, &resultStr, &t); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "user_id": userID, "node_id": nodeID,
+			"action": action, "detail": detail, "result": resultStr, "time": t,
+		})
+	}
+	return result
+}
+
+func (s *Store) SaveCronJobLog(jobID int, command, output string, exitCode int, durationMs int64) {
+	s.ensureCronJobLogsTable()
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO cron_job_logs (job_id, command, output, exit_code, duration_ms, timestamp) VALUES (%s)", s.placeholders(6)),
+		jobID, command, output, exitCode, durationMs, time.Now(),
+	)
+	if err != nil {
+		log.Printf("[store] SaveCronJobLog error: %v", err)
+	}
+}
+
+func (s *Store) ListCronJobLogs(jobID int, limit int) []map[string]any {
+	s.ensureCronJobLogsTable()
+	rows, err := s.db.Query(
+		fmt.Sprintf("SELECT id, job_id, command, output, exit_code, duration_ms, timestamp FROM cron_job_logs WHERE job_id = %s ORDER BY timestamp DESC LIMIT %s", s.placeholder(1), s.placeholder(2)),
+		jobID, limit,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id, jid, exitCode int
+		var command, output string
+		var durationMs int64
+		var ts time.Time
+		if err := rows.Scan(&id, &jid, &command, &output, &exitCode, &durationMs, &ts); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "job_id": jid, "command": command, "output": output,
+			"exit_code": exitCode, "duration_ms": durationMs, "timestamp": ts,
+		})
+	}
+	return result
+}
+
+func (s *Store) SearchCronJobLogs(keyword, startTime, endTime string, limit int) []map[string]any {
+	s.ensureCronJobLogsTable()
+	query := "SELECT id, job_id, command, output, exit_code, duration_ms, timestamp FROM cron_job_logs WHERE 1=1"
+	var args []interface{}
+	argN := 1
+	if keyword != "" {
+		argN++
+		query += fmt.Sprintf(" AND (command LIKE %s OR output LIKE %s)", s.placeholder(argN), s.placeholder(argN+1))
+		args = append(args, "%"+keyword+"%", "%"+keyword+"%")
+		argN++
+	}
+	if startTime != "" {
+		argN++
+		query += fmt.Sprintf(" AND timestamp >= %s", s.placeholder(argN))
+		args = append(args, startTime)
+	}
+	if endTime != "" {
+		argN++
+		query += fmt.Sprintf(" AND timestamp <= %s", s.placeholder(argN))
+		args = append(args, endTime)
+	}
+	argN++
+	query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT %s", s.placeholder(argN))
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id, jid, exitCode int
+		var command, output string
+		var durationMs int64
+		var ts time.Time
+		if err := rows.Scan(&id, &jid, &command, &output, &exitCode, &durationMs, &ts); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "job_id": jid, "command": command, "output": output,
+			"exit_code": exitCode, "duration_ms": durationMs, "timestamp": ts,
+		})
+	}
+	return result
+}
+
+func (s *Store) ensureCronJobLogsTable() {
+	if s.tableExists("cron_job_logs") {
+		return
+	}
+	var sql string
+	if s.IsPostgreSQL() {
+		sql = `CREATE TABLE cron_job_logs (
+			id SERIAL PRIMARY KEY,
+			job_id INTEGER NOT NULL,
+			command TEXT DEFAULT '',
+			output TEXT DEFAULT '',
+			exit_code INTEGER DEFAULT 0,
+			duration_ms BIGINT DEFAULT 0,
+			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`
+	} else {
+		sql = `CREATE TABLE cron_job_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			job_id INTEGER NOT NULL,
+			command TEXT DEFAULT '',
+			output TEXT DEFAULT '',
+			exit_code INTEGER DEFAULT 0,
+			duration_ms INTEGER DEFAULT 0,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if _, err := s.db.Exec(sql); err != nil {
+		log.Printf("[store] warning: create cron_job_logs table: %v", err)
+	}
+}
+
+func (s *Store) ListScripts() []map[string]any {
+	s.ensureScriptsTable()
+	rows, err := s.db.Query("SELECT id, name, interpreter, description, content, created_at, updated_at FROM scripts ORDER BY name")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id int
+		var name, interpreter, description, content string
+		var createdAt, updatedAt sql.NullTime
+		if err := rows.Scan(&id, &name, &interpreter, &description, &content, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+		item := map[string]any{
+			"id": id, "name": name, "interpreter": interpreter,
+			"description": description, "content": content,
+		}
+		if createdAt.Valid {
+			item["created_at"] = createdAt.Time
+		}
+		if updatedAt.Valid {
+			item["updated_at"] = updatedAt.Time
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func (s *Store) GetScript(id int) (map[string]any, error) {
+	s.ensureScriptsTable()
+	row := s.db.QueryRow(fmt.Sprintf("SELECT id, name, interpreter, description, content, created_at, updated_at FROM scripts WHERE id = %s", s.placeholder(1)), id)
+	var sid int
+	var name, interpreter, description, content string
+	var createdAt, updatedAt sql.NullTime
+	if err := row.Scan(&sid, &name, &interpreter, &description, &content, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	item := map[string]any{
+		"id": sid, "name": name, "interpreter": interpreter,
+		"description": description, "content": content,
+	}
+	if createdAt.Valid {
+		item["created_at"] = createdAt.Time
+	}
+	if updatedAt.Valid {
+		item["updated_at"] = updatedAt.Time
+	}
+	return item, nil
+}
+
+func (s *Store) SaveScript(data map[string]any) (int64, error) {
+	s.ensureScriptsTable()
+	id, _ := data["id"].(float64)
+	name, _ := data["name"].(string)
+	interpreter, _ := data["interpreter"].(string)
+	description, _ := data["description"].(string)
+	content, _ := data["content"].(string)
+	now := time.Now()
+	if id > 0 {
+		_, err := s.db.Exec(
+			fmt.Sprintf("UPDATE scripts SET name=%s, interpreter=%s, description=%s, content=%s, updated_at=%s WHERE id=%s",
+				s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6)),
+			name, interpreter, description, content, now, int(id),
+		)
+		return int64(int(id)), err
+	}
+	result, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO scripts (name, interpreter, description, content, created_at, updated_at) VALUES (%s)",
+			s.placeholders(6)),
+		name, interpreter, description, content, now, now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func (s *Store) DeleteScript(id int) error {
+	_, err := s.db.Exec(fmt.Sprintf("DELETE FROM scripts WHERE id = %s", s.placeholder(1)), id)
+	return err
+}
+
+func (s *Store) ensureScriptsTable() {
+	if s.tableExists("scripts") {
+		return
+	}
+	var sql string
+	if s.IsPostgreSQL() {
+		sql = `CREATE TABLE scripts (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			interpreter TEXT DEFAULT '/bin/bash',
+			description TEXT DEFAULT '',
+			content TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`
+	} else {
+		sql = `CREATE TABLE scripts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			interpreter TEXT DEFAULT '/bin/bash',
+			description TEXT DEFAULT '',
+			content TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if _, err := s.db.Exec(sql); err != nil {
+		log.Printf("[store] warning: create scripts table: %v", err)
+	}
+}
+
+func (s *Store) GetCommandHistory(limit int) []map[string]any {
+	s.ensureCommandHistoryTable()
+	rows, err := s.db.Query(
+		fmt.Sprintf("SELECT id, command, timestamp FROM command_history ORDER BY timestamp DESC LIMIT %s", s.placeholder(1)),
+		limit,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var id int
+		var command string
+		var ts time.Time
+		if err := rows.Scan(&id, &command, &ts); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "command": command, "timestamp": ts,
+		})
+	}
+	return result
+}
+
+func (s *Store) SaveCommandHistory(command string) {
+	s.ensureCommandHistoryTable()
+	_, err := s.db.Exec(
+		fmt.Sprintf("INSERT INTO command_history (command, timestamp) VALUES (%s, %s)", s.placeholder(1), s.placeholder(2)),
+		command, time.Now(),
+	)
+	if err != nil {
+		log.Printf("[store] SaveCommandHistory error: %v", err)
+	}
+}
+
+func (s *Store) ClearCommandHistory() {
+	s.ensureCommandHistoryTable()
+	_, _ = s.db.Exec("DELETE FROM command_history")
+}
+
+func (s *Store) ensureCommandHistoryTable() {
+	if s.tableExists("command_history") {
+		return
+	}
+	var sql string
+	if s.IsPostgreSQL() {
+		sql = `CREATE TABLE command_history (
+			id SERIAL PRIMARY KEY,
+			command TEXT NOT NULL,
+			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`
+	} else {
+		sql = `CREATE TABLE command_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			command TEXT NOT NULL,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`
+	}
+	if _, err := s.db.Exec(sql); err != nil {
+		log.Printf("[store] warning: create command_history table: %v", err)
+	}
 }

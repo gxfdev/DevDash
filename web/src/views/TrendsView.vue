@@ -160,12 +160,11 @@ import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, Ma
 import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
-import { useNodesStore } from '@/stores/nodes'
+import { metricsAPI } from '@/api'
 import client from '@/api/client'
 import type { Snapshot } from '@/types'
 
-const nodesStore = useNodesStore()
-const selectedNode = ref<string | null>(null)
+const selectedNode = ref<string>('self')
 const duration = ref('7d')
 const historyData = ref<Snapshot[]>([])
 const loading = ref(false)
@@ -249,16 +248,9 @@ const compareChange = computed(() => {
 })
 
 const nodeOptions = computed(() => {
-  const opts: { label: string; value: string }[] = [{ label: '本地系统', value: 'local' }]
-  nodesStore.nodes.forEach((n: { name: string; hostname?: string; ip: string; id: string }) => {
-    opts.push({ label: n.name || n.hostname || n.ip, value: n.id })
-  })
-  return opts
+  return [{ label: '本机', value: 'self' }]
 })
-const selectedNodeName = computed(() => {
-  if (selectedNode.value === 'local') return '本地系统'
-  return nodesStore.nodes.find((n: { name: string; hostname?: string; ip: string; id: string }) => n.id === selectedNode.value)?.name || '--'
-})
+const selectedNodeName = computed(() => '本机')
 
 function toTs(val: string | number | undefined): number {
   if (!val) return Date.now()
@@ -746,20 +738,13 @@ function pushData() {
 }
 
 async function loadHistory() {
-  if (!selectedNode.value) return
   loading.value = true
   try {
-    let data: any[]
-    if (selectedNode.value === 'local') {
-      const resp = await client.get('/history', { params: { limit: 500 } })
-      data = Array.isArray(resp.data) ? resp.data : []
-    } else {
-      const resp = await client.get(`/node/${selectedNode.value}/history`, { params: { duration: duration.value, limit: 500 } })
-      data = Array.isArray(resp.data) ? resp.data : []
-    }
+    const resp = await client.get('/history', { params: { duration: duration.value, limit: 500 } })
+    const data = Array.isArray(resp.data) ? resp.data : []
     historyData.value = data
     if (data.length === 0) {
-      console.warn('[trends] no history data for', selectedNode.value)
+      console.warn('[trends] no history data')
     }
   } catch (e: unknown) {
     console.warn('[trends] load error:', (e as Error)?.message || e)
@@ -768,10 +753,8 @@ async function loadHistory() {
 }
 
 async function loadCompare() {
-  if (!selectedNode.value) return
   try {
-    const nodeID = selectedNode.value === 'local' ? '' : selectedNode.value
-    const resp = await client.get('/trend/compare', { params: { period: duration.value, node_id: nodeID } })
+    const resp = await client.get('/trend/compare', { params: { period: duration.value } })
     if (resp.data && typeof resp.data === 'object') {
       compareData.value = {
         current: Array.isArray(resp.data.current) ? resp.data.current : [],
@@ -827,8 +810,6 @@ function handleResize() {
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  await nodesStore.fetchNodes()
-  selectedNode.value = 'local'
   await buildCharts()
   load()
 })

@@ -6,24 +6,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/agent"
 	"github.com/gxfdev/DevDash/server/internal/alert"
 	"github.com/gxfdev/DevDash/server/internal/api"
 	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/collector"
 	"github.com/gxfdev/DevDash/server/internal/config"
-	"github.com/gxfdev/DevDash/server/internal/docker"
-	"github.com/gxfdev/DevDash/server/internal/exporter"
 	"github.com/gxfdev/DevDash/server/internal/filemgr"
 	"github.com/gxfdev/DevDash/server/internal/logger"
-	"github.com/gxfdev/DevDash/server/internal/model"
-	"github.com/gxfdev/DevDash/server/internal/node"
 	"github.com/gxfdev/DevDash/server/internal/store"
 
 	"github.com/gin-gonic/gin"
@@ -55,18 +48,10 @@ func main() {
 		})
 	})
 
-	nm := node.NewNodeManager(s)
-	nm.SyncFromDB()
-
 	c := collector.NewCollector()
 	alertEngine := alert.NewEngine(s)
-	agentMgr := agent.NewAgentManager()
-
-	registerSelfNode(nm, c)
 
 	go startMetricsCleanup(s)
-
-	agentMgr.StartPeriodicCollection(time.Duration(cfg.CollectInterval) * time.Second)
 
 	r := gin.Default()
 
@@ -84,35 +69,11 @@ func main() {
 		auth.InitAuditLog(auditFile)
 	}
 
-	handler := api.NewHandler(c, s, nm)
+	handler := api.NewHandler(c, s)
 	handler.RegisterRoutes(r)
 
-	agentHandler := api.NewAgentHandler(agentMgr)
-	agentHandler.RegisterRoutes(r)
+	go startCollection(c, s, cfg, alertEngine, handler)
 
-	agentServer := agent.NewAgentServer(nil, nil, c)
-	agentServer.RegisterRoutes(r)
-
-	var containerMon *docker.ContainerMonitor
-	var dockerMgr *docker.DockerManager
-	dh, dockerErr := api.NewDockerHandler()
-	if dockerErr == nil {
-		dockerMgr = dh.DockerManager()
-		containerMon = docker.NewContainerMonitor(dockerMgr)
-		containerMon.Start()
-	} else {
-		log.Printf("[docker] Docker not available: %v", dockerErr)
-	}
-
-	monitorHandler := api.NewMonitorHandler(dockerMgr, containerMon, c)
-	monitorHandler.RegisterRoutes(r)
-
-	exp := exporter.NewExporter(c, "self")
-	exp.RegisterRoutes(r)
-
-	go startCollection(c, s, nm, cfg, alertEngine, handler)
-
-	// Serve frontend SPA from dist/ (supports both local dev and Docker)
 	staticDir := os.Getenv("STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "../web/dist"
@@ -154,45 +115,6 @@ func main() {
 	log.Println("服务器已优雅关闭")
 }
 
-// registerSelfNode registers the local machine as a node and triggers an initial collection
-func registerSelfNode(nm *node.NodeManager, c *collector.Collector) {
-	selfNode := &model.Node{
-		ID:     "self",
-		Name:   hostname(),
-		OS:     runtime.GOOS,
-		Arch:   runtimeArch(),
-		Status: "online",
-	}
-	nm.Register(selfNode)
-
-	// Do an initial collection to populate the snapshot cache
-	go func() {
-		snap, err := c.Collect()
-		if err != nil {
-			log.Printf("[init] 初始采集失败: %v", err)
-			return
-		}
-		log.Printf("[init] 初始采集完成: CPU %v%% | 内存 %v%% | 磁盘 %v%%",
-			snap.CPU.UsagePercent, snap.Memory.UsagePercent, snap.Disk.UsagePercent)
-	}()
-}
-
-func hostname() string {
-	h, _ := os.Hostname()
-	if h == "" {
-		return "localhost"
-	}
-	return h
-}
-
-func runtimeArch() string {
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		return "x86_64"
-	}
-	return arch
-}
-
 func startMetricsCleanup(s *store.Store) {
 	retentionDays := 30
 	ticker := time.NewTicker(6 * time.Hour)
@@ -206,40 +128,24 @@ func startMetricsCleanup(s *store.Store) {
 	}
 }
 
-func startCollection(c *collector.Collector, s *store.Store, nm *node.NodeManager, cfg *config.Config, alertEngine *alert.Engine, h *api.Handler) {
+func startCollection(c *collector.Collector, s *store.Store, cfg *config.Config, alertEngine *alert.Engine, h *api.Handler) {
 	interval := time.Duration(cfg.CollectInterval) * time.Second
 	if interval < 5*time.Second {
 		interval = 5 * time.Second
 	}
 
-	sem := make(chan struct{}, 5)
-
 	collectOnce := func() {
-		nodes := nm.ListNodes()
-		var wg sync.WaitGroup
-		for _, n := range nodes {
-			if n.Role == "agent" || n.Role == "full" || n.ID == "self" {
-				wg.Add(1)
-				go func(node *model.Node) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					snap, err := c.Collect()
-					if err != nil {
-						log.Printf("采集失败 node=%s: %v", node.ID, err)
-						return
-					}
-					snap.NodeID = node.ID
-					if err := s.SaveSnapshot(node.ID, snap); err != nil {
-						log.Printf("[store] save snapshot failed node=%s: %v", node.ID, err)
-					}
-					h.UpdateCache(snap)
-					alertEngine.Evaluate(snap)
-					nm.UpdateHeartbeat(node.ID)
-				}(n)
-			}
+		snap, err := c.Collect()
+		if err != nil {
+			log.Printf("采集失败: %v", err)
+			return
 		}
-		wg.Wait()
+		snap.NodeID = "self"
+		if err := s.SaveSnapshot("self", snap); err != nil {
+			log.Printf("[store] save snapshot failed: %v", err)
+		}
+		h.UpdateCache(snap)
+		alertEngine.Evaluate(snap)
 	}
 
 	collectOnce()
@@ -273,18 +179,6 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Header("Access-Control-Max-Age", "86400")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("X-XSS-Protection", "1; mode=block")
-		if c.Request.TLS != nil {
-			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		}
-		if strings.HasPrefix(c.Request.URL.Path, "/api") {
-			c.Header("Content-Type", "application/json; charset=utf-8")
-		}
-		c.Header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

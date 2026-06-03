@@ -4,14 +4,12 @@
       <div class="page-header">
         <h2>计划任务</h2>
         <n-space>
-          <n-select v-model:value="selectedNode" :options="nodeOptions" placeholder="选择节点" style="width:180px" />
           <n-button type="primary" size="small" @click="showAdd = true">新建任务</n-button>
         </n-space>
       </div>
 
       <n-data-table :columns="columns" :data="jobs" :bordered="false" :loading="loading" row-key="id" />
 
-      <!-- 新建任务弹窗 -->
       <n-modal v-model:show="showAdd" preset="card" title="新建计划任务" style="width:500px">
         <n-form :model="form" label-placement="top">
           <n-form-item label="任务名称">
@@ -23,14 +21,7 @@
               <span style="font-size:11px;color:#8b949e">分 时 日 月 周</span>
             </template>
           </n-form-item>
-          <n-form-item label="执行方式">
-            <n-radio-group v-model:value="form.type">
-              <n-radio value="shell">Shell 命令</n-radio>
-              <n-radio value="http">HTTP 请求</n-radio>
-              <n-radio value="script">脚本文件</n-radio>
-            </n-radio-group>
-          </n-form-item>
-          <n-form-item label="执行内容">
+          <n-form-item label="执行命令">
             <n-input v-model:value="form.command" type="textarea" placeholder="tar -czf /backup/db.tar.gz /data" :rows="3" />
           </n-form-item>
         </n-form>
@@ -40,42 +31,48 @@
         </template>
       </n-modal>
 
-      <!-- 执行历史 -->
-      <n-modal v-model:show="showLog" preset="card" :title="`历史: ${logJobName}`" style="width:700px">
-        <n-data-table :columns="logColumns" :data="logs" size="small" :bordered="false" />
+      <n-modal v-model:show="showLog" preset="card" :title="`执行日志: ${logJobName}`" style="width:700px">
+        <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
+          <n-input v-model:value="logSearch" size="small" placeholder="搜索关键词" style="width:200px" clearable />
+        </div>
+        <n-data-table :columns="logColumns" :data="filteredLogs" size="small" :bordered="false" />
       </n-modal>
     </div>
   </app-layout>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, onMounted, h } from 'vue'
 import { NButton, NTag, NSwitch, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import { useNodesStore } from '@/stores/nodes'
-import client, { getErrorMessage } from '@/api/client'
+import { cronAPI } from '@/api'
+import { getErrorMessage } from '@/api/client'
 
-const nodesStore = useNodesStore()
 const message = useMessage()
 
-const selectedNode = ref<string | null>(null)
 const jobs = ref<any[]>([])
 const logs = ref<any[]>([])
 const loading = ref(false)
 const showAdd = ref(false)
 const showLog = ref(false)
 const logJobName = ref('')
+const logSearch = ref('')
 const saving = ref(false)
-const form = ref({ name: '', cron: '', type: 'shell', command: '' })
+const form = ref({ name: '', cron: '', command: '' })
 
-const nodeOptions = computed(() =>
-  nodesStore.nodes.map((n: { name: string; hostname?: string; ip: string; id: string }) => ({ label: n.name || n.hostname || n.ip, value: n.id }))
-)
+const filteredLogs = computed(() => {
+  if (!logSearch.value) return logs.value
+  const kw = logSearch.value.toLowerCase()
+  return logs.value.filter((l: any) =>
+    (l.command || '').toLowerCase().includes(kw) ||
+    (l.output || '').toLowerCase().includes(kw)
+  )
+})
 
 const columns = [
   { title: '名称', key: 'name' },
   { title: 'Cron', key: 'expression' },
-  { title: '类型', key: 'type' },
+  { title: '命令', key: 'command', ellipsis: { tooltip: true } },
   {
     title: '状态', key: 'enabled', width: 80,
     render: (r: any) => h(NSwitch, {
@@ -85,14 +82,10 @@ const columns = [
     }),
   },
   {
-    title: '最近执行', key: 'last_run',
-    render: (r: any) => r.last_run ? new Date((r.last_run as number) * 1000).toLocaleString() : '从未',
-  },
-  {
     title: '操作', key: 'actions', width: 200,
     render: (r: any) =>
       h('div', { style: 'display:flex;gap:6px' }, [
-        h(NButton, { size: 'tiny', onClick: () => showHistory(r) }, () => '历史'),
+        h(NButton, { size: 'tiny', onClick: () => showHistory(r) }, () => '日志'),
         h(NButton, { size: 'tiny', onClick: () => runNow(r) }, () => '立即执行'),
         h(NPopconfirm, { onPositiveClick: () => delJob(r) }, {
           trigger: () => h(NButton, { size: 'tiny', type: 'error' }, () => '删除'),
@@ -103,25 +96,23 @@ const columns = [
 ]
 
 const logColumns = [
-  { title: '执行时间', key: 'start_time', render: (r: any) => new Date((r.start_time as number) * 1000).toLocaleString() },
-  { title: '耗时', key: 'duration', render: (r: any) => r.duration ? r.duration + 'ms' : '--' },
+  { title: '执行时间', key: 'timestamp', width: 170, render: (r: any) => r.timestamp ? new Date(r.timestamp).toLocaleString() : '--' },
+  { title: '耗时', key: 'duration_ms', width: 80, render: (r: any) => r.duration_ms ? r.duration_ms + 'ms' : '--' },
   {
-    title: '状态', key: 'exit_code',
+    title: '状态', key: 'exit_code', width: 70,
     render: (r: any) => h(NTag, { type: r.exit_code === 0 ? 'success' : 'error', size: 'small' }, () => r.exit_code === 0 ? '成功' : '失败'),
   },
+  { title: '命令', key: 'command', ellipsis: { tooltip: true } },
+  { title: '输出', key: 'output', ellipsis: { tooltip: true } },
 ]
 
 async function fetchJobs() {
-  if (!selectedNode.value) {
-    jobs.value = []
-    return
-  }
   loading.value = true
   try {
-    const { data } = await client.get(`/node/${selectedNode.value}/cronjobs`)
+    const { data } = await cronAPI.list()
     jobs.value = Array.isArray(data) ? data : []
   } catch (e: unknown) {
-    message.error('获取任务列表失败: ' + (getErrorMessage(e, '')))
+    message.error('获取任务列表失败: ' + getErrorMessage(e, ''))
     jobs.value = []
   } finally {
     loading.value = false
@@ -133,23 +124,17 @@ async function addJob() {
     message.warning('请填写完整')
     return
   }
-  if (!selectedNode.value) {
-    message.warning('请先选择节点')
-    return
-  }
   saving.value = true
   try {
-    const payload = {
+    await cronAPI.create({
       name: form.value.name,
       expression: form.value.cron,
       command: form.value.command,
-      type: form.value.type,
       enabled: true,
-    }
-    await client.post(`/node/${selectedNode.value}/cronjobs`, payload)
+    })
     message.success('创建成功')
     showAdd.value = false
-    Object.assign(form.value, { name: '', cron: '', type: 'shell', command: '' })
+    Object.assign(form.value, { name: '', cron: '', command: '' })
     fetchJobs()
   } catch (e: unknown) {
     message.error(getErrorMessage(e, '创建失败'))
@@ -158,9 +143,9 @@ async function addJob() {
   }
 }
 
-async function toggleJob(r: Record<string, unknown>, enabled: boolean) {
+async function toggleJob(r: any, enabled: boolean) {
   try {
-    await client.patch(`/node/${selectedNode.value}/cronjobs/${r.id}`, { ...r, enabled })
+    await cronAPI.update(String(r.id), { enabled })
     r.enabled = enabled
   } catch {
     message.error('更新失败')
@@ -169,7 +154,7 @@ async function toggleJob(r: Record<string, unknown>, enabled: boolean) {
 
 async function delJob(r: any) {
   try {
-    await client.delete(`/node/${selectedNode.value}/cronjobs/${r.id}`)
+    await cronAPI.delete(String(r.id))
     message.success('已删除')
     fetchJobs()
   } catch {
@@ -179,7 +164,7 @@ async function delJob(r: any) {
 
 async function runNow(r: any) {
   try {
-    await client.post(`/node/${selectedNode.value}/cronjobs/${r.id}/run`)
+    await cronAPI.run(String(r.id))
     message.success('已触发执行')
   } catch {
     message.error('触发失败')
@@ -188,21 +173,19 @@ async function runNow(r: any) {
 
 async function showHistory(r: any) {
   logJobName.value = String(r.name || '')
+  logSearch.value = ''
   showLog.value = true
   logs.value = []
+  try {
+    const { data } = await cronAPI.logs(String(r.id))
+    logs.value = Array.isArray(data) ? data : []
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '获取日志失败'))
+  }
 }
 
-onMounted(async () => {
-  await nodesStore.fetchNodes()
-  if (nodesStore.nodes.length > 0 && !selectedNode.value) {
-    selectedNode.value = nodesStore.nodes[0]?.id
-  }
-})
-
-watch(selectedNode, () => {
-  if (selectedNode.value) {
-    fetchJobs()
-  }
+onMounted(() => {
+  fetchJobs()
 })
 </script>
 

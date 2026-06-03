@@ -12,7 +12,7 @@
       </div>
 
       <div class="summary-row">
-        <metric-card label="主机数" :value="String(nodesStore.nodes.length)" :sub="onlineSummary" color="#58a6ff" />
+        <metric-card label="系统状态" value="运行中" :sub="uptimeLabel" color="#58a6ff" />
         <metric-card label="CPU 使用率" :value="cpuLabel" :sub="coresLabel" color="#3fb950" />
         <metric-card label="内存使用率" :value="memLabel" :sub="memSubLabel" color="#bc8cff" />
         <metric-card label="磁盘使用率" :value="diskLabel" :sub="diskSubLabel" color="#f0883e" />
@@ -111,10 +111,8 @@ echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, MarkLi
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'
-import { useNodesStore } from '@/stores/nodes'
 
 const snap = useSnapshotStore()
-const nodesStore = useNodesStore()
 
 const cpuChartRef = ref<HTMLDivElement>()
 const memChartRef = ref<HTMLDivElement>()
@@ -135,8 +133,6 @@ const diskWriteData: [number, number][] = []
 const netRecvData: [number, number][] = []
 const netSentData: [number, number][] = []
 
-const onlineCount = computed(() => nodesStore.nodes.filter((n: any) => n.status === 'online').length)
-const onlineSummary = computed(() => `在线 ${onlineCount.value} / 离线 ${nodesStore.nodes.length - onlineCount.value}`)
 const isWindows = computed(() => {
   const platform = snap.current?.host?.platform || ''
   return platform.toLowerCase().includes('windows')
@@ -521,9 +517,6 @@ async function refresh() {
       console.warn('[dashboard] refresh error:', (e as Error)?.message || e)
     }
   }
-  try {
-    await nodesStore.fetchNodes()
-  } catch {}
 }
 
 function handleResize() {
@@ -554,7 +547,6 @@ function pushZeroPoint(ts: number) {
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  await nodesStore.fetchNodes()
   await initCharts()
 
   try {

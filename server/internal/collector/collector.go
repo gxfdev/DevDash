@@ -98,10 +98,6 @@ func (c *Collector) Collect() (*model.Snapshot, error) {
 	}()
 	func() {
 		defer func() { recover() }()
-		snap.Containers = c.collectContainers(ctx)
-	}()
-	func() {
-		defer func() { recover() }()
 		snap.GPU = c.collectGPU(ctx)
 	}()
 	func() {
@@ -291,8 +287,6 @@ func (c *Collector) collectProcesses(ctx context.Context) []model.ProcessInfo {
 	}
 	return result
 }
-
-func (c *Collector) collectContainers(_ context.Context) []model.ContainerInfo { return nil }
 
 func (c *Collector) collectGPU(ctx context.Context) *model.GPUMetrics {
 	devices := c.gpu.Collect(ctx)

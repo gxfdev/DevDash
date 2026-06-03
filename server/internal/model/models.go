@@ -2,19 +2,6 @@ package model
 
 import "time"
 
-type Node struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	OS            string    `json:"os"`
-	Arch          string    `json:"arch"`
-	IP            string    `json:"ip"`
-	Role          string    `json:"role"`
-	Token         string    `json:"token,omitempty"`
-	Status        string    `json:"status"`
-	LastHeartbeat time.Time `json:"last_heartbeat"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
 type Snapshot struct {
 	NodeID     string                `json:"node_id"`
 	Timestamp  time.Time             `json:"timestamp"`
@@ -25,7 +12,6 @@ type Snapshot struct {
 	Load       LoadMetrics           `json:"load"`
 	Host       HostInfo              `json:"host"`
 	Processes  []ProcessInfo         `json:"processes"`
-	Containers []ContainerInfo       `json:"containers"`
 	GPU        *GPUMetrics           `json:"gpu,omitempty"`
 	Sensors    *SensorInfo           `json:"sensors,omitempty"`
 	DiskIO     *DiskIOMetrics        `json:"disk_io,omitempty"`
@@ -83,17 +69,6 @@ type ProcessInfo struct {
 	MemPercent float64 `json:"mem_percent"`
 	MemMB      float64 `json:"mem_mb"`
 	Status     string  `json:"status"`
-}
-
-type ContainerInfo struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Image      string  `json:"image"`
-	Status     string  `json:"status"`
-	CPUPercent float64 `json:"cpu_percent"`
-	MemUsageMB float64 `json:"mem_usage_mb"`
-	MemLimitMB float64 `json:"mem_limit_mb"`
-	Created    string  `json:"created"`
 }
 
 type GPUMetrics struct {
@@ -175,14 +150,6 @@ type AuditLog struct {
 	Detail string    `json:"detail"`
 	Result string    `json:"result"`
 	Time   time.Time `json:"time"`
-}
-
-type Software struct {
-	ID      int    `json:"id"`
-	NodeID  string `json:"node_id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Status  string `json:"status"`
 }
 
 type CronJob struct {

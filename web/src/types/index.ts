@@ -16,6 +16,8 @@ export interface MemoryInfo {
   used_gb: number
   available_gb: number
   usage_percent: number
+  swap_total_gb?: number
+  swap_used_gb?: number
 }
 
 export interface DiskInfo {
@@ -92,17 +94,6 @@ export interface ProcessInfo {
   cmdline?: string
 }
 
-export interface ContainerInfo {
-  id: string
-  name: string
-  image: string
-  status: string
-  cpu_pct: number
-  mem_usage: string
-  ports?: string
-  created?: string
-}
-
 export interface Snapshot {
   node_id: string
   timestamp: string
@@ -118,40 +109,6 @@ export interface Snapshot {
   gpu?: GPUMetrics
 }
 
-export interface HostMetricsSnap {
-  status?: string
-  cpu: number
-  cpu_cores: number
-  mem_pct: number
-  mem_used: number
-  mem_total: number
-  disk_pct: number
-  disk_used: number
-  disk_total: number
-  net_in: number
-  net_out: number
-  load_1: number
-  load_5: number
-  load_15: number
-  procs: number
-  gpu?: GPUMetrics
-}
-
-export interface NodeDetail {
-  id: string
-  name: string
-  hostname?: string
-  os: string
-  arch: string
-  ip: string
-  role: string
-  status: string
-  last_heartbeat: string
-  created_at: string
-  cpu_cores?: number
-  mem_total_gb?: number
-}
-
 export interface FileInfo {
   name: string
   path: string
@@ -161,15 +118,7 @@ export interface FileInfo {
   mode: string
   mtime: string
   modified?: string
-}
-
-export interface FirewallRuleItem {
-  id: string
-  proto: string
-  port: string
-  src_ip: string
-  note: string
-  enabled: boolean
+  permission?: string
 }
 
 export interface GPUMetricHistoryPoint {
@@ -179,4 +128,30 @@ export interface GPUMetricHistoryPoint {
   mem_used_mb: number
   mem_total_mb: number
   temperature_celsius: number
+}
+
+export interface CronJobLog {
+  id: number
+  job_id: number
+  command: string
+  output: string
+  exit_code: number
+  duration_ms: number
+  timestamp: string
+}
+
+export interface ScriptInfo {
+  id: number
+  name: string
+  interpreter: string
+  description: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CommandHistoryItem {
+  id: number
+  command: string
+  timestamp: string
 }

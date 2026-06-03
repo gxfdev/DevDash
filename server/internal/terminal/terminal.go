@@ -28,15 +28,18 @@ type resizeMessage struct {
 	Rows int16  `json:"rows"`
 }
 
+type CommandSaverFunc func(command string)
+
 type TerminalSession struct {
-	NodeID string
-	Shell  string
-	Conn   *websocket.Conn
-	proc   *ptyProcess
-	mu     sync.Mutex
-	closed int32
-	ctx    context.Context
-	cancel context.CancelFunc
+	NodeID        string
+	Shell         string
+	Conn          *websocket.Conn
+	proc          *ptyProcess
+	mu            sync.Mutex
+	closed        int32
+	ctx           context.Context
+	cancel        context.CancelFunc
+	CommandSaver  CommandSaverFunc
 }
 
 func NewSession(nodeID string, shell string, conn *websocket.Conn) *TerminalSession {
@@ -144,6 +147,9 @@ func (s *TerminalSession) outputReader(wg *sync.WaitGroup) {
 func (s *TerminalSession) inputHandler(wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	var commandBuf strings.Builder
+	var inEscape bool
+
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -171,6 +177,37 @@ func (s *TerminalSession) inputHandler(wg *sync.WaitGroup) {
 				}
 			}
 			continue
+		}
+
+		for _, b := range msg {
+			switch {
+			case b == '\r' || b == '\n':
+				cmd := strings.TrimSpace(commandBuf.String())
+				if cmd != "" && s.CommandSaver != nil {
+					s.CommandSaver(cmd)
+				}
+				commandBuf.Reset()
+				inEscape = false
+			case b == 3:
+				commandBuf.Reset()
+				inEscape = false
+			case b == 127 || b == 8:
+				if commandBuf.Len() > 0 {
+					runes := []rune(commandBuf.String())
+					if len(runes) > 0 {
+						commandBuf.Reset()
+						commandBuf.WriteString(string(runes[:len(runes)-1]))
+					}
+				}
+			case b == 27:
+				inEscape = true
+			case inEscape:
+				if (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || b == '[' || b == 'O' {
+					inEscape = false
+				}
+			case b >= 32 && b <= 126:
+				commandBuf.WriteByte(b)
+			}
 		}
 
 		if _, err := s.proc.Write(msg); err != nil {

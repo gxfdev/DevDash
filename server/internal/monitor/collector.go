@@ -13,20 +13,20 @@ import (
 )
 
 type SystemInfo struct {
-	Hostname string    `json:"hostname"`
-	OS       string    `json:"os"`
-	Platform string    `json:"platform"`
-	Arch     string    `json:"arch"`
-	Uptime   uint64    `json:"uptime"`
-	Time     string    `json:"time"`
+	Hostname string `json:"hostname"`
+	OS       string `json:"os"`
+	Platform string `json:"platform"`
+	Arch     string `json:"arch"`
+	Uptime   uint64 `json:"uptime"`
+	Time     string `json:"time"`
 }
 
 type CPUInfo struct {
-	Count    int       `json:"count"`
-	Usage    []float64 `json:"usage"`
-	Load1    float64   `json:"load1"`
-	Load5    float64   `json:"load5"`
-	Load15   float64   `json:"load15"`
+	Count  int       `json:"count"`
+	Usage  []float64 `json:"usage"`
+	Load1  float64   `json:"load1"`
+	Load5  float64   `json:"load5"`
+	Load15 float64   `json:"load15"`
 }
 
 type MemoryInfo struct {
@@ -53,11 +53,11 @@ type NetworkIO struct {
 }
 
 type Status struct {
-	System  SystemInfo  `json:"system"`
-	CPU     CPUInfo     `json:"cpu"`
-	Memory  MemoryInfo  `json:"memory"`
-	Disk    DiskInfo    `json:"disk"`
-	Network NetworkIO   `json:"network"`
+	System  SystemInfo `json:"system"`
+	CPU     CPUInfo    `json:"cpu"`
+	Memory  MemoryInfo `json:"memory"`
+	Disk    DiskInfo   `json:"disk"`
+	Network NetworkIO  `json:"network"`
 }
 
 func Collect() (*Status, error) {

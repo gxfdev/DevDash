@@ -46,7 +46,7 @@ jobs:
         working-directory: server
         run: |
           mkdir -p ${{ github.workspace }}/dist
-          CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ${{ github.workspace }}/dist/webshell-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ${{ github.workspace }}/dist/webshell-linux-amd64 ./cmd/server
       - uses: actions/upload-artifact@v4
         with:
           name: linux-binary

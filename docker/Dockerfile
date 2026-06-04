@@ -6,12 +6,11 @@ COPY web/ .
 RUN npm run build
 
 FROM golang:1.23-alpine AS backend
-RUN apk add --no-cache gcc musl-dev
 WORKDIR /app/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ .
-RUN CGO_ENABLED=1 go build -ldflags="-s -w" -trimpath -o /app/webshell ./cmd/server
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /app/webshell ./cmd/server
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates bash tzdata util-linux

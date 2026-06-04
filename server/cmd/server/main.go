@@ -69,7 +69,7 @@ func main() {
 		auth.InitAuditLog(auditFile)
 	}
 
-	handler := api.NewHandler(c, s)
+	handler := api.NewHandler(c, s, cfg)
 	handler.RegisterRoutes(r)
 
 	go startCollection(c, s, cfg, alertEngine, handler)
@@ -129,11 +129,6 @@ func startMetricsCleanup(s *store.Store) {
 }
 
 func startCollection(c *collector.Collector, s *store.Store, cfg *config.Config, alertEngine *alert.Engine, h *api.Handler) {
-	interval := time.Duration(cfg.CollectInterval) * time.Second
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
-	}
-
 	collectOnce := func() {
 		snap, err := c.Collect()
 		if err != nil {
@@ -151,10 +146,35 @@ func startCollection(c *collector.Collector, s *store.Store, cfg *config.Config,
 	collectOnce()
 	log.Println("首次采集完成")
 
-	ticker := time.NewTicker(interval)
+	// Dynamic interval: check config every second and reset ticker on change
+	var currentInterval int
+	getInterval := func() time.Duration {
+		cfgVal := cfg.CollectInterval
+		if cfgVal < 3 {
+			cfgVal = 5
+		}
+		d := time.Duration(cfgVal) * time.Second
+		if d < 3*time.Second {
+			d = 5 * time.Second
+		}
+		return d
+	}
+	currentInterval = cfg.CollectInterval
+
+	ticker := time.NewTicker(getInterval())
 	defer ticker.Stop()
-	for range ticker.C {
-		collectOnce()
+
+	for {
+		select {
+		case <-ticker.C:
+			collectOnce()
+			// Check if interval changed
+			if cfg.CollectInterval != currentInterval {
+				currentInterval = cfg.CollectInterval
+				ticker.Reset(getInterval())
+				log.Printf("[collect] interval updated to %ds", currentInterval)
+			}
+		}
 	}
 }
 

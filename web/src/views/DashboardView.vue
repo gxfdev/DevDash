@@ -111,6 +111,7 @@ echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, MarkLi
 import AppLayout from '@/components/AppLayout.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import { useSnapshotStore } from '@/stores/snapshot'
+import client from '@/api/client'
 
 const snap = useSnapshotStore()
 
@@ -578,9 +579,21 @@ onMounted(async () => {
     console.warn('[dashboard] load history failed:', e)
   }
 
-  await snap.fetchLatest()
-  pushData()
-  pollTimer = setInterval(refresh, 5000)
+  try {
+    await snap.fetchLatest()
+    pushData()
+  } catch (e) {
+    console.warn('[dashboard] fetchLatest failed:', (e as Error)?.message || e)
+  }
+  // Fetch collect interval from backend for polling sync
+  let intervalMs = 5000
+  try {
+    const { data } = await client.get('/settings/collect-interval')
+    if (data?.interval_seconds && data.interval_seconds >= 3) {
+      intervalMs = data.interval_seconds * 1000
+    }
+  } catch { /* use default */ }
+  pollTimer = setInterval(refresh, intervalMs)
 })
 
 onUnmounted(() => {

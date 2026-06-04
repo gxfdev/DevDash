@@ -607,7 +607,7 @@ func (s *Store) GetMetricsHistoryRange(nodeID string, start, end time.Time) ([]m
 			},
 		})
 	}
-	return fillGapsWithZero(result), nil
+	return fillGapsWithNull(result), nil
 }
 
 func (s *Store) GetGPUMetricsHistory(nodeID string, hours int) ([]model.GPUMetricRow, error) {
@@ -776,7 +776,7 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 			},
 		})
 	}
-	return fillGapsWithZero(result)
+	return fillGapsWithNull(result)
 }
 
 // parseDurationStr parses a duration string like "1h", "6h", "1d", "7d", "30d" into hours.
@@ -868,12 +868,14 @@ func (s *Store) ListSnapshotsWithDuration(nodeID string, limit int, duration str
 			},
 		})
 	}
-	return fillGapsWithZero(result)
+	return fillGapsWithNull(result)
 }
 
 const gapThresholdSeconds = 120
 
-func fillGapsWithZero(data []map[string]any) []map[string]any {
+// fillGapsWithNull inserts null markers at data gaps (system off / not monitored).
+// Frontend charts use connectNulls=false so null values create line breaks.
+func fillGapsWithNull(data []map[string]any) []map[string]any {
 	if len(data) < 2 {
 		return data
 	}
@@ -892,81 +894,44 @@ func fillGapsWithZero(data []map[string]any) []map[string]any {
 		gapSeconds := curTs.Sub(prevTs).Seconds()
 		if gapSeconds > gapThresholdSeconds {
 			nid, _ := data[i]["node_id"].(string)
-			zeroPoint := map[string]any{
+			nullPoint := map[string]any{
 				"node_id":   nid,
 				"timestamp": prevTs.Add(time.Duration(gapThresholdSeconds/2) * time.Second),
+				"_gap":      true,
 				"cpu": map[string]any{
-					"usage_percent": float64(0),
-					"cores":         data[i-1]["cpu"].(map[string]any)["cores"],
+					"usage_percent": nil,
+					"cores":         nil,
 				},
 				"memory": map[string]any{
-					"total_gb":      float64(0),
-					"used_gb":       float64(0),
-					"usage_percent": float64(0),
+					"total_gb":      nil,
+					"used_gb":       nil,
+					"usage_percent": nil,
 				},
 				"disk": map[string]any{
-					"total_gb":      float64(0),
-					"used_gb":       float64(0),
-					"usage_percent": float64(0),
+					"total_gb":      nil,
+					"used_gb":       nil,
+					"usage_percent": nil,
 				},
 				"disk_io": map[string]any{
-					"read_mb":       float64(0),
-					"write_mb":      float64(0),
-					"iops":          float64(0),
-					"read_rate_mb":  float64(0),
-					"write_rate_mb": float64(0),
+					"read_mb":       nil,
+					"write_mb":      nil,
+					"iops":          nil,
+					"read_rate_mb":  nil,
+					"write_rate_mb": nil,
 				},
 				"network": map[string]any{
-					"bytes_recv":   int64(0),
-					"bytes_sent":   int64(0),
-					"recv_rate_mb": float64(0),
-					"sent_rate_mb": float64(0),
+					"bytes_recv":   nil,
+					"bytes_sent":   nil,
+					"recv_rate_mb": nil,
+					"sent_rate_mb": nil,
 				},
 				"load": map[string]any{
-					"load1":  float64(0),
-					"load5":  float64(0),
-					"load15": float64(0),
+					"load1":  nil,
+					"load5":  nil,
+					"load15": nil,
 				},
 			}
-			filled = append(filled, zeroPoint)
-
-			endZeroPoint := map[string]any{
-				"node_id":   nid,
-				"timestamp": curTs.Add(-time.Duration(gapThresholdSeconds/2) * time.Second),
-				"cpu": map[string]any{
-					"usage_percent": float64(0),
-					"cores":         data[i]["cpu"].(map[string]any)["cores"],
-				},
-				"memory": map[string]any{
-					"total_gb":      float64(0),
-					"used_gb":       float64(0),
-					"usage_percent": float64(0),
-				},
-				"disk": map[string]any{
-					"total_gb":      float64(0),
-					"used_gb":       float64(0),
-					"usage_percent": float64(0),
-				},
-				"disk_io": map[string]any{
-					"read_mb":       float64(0),
-					"write_mb":      float64(0),
-					"iops":          float64(0),
-					"read_rate_mb":  float64(0),
-					"write_rate_mb": float64(0),
-				},
-				"network": map[string]any{
-					"bytes_recv":   int64(0),
-					"bytes_sent":   int64(0),
-					"recv_rate_mb": float64(0),
-					"sent_rate_mb": float64(0),
-				},
-				"load": map[string]any{
-					"load1":  float64(0),
-					"load5":  float64(0),
-					"load15": float64(0),
-				},
-			}
-			filled = append(filled, endZeroPoint)
+			filled = append(filled, nullPoint)
 		}
 
 		filled = append(filled, data[i])

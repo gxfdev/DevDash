@@ -22,6 +22,7 @@ import (
 
 	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/collector"
+	"github.com/gxfdev/DevDash/server/internal/config"
 	"github.com/gxfdev/DevDash/server/internal/filemgr"
 	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/store"
@@ -67,14 +68,16 @@ var upgrader = websocket.Upgrader{
 type Handler struct {
 	collector      *collector.Collector
 	store          *store.Store
+	cfg            *config.Config
 	mu             sync.RWMutex
 	cachedSnapshot interface{}
 }
 
-func NewHandler(c *collector.Collector, s *store.Store) *Handler {
+func NewHandler(c *collector.Collector, s *store.Store, cfg *config.Config) *Handler {
 	return &Handler{
 		collector: c,
 		store:     s,
+		cfg:       cfg,
 	}
 }
 
@@ -114,6 +117,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.GET("/trend/compare", h.getTrendCompare)
 	v1.GET("/anomaly/detect", h.detectAnomalies)
 	v1.GET("/monitor/stream", h.monitorStream)
+	v1.GET("/settings/collect-interval", h.getCollectInterval)
+	v1.PUT("/settings/collect-interval", auth.RequireRole("admin"), h.updateCollectInterval)
 
 	v1.GET("/cronjobs", h.listCronJobs)
 	v1.POST("/cronjobs", auth.RequireRole("admin"), h.createCronJob)
@@ -1588,6 +1593,41 @@ func (h *Handler) triggerCollect(c *gin.Context) {
 	snap.NodeID = "self"
 	h.persistAndCache(snap)
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+// ── Collect Interval Settings ────────────────────────────────
+
+func (h *Handler) getCollectInterval(c *gin.Context) {
+	h.mu.RLock()
+	interval := h.cfg.CollectInterval
+	h.mu.RUnlock()
+	if interval < 3 {
+		interval = 5
+	}
+	c.JSON(200, gin.H{"interval_seconds": interval})
+}
+
+func (h *Handler) updateCollectInterval(c *gin.Context) {
+	var req struct {
+		IntervalSeconds int `json:"interval_seconds"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+	if req.IntervalSeconds < 3 {
+		c.JSON(400, gin.H{"error": "minimum interval is 3 seconds"})
+		return
+	}
+	if req.IntervalSeconds > 300 {
+		c.JSON(400, gin.H{"error": "maximum interval is 300 seconds"})
+		return
+	}
+	h.mu.Lock()
+	h.cfg.CollectInterval = req.IntervalSeconds
+	h.mu.Unlock()
+	log.Printf("[settings] collect interval updated to %ds", req.IntervalSeconds)
+	c.JSON(200, gin.H{"status": "ok", "interval_seconds": req.IntervalSeconds})
 }
 
 // ── Health ────────────────────────────────────────────────────

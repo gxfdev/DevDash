@@ -101,6 +101,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
 import { authClient, getErrorMessage } from '@/api/client'
+import client from '@/api/client'
 import { authAPI, alertAPI } from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
@@ -196,10 +197,26 @@ async function toggleRule(rule: any, enabled: boolean) {
   }
 }
 
-function saveSystemSettingsLocal() {
-  localStorage.setItem('devdash_collect_interval', String(systemSettings.collectInterval))
-  localStorage.setItem('devdash_retention_days', String(systemSettings.retentionDays))
-  message.success('已保存')
+async function fetchCollectInterval() {
+  try {
+    const { data } = await client.get('/settings/collect-interval')
+    if (data?.interval_seconds) {
+      systemSettings.collectInterval = data.interval_seconds
+    }
+  } catch {
+    // use default
+  }
+}
+
+async function saveSystemSettingsLocal() {
+  try {
+    await client.put('/settings/collect-interval', { interval_seconds: systemSettings.collectInterval })
+    localStorage.setItem('devdash_collect_interval', String(systemSettings.collectInterval))
+    localStorage.setItem('devdash_retention_days', String(systemSettings.retentionDays))
+    message.success('采集配置已保存并生效')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '保存失败'))
+  }
 }
 
 function setColor(c: string) {
@@ -209,9 +226,8 @@ function setColor(c: string) {
 
 onMounted(async () => {
   fetchAlertRules()
-  const ci = localStorage.getItem('devdash_collect_interval')
+  fetchCollectInterval()
   const rd = localStorage.getItem('devdash_retention_days')
-  if (ci) systemSettings.collectInterval = Number(ci)
   if (rd) systemSettings.retentionDays = Number(rd)
 })
 </script>

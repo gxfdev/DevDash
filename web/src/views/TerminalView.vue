@@ -233,8 +233,23 @@ function connectWS() {
     }
 
     if (event.code === 4001 || event.code === 4010) {
-      term?.write('\r\n\x1b[1;31m✗ 认证失败，请重新登录\x1b[0m\r\n')
-      connStatus.value = 'error'
+      term?.write('\r\n\x1b[1;33m⚠ 认证已过期，尝试刷新...\x1b[0m\r\n')
+      // Try to refresh token and reconnect
+      import('@/api/client').then(({ authClient }) => {
+        return authClient.post('/auth/refresh')
+      }).then(({ data }) => {
+        if (data?.access_token) {
+          localStorage.setItem('token', data.access_token)
+          term?.write('\x1b[1;32m✓ Token 已刷新，正在重连...\x1b[0m\r\n')
+          connectWS()
+        } else {
+          throw new Error('no token')
+        }
+      }).catch(() => {
+        term?.write('\r\n\x1b[1;31m✗ 认证失败，请重新登录\x1b[0m\r\n')
+        connStatus.value = 'error'
+      })
+      return
     } else if (event.code === 4030) {
       term?.write('\r\n\x1b[1;31m✗ 权限不足\x1b[0m\r\n')
       connStatus.value = 'error'
@@ -244,7 +259,8 @@ function connectWS() {
     }
   }
 
-  ws.onerror = () => {
+  ws.onerror = (event) => {
+    console.error('[terminal] WebSocket error:', event)
     connStatus.value = 'error'
     term?.write('\r\n\x1b[1;31m✗ 连接错误，请检查网络或后端服务\x1b[0m\r\n')
   }

@@ -209,12 +209,12 @@ const compareData = ref<{ current: any[]; previous: any[] }>({ current: [], prev
 const compareCurrentAvg = computed(() => {
   const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
   if (compareData.value.current.length > 0) {
-    const curVals = compareData.value.current.map(h => getVal(h, keys))
+    const curVals = compareData.value.current.map(h => getVal(h, keys)).filter((v): v is number => v !== null)
     return curVals.length ? Math.round(curVals.reduce((s, v) => s + v, 0) / curVals.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
   }
   const half = Math.floor(historyData.value.length / 2)
   if (half === 0) return '--'
-  const secondHalf = historyData.value.slice(half).map(h => getVal(h, keys))
+  const secondHalf = historyData.value.slice(half).map(h => getVal(h, keys)).filter((v): v is number => v !== null)
   return secondHalf.length ? Math.round(secondHalf.reduce((s, v) => s + v, 0) / secondHalf.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
 })
 const comparePreviousAvg = computed(() => {
@@ -222,11 +222,11 @@ const comparePreviousAvg = computed(() => {
     const half = Math.floor(historyData.value.length / 2)
     if (half === 0) return '--'
     const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
-    const firstHalf = historyData.value.slice(0, half).map(h => getVal(h, keys))
+    const firstHalf = historyData.value.slice(0, half).map(h => getVal(h, keys)).filter((v): v is number => v !== null)
     return firstHalf.length ? Math.round(firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
   }
   const keys = compareMetric.value === 'cpu' ? ['cpu.usage_percent', 'cpu_usage'] : compareMetric.value === 'memory' ? ['memory.usage_percent', 'mem_usage_percent'] : compareMetric.value === 'disk' ? ['disk.usage_percent', 'disk_usage_percent'] : ['load.load1', 'load1']
-  const prevVals = compareData.value.previous.map(h => getVal(h, keys))
+  const prevVals = compareData.value.previous.map(h => getVal(h, keys)).filter((v): v is number => v !== null)
   return prevVals.length ? Math.round(prevVals.reduce((s, v) => s + v, 0) / prevVals.length) + (compareMetric.value === 'load1' ? '' : '%') : '--'
 })
 const compareTrend = computed(() => {
@@ -257,7 +257,9 @@ function toTs(val: string | number | undefined): number {
   return new Date(val).getTime()
 }
 
-function getVal(h: any, keys: string[]): number {
+function getVal(h: any, keys: string[]): number | null {
+  // If this is a gap marker, return null to break the chart line
+  if (h?._gap) return null
   for (const k of keys) {
     const parts = k.split('.')
     let v: any = h
@@ -265,13 +267,14 @@ function getVal(h: any, keys: string[]): number {
       if (v == null) break
       v = v[p]
     }
+    if (v === null) return null
     if (typeof v === 'number' && !isNaN(v)) return v
   }
   return 0
 }
 
 function vals(keys: string[]): number[] {
-  return historyData.value.map(h => getVal(h, keys))
+  return historyData.value.map(h => getVal(h, keys)).filter((v): v is number => v !== null)
 }
 
 function sumArr(arr: number[]): number { return arr.reduce((s, v) => s + (v || 0), 0) }
@@ -561,12 +564,13 @@ function pushData() {
     const readMB = getVal(h, ['disk_io.read_mb', 'read_mb'])
     const writeMB = getVal(h, ['disk_io.write_mb', 'write_mb'])
     const ts = toTs(h.timestamp)
+    if (readMB === null || writeMB === null) return [ts, null]
     if (i === 0) return [ts, 0]
     const prevReadMB = getVal(historyData.value[i - 1], ['disk_io.read_mb', 'read_mb'])
     const prevWriteMB = getVal(historyData.value[i - 1], ['disk_io.write_mb', 'write_mb'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
-    if (dt <= 0) return [ts, 0]
+    if (dt <= 0 || prevReadMB === null || prevWriteMB === null) return [ts, null]
     const rateMBps = ((readMB + writeMB - prevReadMB - prevWriteMB) / dt)
     return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
@@ -577,12 +581,13 @@ function pushData() {
     const readMB = getVal(h, ['disk_io.read_mb', 'read_mb'])
     const ts = toTs(h.timestamp)
     const readRateMB = getVal(h, ['disk_io.read_rate_mb', 'read_rate_mb'])
-    if (readRateMB > 0) return [ts, readRateMB]
+    if (readMB === null) return [ts, null]
+    if (readRateMB !== null && readRateMB > 0) return [ts, readRateMB]
     if (i === 0) return [ts, 0]
     const prevReadMB = getVal(historyData.value[i - 1], ['disk_io.read_mb', 'read_mb'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
-    if (dt <= 0) return [ts, 0]
+    if (dt <= 0 || prevReadMB === null) return [ts, null]
     return [ts, parseFloat(Math.max(0, (readMB - prevReadMB) / dt).toFixed(3))]
   })
 
@@ -590,25 +595,27 @@ function pushData() {
     const writeMB = getVal(h, ['disk_io.write_mb', 'write_mb'])
     const ts = toTs(h.timestamp)
     const writeRateMB = getVal(h, ['disk_io.write_rate_mb', 'write_rate_mb'])
-    if (writeRateMB > 0) return [ts, writeRateMB]
+    if (writeMB === null) return [ts, null]
+    if (writeRateMB !== null && writeRateMB > 0) return [ts, writeRateMB]
     if (i === 0) return [ts, 0]
     const prevWriteMB = getVal(historyData.value[i - 1], ['disk_io.write_mb', 'write_mb'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
-    if (dt <= 0) return [ts, 0]
+    if (dt <= 0 || prevWriteMB === null) return [ts, null]
     return [ts, parseFloat(Math.max(0, (writeMB - prevWriteMB) / dt).toFixed(3))]
   })
 
   const netRecvSeries = historyData.value.map((h: any, i: number) => {
     const ts = toTs(h.timestamp)
     const recvRateMB = getVal(h, ['network.recv_rate_mb', 'recv_rate_mb'])
+    if (recvRateMB === null) return [ts, null]
     if (recvRateMB > 0) return [ts, recvRateMB]
     if (i === 0) return [ts, 0]
     const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
     const prevRecv = getVal(historyData.value[i - 1], ['network.bytes_recv', 'bytes_recv'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
-    if (dt <= 0) return [ts, 0]
+    if (dt <= 0 || recv === null || prevRecv === null) return [ts, null]
     const rateMBps = (recv - prevRecv) / 1024 / 1024 / dt
     return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
@@ -616,13 +623,14 @@ function pushData() {
   const netSentSeries = historyData.value.map((h: any, i: number) => {
     const ts = toTs(h.timestamp)
     const sentRateMB = getVal(h, ['network.sent_rate_mb', 'sent_rate_mb'])
+    if (sentRateMB === null) return [ts, null]
     if (sentRateMB > 0) return [ts, sentRateMB]
     if (i === 0) return [ts, 0]
     const sent = getVal(h, ['network.bytes_sent', 'bytes_sent'])
     const prevSent = getVal(historyData.value[i - 1], ['network.bytes_sent', 'bytes_sent'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
     const dt = (ts - prevTs) / 1000
-    if (dt <= 0) return [ts, 0]
+    if (dt <= 0 || sent === null || prevSent === null) return [ts, null]
     const rateMBps = (sent - prevSent) / 1024 / 1024 / dt
     return [ts, parseFloat(Math.max(0, rateMBps).toFixed(3))]
   })
@@ -676,8 +684,8 @@ function pushData() {
   const cpuBand = computeAnomalyBand(cpuVals)
   const memBand = computeAnomalyBand(memVals)
 
-  const cpuAnomalyScatter = cpuData.filter((d: number[]) => d[1] > cpuBand.upper || d[1] < cpuBand.lower)
-  const memAnomalyScatter = memData.filter((d: number[]) => d[1] > memBand.upper || d[1] < memBand.lower)
+  const cpuAnomalyScatter = cpuData.filter((d: (number | null)[]) => d[1] != null && (d[1] as number > cpuBand.upper || d[1] as number < cpuBand.lower))
+  const memAnomalyScatter = memData.filter((d: (number | null)[]) => d[1] != null && (d[1] as number > memBand.upper || d[1] as number < memBand.lower))
 
   anomalyCpuChart?.setOption({
     series: [
@@ -736,7 +744,6 @@ function pushData() {
 }
 
 async function loadHistory() {
-  loading.value = true
   try {
     const resp = await client.get('/history', { params: { duration: duration.value, limit: 500 } })
     const data = Array.isArray(resp.data) ? resp.data : []
@@ -772,6 +779,8 @@ async function load() {
   loading.value = true
   try {
     await loadHistory()
+    // Wait for DOM to update after historyData changes (v-if/v-else toggle)
+    await nextTick()
     await buildCharts()
     pushData()
   } finally {
@@ -808,7 +817,6 @@ function handleResize() {
 
 onMounted(async () => {
   window.addEventListener('resize', handleResize)
-  await buildCharts()
   load()
 })
 

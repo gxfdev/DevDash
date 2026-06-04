@@ -13,6 +13,8 @@ export const useSnapshotStore = defineStore('snapshot', () => {
     try {
       const { data } = await client.get<Snapshot>('/latest')
       current.value = data
+    } catch (e) {
+      console.warn('[snapshot] fetchLatest error:', (e as Error)?.message || e)
     } finally {
       loading.value = false
     }

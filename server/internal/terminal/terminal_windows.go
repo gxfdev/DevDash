@@ -11,52 +11,46 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-
-	"github.com/admpub/conpty"
 )
 
 type ptyProcess struct {
-	cpty   *conpty.ConPty
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.Reader
-	pid    int
-	mu     sync.Mutex
-	closed bool
+	cpty      *conPtyProcess
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.Reader
+	pid       int
+	mu        sync.Mutex
+	closed    bool
 }
 
 func createPtyProcess(shell string, cols, rows int16) (*ptyProcess, error) {
-	if !conpty.IsConPtyAvailable() {
-		log.Printf("[terminal] ConPTY not available, falling back to pipe mode")
-		return createPipeProcess(shell)
-	}
-
-	cmdArgs := buildWindowsCmdArgs(shell)
-
-	cpty, err := conpty.Start(cmdArgs,
-		conpty.ConPtyDimensions(int(cols), int(rows)),
-		conpty.ConPtyEnv(append(os.Environ(), "TERM=xterm-256color")),
-	)
+	// Try ConPTY first (native Windows pseudo console)
+	cpty, err := createConPtyProcess(shell, cols, rows)
 	if err != nil {
-		log.Printf("[terminal] ConPTY start failed: %v, falling back to pipe mode", err)
+		log.Printf("[terminal] ConPTY failed: %v, falling back to pipe mode", err)
 		return createPipeProcess(shell)
 	}
 
 	return &ptyProcess{
-		cpty:   cpty,
-		stdin:  cpty,
-		stdout: cpty,
-		pid:    cpty.Pid(),
+		cpty: cpty,
+		pid:  cpty.Pid(),
 	}, nil
 }
 
 func createPipeProcess(shell string) (*ptyProcess, error) {
-	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	lower := strings.ToLower(shell)
+	var cmd *exec.Cmd
 
-	if strings.Contains(strings.ToLower(shell), "cmd") {
+	if strings.Contains(lower, "cmd") {
 		cmd = exec.Command(shell, "/U", "/K", "prompt $P$G")
+	} else if strings.Contains(lower, "powershell") || strings.Contains(lower, "pwsh") {
+		// Use interactive mode with prompt for PowerShell in pipe mode
+		cmd = exec.Command(shell, "-NoExit", "-Command", "prompt 'PS $PWD> '")
+	} else {
+		cmd = exec.Command(shell)
 	}
+
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -75,21 +69,35 @@ func createPipeProcess(shell string) (*ptyProcess, error) {
 		return nil, fmt.Errorf("start command: %w", err)
 	}
 
-	go io.Copy(io.Discard, stderr)
+	// Use a pipe to merge stdout and stderr
+	mergedReader, mergedWriter := io.Pipe()
+	go func() {
+		io.Copy(mergedWriter, stdout)
+		mergedWriter.Close()
+	}()
+	go func() {
+		io.Copy(mergedWriter, stderr)
+	}()
 
 	return &ptyProcess{
 		cmd:    cmd,
 		stdin:  stdin,
-		stdout: stdout,
+		stdout: mergedReader,
 		pid:    cmd.Process.Pid,
 	}, nil
 }
 
 func (p *ptyProcess) Read(buf []byte) (int, error) {
+	if p.cpty != nil {
+		return p.cpty.Read(buf)
+	}
 	return p.stdout.Read(buf)
 }
 
 func (p *ptyProcess) Write(data []byte) (int, error) {
+	if p.cpty != nil {
+		return p.cpty.Write(data)
+	}
 	return p.stdin.Write(data)
 }
 
@@ -100,7 +108,7 @@ func (p *ptyProcess) Resize(cols, rows int16) error {
 		return nil
 	}
 	if p.cpty != nil {
-		return p.cpty.Resize(int(cols), int(rows))
+		return p.cpty.Resize(cols, rows)
 	}
 	return nil
 }
@@ -124,8 +132,7 @@ func (p *ptyProcess) Close() {
 
 func (p *ptyProcess) Wait(ctx context.Context) error {
 	if p.cpty != nil {
-		_, err := p.cpty.Wait(ctx)
-		return err
+		return p.cpty.Wait(ctx)
 	}
 	if p.cmd != nil {
 		return p.cmd.Wait()

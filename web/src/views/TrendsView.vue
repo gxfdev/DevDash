@@ -160,7 +160,6 @@ import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, Ma
 import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([LineChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, CanvasRenderer])
 import AppLayout from '@/components/AppLayout.vue'
-import { metricsAPI } from '@/api'
 import client from '@/api/client'
 import type { Snapshot } from '@/types'
 
@@ -422,123 +421,122 @@ function makePercentYAxis(): any {
 async function buildCharts() {
   disposeCharts()
   await nextTick()
-    if (cpuRef.value) {
-      cpuChart = echarts.init(cpuRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = makePercentYAxis()
-      opt.series = [makeLineSeries('CPU', '#3fb950', 0.2)]
-      opt.series[0].markLine = {
-        silent: true, symbol: 'none',
-        lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
-        data: [{ yAxis: 80, label: { formatter: '告警 80%', color: '#f85149', fontSize: 10 } }],
-      }
-      cpuChart.setOption(opt)
+  if (cpuRef.value) {
+    cpuChart = echarts.init(cpuRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = makePercentYAxis()
+    opt.series = [makeLineSeries('CPU', '#3fb950', 0.2)]
+    opt.series[0].markLine = {
+      silent: true, symbol: 'none',
+      lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+      data: [{ yAxis: 80, label: { formatter: '告警 80%', color: '#f85149', fontSize: 10 } }],
     }
+    cpuChart.setOption(opt)
+  }
 
-    if (memRef.value) {
-      memChart = echarts.init(memRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = makePercentYAxis()
-      opt.series = [makeLineSeries('内存', '#bc8cff', 0.2)]
-      opt.series[0].markLine = {
-        silent: true, symbol: 'none',
-        lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
-        data: [{ yAxis: 85, label: { formatter: '告警 85%', color: '#f85149', fontSize: 10 } }],
-      }
-      memChart.setOption(opt)
+  if (memRef.value) {
+    memChart = echarts.init(memRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = makePercentYAxis()
+    opt.series = [makeLineSeries('内存', '#bc8cff', 0.2)]
+    opt.series[0].markLine = {
+      silent: true, symbol: 'none',
+      lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
+      data: [{ yAxis: 85, label: { formatter: '告警 85%', color: '#f85149', fontSize: 10 } }],
     }
+    memChart.setOption(opt)
+  }
 
-    if (diskRef.value) {
-      diskChart = echarts.init(diskRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = [
-        { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
-        { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
-      ]
-      opt.series = [
-        makeLineSeries('磁盘使用率', '#f0883e', 0.15, 0),
-        makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
-        makeLineSeries('写入速率', '#d29922', 0.08, 1),
-      ]
-      diskChart.setOption(opt)
-    }
+  if (diskRef.value) {
+    diskChart = echarts.init(diskRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = [
+      { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+      { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
+    ]
+    opt.series = [
+      makeLineSeries('磁盘使用率', '#f0883e', 0.15, 0),
+      makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
+      makeLineSeries('写入速率', '#d29922', 0.08, 1),
+    ]
+    diskChart.setOption(opt)
+  }
 
-    if (netRef.value) {
-      netChart = echarts.init(netRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = { type: 'value', min: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
-      opt.series = [
-        makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
-        makeLineSeries('\u2191 出流量', '#d29922', 0.12),
-      ]
-      netChart.setOption(opt)
-    }
+  if (netRef.value) {
+    netChart = echarts.init(netRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = { type: 'value', min: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
+    opt.series = [
+      makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
+      makeLineSeries('\u2191 出流量', '#d29922', 0.12),
+    ]
+    netChart.setOption(opt)
+  }
 
-    if (compareCpuMemRef.value) {
-      compareCpuMemChart = echarts.init(compareCpuMemRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = makePercentYAxis()
-      opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
-      opt.series = [
-        makeLineSeries('当前CPU', '#3fb950', 0.15),
-        makeLineSeries('当前内存', '#bc8cff', 0.15),
-        makeLineSeries('前期CPU', '#3fb95080', 0, undefined, 'dashed'),
-        makeLineSeries('前期内存', '#bc8cff80', 0, undefined, 'dashed'),
-      ]
-      compareCpuMemChart.setOption(opt)
-    }
+  if (compareCpuMemRef.value) {
+    compareCpuMemChart = echarts.init(compareCpuMemRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = makePercentYAxis()
+    opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
+    opt.series = [
+      makeLineSeries('当前CPU', '#3fb950', 0.15),
+      makeLineSeries('当前内存', '#bc8cff', 0.15),
+      makeLineSeries('前期CPU', '#3fb95080', 0, undefined, 'dashed'),
+      makeLineSeries('前期内存', '#bc8cff80', 0, undefined, 'dashed'),
+    ]
+    compareCpuMemChart.setOption(opt)
+  }
 
-    if (compareDiskNetRef.value) {
-      compareDiskNetChart = echarts.init(compareDiskNetRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = [
-        { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
-        { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
-      ]
-      opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
-      opt.series = [
-        makeLineSeries('当前磁盘', '#f0883e', 0.1, 0),
-        makeLineSeries('当前↓入', '#58a6ff', 0.08, 1),
-        makeLineSeries('当前↑出', '#d29922', 0.08, 1),
-        makeLineSeries('前期磁盘', '#f0883e80', 0, 0, 'dashed'),
-        makeLineSeries('前期↓入', '#58a6ff80', 0, 1, 'dashed'),
-        makeLineSeries('前期↑出', '#d2992280', 0, 1, 'dashed'),
-      ]
-      compareDiskNetChart.setOption(opt)
-    }
+  if (compareDiskNetRef.value) {
+    compareDiskNetChart = echarts.init(compareDiskNetRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = [
+      { type: 'value', min: 0, max: 100, position: 'left', axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } },
+      { type: 'value', min: 0, position: 'right', axisLine: { show: false }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { show: false } },
+    ]
+    opt.legend = { textStyle: { color: '#8b949e', fontSize: 11 } }
+    opt.series = [
+      makeLineSeries('当前磁盘', '#f0883e', 0.1, 0),
+      makeLineSeries('当前↓入', '#58a6ff', 0.08, 1),
+      makeLineSeries('当前↑出', '#d29922', 0.08, 1),
+      makeLineSeries('前期磁盘', '#f0883e80', 0, 0, 'dashed'),
+      makeLineSeries('前期↓入', '#58a6ff80', 0, 1, 'dashed'),
+      makeLineSeries('前期↑出', '#d2992280', 0, 1, 'dashed'),
+    ]
+    compareDiskNetChart.setOption(opt)
+  }
 
-    if (anomalyCpuRef.value) {
-      anomalyCpuChart = echarts.init(anomalyCpuRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = makePercentYAxis()
-      opt.series = [
-        makeLineSeries('CPU', '#3fb950', 0.15),
-        { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
-      ]
-      anomalyCpuChart.setOption(opt)
-    }
+  if (anomalyCpuRef.value) {
+    anomalyCpuChart = echarts.init(anomalyCpuRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = makePercentYAxis()
+    opt.series = [
+      makeLineSeries('CPU', '#3fb950', 0.15),
+      { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
+    ]
+    anomalyCpuChart.setOption(opt)
+  }
 
-    if (anomalyMemRef.value) {
-      anomalyMemChart = echarts.init(anomalyMemRef.value, 'dark')
-      const opt = makeBaseOpt()
-      opt.xAxis = makeTimeAxis()
-      opt.yAxis = makePercentYAxis()
-      opt.series = [
-        makeLineSeries('内存', '#bc8cff', 0.15),
-        { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
-      ]
-      anomalyMemChart.setOption(opt)
-    }
-
+  if (anomalyMemRef.value) {
+    anomalyMemChart = echarts.init(anomalyMemRef.value, 'dark')
+    const opt = makeBaseOpt()
+    opt.xAxis = makeTimeAxis()
+    opt.yAxis = makePercentYAxis()
+    opt.series = [
+      makeLineSeries('内存', '#bc8cff', 0.15),
+      { name: '异常点', type: 'scatter', symbolSize: 10, itemStyle: { color: '#f85149' }, data: [] },
+    ]
+    anomalyMemChart.setOption(opt)
+  }
 }
 
 function disposeCharts() {

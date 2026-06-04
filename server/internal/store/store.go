@@ -779,6 +779,98 @@ func (s *Store) ListSnapshots(nodeID string, limit int) []map[string]any {
 	return fillGapsWithZero(result)
 }
 
+// parseDurationStr parses a duration string like "1h", "6h", "1d", "7d", "30d" into hours.
+func parseDurationStr(d string) int {
+	if d == "" {
+		return 0
+	}
+	num := 0
+	unit := ""
+	if n, err := fmt.Sscanf(d, "%d%s", &num, &unit); err == nil && n >= 1 && num > 0 {
+		switch unit {
+		case "h":
+			return num
+		case "d":
+			return num * 24
+		default:
+			return 0
+		}
+	}
+	return 0
+}
+
+func (s *Store) ListSnapshotsWithDuration(nodeID string, limit int, duration string) []map[string]any {
+	hours := parseDurationStr(duration)
+	if hours <= 0 {
+		return s.ListSnapshots(nodeID, limit)
+	}
+	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+	cols := "node_id, timestamp, cpu_usage, cpu_cores, mem_total_gb, mem_used_gb, mem_usage_percent, disk_total_gb, disk_used_gb, disk_usage_percent, disk_read_mb, disk_write_mb, disk_iops, disk_read_rate_mb, disk_write_rate_mb, net_bytes_recv, net_bytes_sent, net_recv_rate_mb, net_sent_rate_mb, load1, load5, load15"
+	var rows *sql.Rows
+	var err error
+	if nodeID == "" {
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM (SELECT %s FROM metrics WHERE timestamp >= %s ORDER BY timestamp DESC LIMIT %s) sub ORDER BY timestamp ASC", cols, cols, s.placeholder(1), s.placeholder(2)), since, limit)
+	} else {
+		rows, err = s.db.Query(fmt.Sprintf("SELECT %s FROM (SELECT %s FROM metrics WHERE node_id = %s AND timestamp >= %s ORDER BY timestamp DESC LIMIT %s) sub ORDER BY timestamp ASC", cols, cols, s.placeholder(1), s.placeholder(2), s.placeholder(3)), nodeID, since, limit)
+	}
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var result []map[string]any
+	for rows.Next() {
+		var nid string
+		var ts time.Time
+		var cpuUsage, cpuCores, memTotal, memUsed, memUsage float64
+		var diskTotal, diskUsed, diskUsage float64
+		var diskReadMB, diskWriteMB, diskIOPS float64
+		var diskReadRateMB, diskWriteRateMB float64
+		var netRecv, netSent int64
+		var netRecvRate, netSentRate float64
+		var load1, load5, load15 float64
+		if err := rows.Scan(&nid, &ts, &cpuUsage, &cpuCores, &memTotal, &memUsed, &memUsage, &diskTotal, &diskUsed, &diskUsage, &diskReadMB, &diskWriteMB, &diskIOPS, &diskReadRateMB, &diskWriteRateMB, &netRecv, &netSent, &netRecvRate, &netSentRate, &load1, &load5, &load15); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"node_id":   nid,
+			"timestamp": ts,
+			"cpu": map[string]any{
+				"usage_percent": cpuUsage,
+				"cores":         cpuCores,
+			},
+			"memory": map[string]any{
+				"total_gb":      memTotal,
+				"used_gb":       memUsed,
+				"usage_percent": memUsage,
+			},
+			"disk": map[string]any{
+				"total_gb":      diskTotal,
+				"used_gb":       diskUsed,
+				"usage_percent": diskUsage,
+			},
+			"disk_io": map[string]any{
+				"read_mb":       diskReadMB,
+				"write_mb":      diskWriteMB,
+				"iops":          diskIOPS,
+				"read_rate_mb":  diskReadRateMB,
+				"write_rate_mb": diskWriteRateMB,
+			},
+			"network": map[string]any{
+				"bytes_recv":   netRecv,
+				"bytes_sent":   netSent,
+				"recv_rate_mb": netRecvRate,
+				"sent_rate_mb": netSentRate,
+			},
+			"load": map[string]any{
+				"load1":  load1,
+				"load5":  load5,
+				"load15": load15,
+			},
+		})
+	}
+	return fillGapsWithZero(result)
+}
+
 const gapThresholdSeconds = 120
 
 func fillGapsWithZero(data []map[string]any) []map[string]any {

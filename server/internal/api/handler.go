@@ -86,6 +86,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	ws := r.Group("/ws")
 	ws.Use(auth.WSMiddleware())
 	ws.GET("/terminal", h.terminalWS)
+	ws.GET("/terminal/:nodeID", h.terminalWS)
 
 	api := r.Group("/api")
 
@@ -601,7 +602,8 @@ func (h *Handler) getHistory(c *gin.Context) {
 			limit = v
 		}
 	}
-	data := h.store.ListSnapshots("", limit)
+	duration := c.Query("duration")
+	data := h.store.ListSnapshotsWithDuration("", limit, duration)
 	if data == nil {
 		data = []map[string]any{}
 	}
@@ -1296,8 +1298,8 @@ func isAllowedInterpreter(interp string) bool {
 func checkScriptSecurity(content string) []string {
 	var warnings []string
 	dangerousPatterns := []struct {
-		pattern  string
-		message  string
+		pattern string
+		message string
 	}{
 		{"rm -rf /", "dangerous: rm -rf / detected"},
 		{":(){ :|:& };:", "dangerous: fork bomb detected"},
@@ -1402,8 +1404,12 @@ func (h *Handler) terminalWS(c *gin.Context) {
 		log.Printf("[terminal] websocket upgrade failed: %v", err)
 		return
 	}
+	nodeID := c.Param("nodeID")
+	if nodeID == "" {
+		nodeID = "self"
+	}
 	shell := c.Query("shell")
-	session := terminal.NewSession("self", shell, conn)
+	session := terminal.NewSession(nodeID, shell, conn)
 	session.CommandSaver = func(command string) {
 		if h.store != nil {
 			h.store.SaveCommandHistory(command)

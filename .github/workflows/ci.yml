@@ -104,13 +104,9 @@ jobs:
           cache-dependency-path: server/go.sum
       - name: Download dependencies
         run: go mod download
-      - name: Build check (CGO enabled for ConPTY)
-        env:
-          CGO_ENABLED: "1"
+      - name: Build check
         run: go build ./...
       - name: Run unit tests
-        env:
-          CGO_ENABLED: "1"
         run: go test ./internal/... -v -timeout 120s
 
   build-web:

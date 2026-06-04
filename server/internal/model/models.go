@@ -3,19 +3,19 @@ package model
 import "time"
 
 type Snapshot struct {
-	NodeID     string                `json:"node_id"`
-	Timestamp  time.Time             `json:"timestamp"`
-	CPU        CPUMetrics            `json:"cpu"`
-	Memory     MemoryMetrics         `json:"memory"`
-	Disk       DiskMetrics           `json:"disk"`
-	Network    NetworkMetrics        `json:"network"`
-	Load       LoadMetrics           `json:"load"`
-	Host       HostInfo              `json:"host"`
-	Processes  []ProcessInfo         `json:"processes"`
-	GPU        *GPUMetrics           `json:"gpu,omitempty"`
-	Sensors    *SensorInfo           `json:"sensors,omitempty"`
-	DiskIO     *DiskIOMetrics        `json:"disk_io,omitempty"`
-	TCPConns   *TCPConnectionMetrics `json:"tcp_conns,omitempty"`
+	NodeID    string                `json:"node_id"`
+	Timestamp time.Time             `json:"timestamp"`
+	CPU       CPUMetrics            `json:"cpu"`
+	Memory    MemoryMetrics         `json:"memory"`
+	Disk      DiskMetrics           `json:"disk"`
+	Network   NetworkMetrics        `json:"network"`
+	Load      LoadMetrics           `json:"load"`
+	Host      HostInfo              `json:"host"`
+	Processes []ProcessInfo         `json:"processes"`
+	GPU       *GPUMetrics           `json:"gpu,omitempty"`
+	Sensors   *SensorInfo           `json:"sensors,omitempty"`
+	DiskIO    *DiskIOMetrics        `json:"disk_io,omitempty"`
+	TCPConns  *TCPConnectionMetrics `json:"tcp_conns,omitempty"`
 }
 
 type CPUMetrics struct {

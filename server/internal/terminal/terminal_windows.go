@@ -14,13 +14,13 @@ import (
 )
 
 type ptyProcess struct {
-	cpty      *conPtyProcess
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdout    io.Reader
-	pid       int
-	mu        sync.Mutex
-	closed    bool
+	cpty   *conPtyProcess
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.Reader
+	pid    int
+	mu     sync.Mutex
+	closed bool
 }
 
 func createPtyProcess(shell string, cols, rows int16) (*ptyProcess, error) {

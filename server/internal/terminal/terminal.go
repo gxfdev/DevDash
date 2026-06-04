@@ -31,15 +31,15 @@ type resizeMessage struct {
 type CommandSaverFunc func(command string)
 
 type TerminalSession struct {
-	NodeID        string
-	Shell         string
-	Conn          *websocket.Conn
-	proc          *ptyProcess
-	mu            sync.Mutex
-	closed        int32
-	ctx           context.Context
-	cancel        context.CancelFunc
-	CommandSaver  CommandSaverFunc
+	NodeID       string
+	Shell        string
+	Conn         *websocket.Conn
+	proc         *ptyProcess
+	mu           sync.Mutex
+	closed       int32
+	ctx          context.Context
+	cancel       context.CancelFunc
+	CommandSaver CommandSaverFunc
 }
 
 func NewSession(nodeID string, shell string, conn *websocket.Conn) *TerminalSession {

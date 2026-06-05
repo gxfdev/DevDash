@@ -154,8 +154,15 @@ jobs:
             -e ENCRYPTION_KEY=test-encryption-key-32bytes!! \
             -p 9091:9090 \
             devdash:test
-          sleep 5
-          curl -sf http://localhost:9091/api/v1/health || { docker logs devdash-test; exit 1; }
+          sleep 8
+          docker ps -a | grep devdash-test
+          if curl -sf http://localhost:9091/api/v1/health; then
+            echo "Health check passed"
+          else
+            echo "Health check failed, container logs:"
+            docker logs devdash-test
+            exit 1
+          fi
           docker stop devdash-test
 
   docker-push:

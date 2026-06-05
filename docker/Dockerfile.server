@@ -13,8 +13,6 @@ RUN npx vite build --outDir dist
 
 FROM golang:1.26-alpine AS server-builder
 
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
@@ -29,14 +27,18 @@ RUN go mod download
 
 COPY server/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.vcsRef=${VCS_REF}" -trimpath -o /build/devdash ./cmd/server
-RUN mkdir -p /data && chown 65534:65534 /data
 
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM alpine:3.21
 
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
+
+RUN apk add --no-cache ca-certificates tzdata curl \
+    && rm -rf /var/cache/apk/* \
+    && addgroup -S devdash && adduser -S devdash -G devdash \
+    && mkdir -p /data && chown devdash:devdash /data
 
 LABEL org.opencontainers.image.title="DevDash" \
       org.opencontainers.image.description="Lightweight server monitoring dashboard" \
@@ -45,6 +47,7 @@ LABEL org.opencontainers.image.title="DevDash" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/gxfdev/DevDash"
 
+ENV TZ=Asia/Shanghai
 ENV GIN_MODE=release
 ENV PORT=9090
 ENV DB_PATH=/data/devdash.db
@@ -55,11 +58,15 @@ ENV HOST_DEV=/host/dev
 ENV HOST_ETC=/host/etc
 
 COPY --from=server-builder /build/devdash /usr/local/bin/devdash
-COPY --from=server-builder /data /data
 COPY --from=web-builder /build/web/dist /srv/www
 
-USER nonroot:nonroot
+RUN chown -R devdash:devdash /srv/www
+
+USER devdash
 
 EXPOSE 9090
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:9090/api/v1/health || exit 1
 
 ENTRYPOINT ["devdash"]

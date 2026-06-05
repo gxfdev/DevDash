@@ -154,16 +154,19 @@ jobs:
             -e ENCRYPTION_KEY=test-encryption-key-32bytes!! \
             -p 9091:9090 \
             devdash:test
-          sleep 8
-          docker ps -a | grep devdash-test
-          if curl -sf http://localhost:9091/api/v1/health; then
-            echo "Health check passed"
-          else
-            echo "Health check failed, container logs:"
-            docker logs devdash-test
-            exit 1
-          fi
+          for i in 1 2 3 4 5; do
+            sleep 3
+            if curl -sf http://localhost:9091/api/v1/health; then
+              echo "Health check passed (attempt $i)"
+              docker stop devdash-test
+              exit 0
+            fi
+            echo "Attempt $i failed, waiting..."
+          done
+          echo "Health check failed after 5 attempts"
+          docker logs devdash-test
           docker stop devdash-test
+          exit 1
 
   docker-push:
     name: Docker Build & Push

@@ -1,0 +1,206 @@
+# DevDash Kubernetes 部署配置
+# 用法: kubectl apply -f k8s/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devdash
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devdash-secrets
+  namespace: devdash
+type: Opaque
+stringData:
+  JWT_SECRET: "CHANGE-ME-openssl-rand-hex-32"
+  ENCRYPTION_KEY: "CHANGE-ME-32-bytes-encryption-key"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devdash-config
+  namespace: devdash
+data:
+  GIN_MODE: "release"
+  TZ: "Asia/Shanghai"
+  INTERVAL: "5"
+  PORT: "9090"
+  DB_PATH: "/data/devdash.db"
+  STATIC_DIR: "/srv/www"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devdash
+  namespace: devdash
+  labels:
+    app: devdash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devdash
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: devdash
+    spec:
+      # 使用安全上下文运行
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        readOnlyRootFilesystem: false
+      containers:
+        - name: devdash
+          image: ghcr.io/gxfdev/devdash:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: devdash-config
+            - secretRef:
+                name: devdash-secrets
+          # 宿主机监控目录挂载（Linux 节点必需）
+          env:
+            - name: HOST_PROC
+              value: /host/proc
+            - name: HOST_SYS
+              value: /host/sys
+            - name: HOST_DEV
+              value: /host/dev
+            - name: HOST_ETC
+              value: /host/etc
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: host-dev
+              mountPath: /host/dev
+              readOnly: true
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: devdash-data
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: host-dev
+          hostPath:
+            path: /dev
+            type: Directory
+        - name: host-etc
+          hostPath:
+            path: /etc
+            type: Directory
+      # 仅在 Linux 节点调度
+      nodeSelector:
+        kubernetes.io/os: linux
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: devdash-data
+  namespace: devdash
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: standard  # 按集群配置修改
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devdash
+  namespace: devdash
+spec:
+  type: ClusterIP
+  selector:
+    app: devdash
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+
+---
+# Ingress - 按需启用，修改 host 和 TLS 配置
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devdash
+  namespace: devdash
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket 支持
+    nginx.ingress.kubernetes.io/websocket-services: "devdash"
+spec:
+  ingressClassName: nginx
+  # tls:
+  #   - hosts:
+  #       - devdash.example.com
+  #     secretName: devdash-tls
+  rules:
+    - host: devdash.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: devdash
+                port:
+                  number: 9090

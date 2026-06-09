@@ -1,182 +1,103 @@
-#Requires -Version 5.1
-param(
-    [Parameter(Position=0)]
-    [ValidateSet('check', 'deploy', 'rollback', 'status')]
-    [string]$Command = 'deploy',
+# DevDash Docker 一键部署脚本 (PowerShell)
+# 用法: .\deploy.ps1 [命令]
+# 命令: start | stop | restart | status | logs | update | backup | uninstall
 
-    [string]$DeployHost = $env:DEPLOY_HOST,
-    [string]$DeployUser = if ($env:DEPLOY_USER) { $env:DEPLOY_USER } else { 'root' },
-    [int]$DeployPort = if ($env:DEPLOY_PORT) { [int]$env:DEPLOY_PORT } else { 22 },
-    [string]$DeployPath = if ($env:DEPLOY_PATH) { $env:DEPLOY_PATH } else { '/opt/devdash' },
-    [string]$DeployEnv = if ($env:DEPLOY_ENV) { $env:DEPLOY_ENV } else { 'production' }
+param(
+    [string]$Command = "start"
 )
 
-$ErrorActionPreference = 'Stop'
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ScriptDir
+$ErrorActionPreference = "Stop"
+$Image = "ghcr.io/gxfdev/devdash"
+$Tag = if ($env:VERSION) { $env:VERSION } else { "latest" }
+$Container = "devdash"
+$Port = if ($env:PORT) { $env:PORT } else { "9090" }
+$TZ = if ($env:TZ) { $env:TZ } else { "Asia/Shanghai" }
+$Interval = if ($env:INTERVAL) { $env:INTERVAL } else { "5" }
 
 function Write-Info($msg)  { Write-Host "[INFO] $msg" -ForegroundColor Green }
 function Write-Warn($msg)  { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
-function Write-Err($msg)   { Write-Host "[ERROR] $msg" -ForegroundColor Red }
-function Write-Step($msg)  { Write-Host "`n==> $msg" -ForegroundColor Cyan }
+function Write-Err($msg)   { Write-Host "[ERROR] $msg" -ForegroundColor Red; exit 1 }
 
-function Invoke-Remote($script) {
-    $tempFile = [System.IO.Path]::GetTempFileName()
-    try {
-        $script | Set-Content $tempFile -Encoding UTF8
-        & scp -P $DeployPort $tempFile "${DeployUser}@${DeployHost}:/tmp/devdash_remote.sh" 2>$null
-        & ssh -p $DeployPort "${DeployUser}@${DeployHost}" "bash /tmp/devdash_remote.sh; rm -f /tmp/devdash_remote.sh"
-    } finally {
-        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+function Check-Docker {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Err "Docker 未安装。请先安装 Docker Desktop: https://docs.docker.com/desktop/install/windows-install/"
+    }
+    try { docker info | Out-Null } catch { Write-Err "Docker 未运行。请启动 Docker Desktop。" }
+}
+
+function Gen-Secret {
+    -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Maximum 256) })
+}
+
+function Do-Start {
+    Check-Docker
+
+    $existing = docker ps -a --format '{{.Names}}' 2>$null
+    if ($existing -contains $Container) {
+        Write-Warn "容器 $Container 已存在，正在重启..."
+        docker restart $Container
+        Write-Info "容器已重启"
+        return
+    }
+
+    $jwtSecret = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { Gen-Secret }
+    Write-Info "JWT_SECRET: $jwtSecret"
+    Write-Info "正在拉取镜像 ${Image}:${Tag}..."
+    docker pull "${Image}:${Tag}"
+
+    Write-Info "检测到 Windows 系统，跳过宿主机目录挂载..."
+    docker run -d `
+        --name $Container `
+        --restart unless-stopped `
+        -p "${Port}:9090" `
+        -v "devdash-data:/data" `
+        -e "JWT_SECRET=$jwtSecret" `
+        -e "ENCRYPTION_KEY=$($env:ENCRYPTION_KEY)" `
+        -e GIN_MODE=release `
+        -e "TZ=$TZ" `
+        -e "INTERVAL=$Interval" `
+        --memory=512m `
+        --cpus=2.0 `
+        "${Image}:${Tag}"
+
+    Write-Info "等待服务启动..."
+    Start-Sleep -Seconds 5
+
+    $running = docker ps --format '{{.Names}}' 2>$null
+    if ($running -contains $Container) {
+        Write-Info "DevDash 启动成功！"
+        Write-Info "访问地址: http://localhost:${Port}"
+        Write-Info "默认账号: admin / admin123"
+        Write-Info "请尽快修改默认密码！"
+    } else {
+        Write-Err "启动失败，查看日志: docker logs $Container"
     }
 }
 
-function Test-SshConnection {
-    if (-not $DeployHost) {
-        Write-Err "DEPLOY_HOST not set. Usage: .\deploy.ps1 -DeployHost 1.2.3.4 -Command deploy"
-        exit 1
-    }
-    Write-Info "Target: ${DeployUser}@${DeployHost}:${DeployPort} (env: $DeployEnv)"
-    try {
-        & ssh -o ConnectTimeout=10 -o BatchMode=yes -p $DeployPort "${DeployUser}@${DeployHost}" "echo ok" 2>$null | Out-Null
-        Write-Info "SSH connection OK"
-    } catch {
-        Write-Err "Cannot connect to ${DeployUser}@${DeployHost}:${DeployPort}"
-        exit 1
-    }
-}
-
-function Build-Locally {
-    Write-Step "Building frontend..."
-    Push-Location (Join-Path $ScriptDir 'web')
-    if (-not (Test-Path 'node_modules')) {
-        & npm ci --prefer-offline
-    }
-    & npm run build
-    Pop-Location
-    Write-Info "Frontend built successfully"
-
-    Write-Step "Building backend binary..."
-    Push-Location (Join-Path $ScriptDir 'server')
-    $env:CGO_ENABLED = '0'
-    $env:GOOS = 'linux'
-    $env:GOARCH = 'amd64'
-    & go build -ldflags="-s -w" -o (Join-Path $ScriptDir 'dist' 'devdash-linux-amd64') ./cmd/server
-    Pop-Location
-    Write-Info "Backend binary built successfully"
-}
-
-function New-Backup {
-    Write-Step "Creating backup on server..."
-    Invoke-Remote @"
-        set -e
-        mkdir -p ${DeployPath}/backups
-        TIMESTAMP=`$(date +%Y%m%d_%H%M%S)
-        BACKUP_NAME="devdash_`${TIMESTAMP}.tar.gz"
-        if [ -d "${DeployPath}" ]; then
-            tar -czf "${DeployPath}/backups/`${BACKUP_NAME}" -C "${DeployPath}" \
-                --exclude='backups' --exclude='node_modules' --exclude='.git' . 2>/dev/null || true
-            echo "Backup created: `${BACKUP_NAME}"
-            cd "${DeployPath}/backups"
-            ls -t devdash_*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
-        else
-            echo "No existing deployment to backup"
-        fi
-"@
-    Write-Info "Backup completed"
-}
-
-function Send-Files {
-    Write-Step "Transferring files to server..."
-    & ssh -p $DeployPort "${DeployUser}@${DeployHost}" "mkdir -p ${DeployPath}/dist ${DeployPath}/docker" 2>$null
-
-    & scp -P $DeployPort (Join-Path $ScriptDir 'dist' 'devdash-linux-amd64') "${DeployUser}@${DeployHost}:${DeployPath}/dist/devdash"
-    & scp -P $DeployPort (Join-Path $ScriptDir 'docker-compose.yml') "${DeployUser}@${DeployHost}:${DeployPath}/docker-compose.yml"
-    & scp -P $DeployPort (Join-Path $ScriptDir 'docker' 'nginx.conf') "${DeployUser}@${DeployHost}:${DeployPath}/docker/nginx.conf"
-    & scp -P $DeployPort (Join-Path $ScriptDir 'docker' 'Dockerfile.server') "${DeployUser}@${DeployHost}:${DeployPath}/docker/Dockerfile.server"
-
-    Write-Info "Files transferred successfully"
-}
-
-function Deploy-Services {
-    Write-Step "Deploying services on server..."
-    Invoke-Remote @"
-        set -e
-        cd ${DeployPath}
-        docker compose up -d --build --remove-orphans
-        echo "Waiting for services to be healthy..."
-        for i in `$(seq 1 30); do
-            if curl -sf http://localhost:9090/api/v1/health > /dev/null 2>&1; then
-                echo "Services are healthy!"
-                exit 0
-            fi
-            sleep 2
-        done
-        echo "WARNING: Services did not become healthy within 60s"
-        docker compose ps
-        docker compose logs --tail=50
-"@
-    Write-Info "Deployment completed"
-}
-
-function Invoke-Rollback {
-    Write-Step "Rolling back to previous deployment..."
-    Invoke-Remote @"
-        set -e
-        cd ${DeployPath}/backups
-        LATEST_BACKUP=`$(ls -t devdash_*.tar.gz 2>/dev/null | head -1)
-        if [ -z "`$LATEST_BACKUP" ]; then
-            echo "ERROR: No backup found for rollback"
-            exit 1
-        fi
-        echo "Rolling back with: `$LATEST_BACKUP"
-        cd ${DeployPath}
-        docker compose down 2>/dev/null || true
-        tar -xzf "${DeployPath}/backups/`$LATEST_BACKUP"
-        docker compose up -d --remove-orphans
-        echo "Rollback completed"
-"@
-    Write-Info "Rollback completed"
-}
+function Do-Stop     { docker stop $Container 2>$null; Write-Info "已停止" }
+function Do-Restart  { docker restart $Container 2>$null; Write-Info "已重启" }
+function Do-Status   { docker ps -a --format 'table {{.Names}}`t{{.Status}}' | Select-String $Container }
+function Do-Logs     { docker logs -f --tail 100 $Container 2>$null }
+function Do-Update   { docker pull "${Image}:${Tag}"; docker stop $Container 2>$null; docker rm $Container 2>$null; Do-Start }
+function Do-Backup   { $f = "devdash-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').db"; docker cp "${Container}:/data/devdash.db" "./$f"; Write-Info "备份已保存: $f" }
+function Do-Uninstall { docker stop $Container 2>$null; docker rm $Container 2>$null; docker rmi "${Image}:${Tag}" 2>$null; Write-Info "已卸载" }
 
 switch ($Command) {
-    'check' {
-        Test-SshConnection
-        Write-Step "Checking server prerequisites..."
-        Invoke-Remote @"
-            echo '=== OS Info ==='
-            cat /etc/os-release | head -3
-            echo '=== Docker ==='
-            docker --version 2>/dev/null || echo 'NOT INSTALLED'
-            echo '=== Docker Compose ==='
-            docker compose version 2>/dev/null || docker-compose --version 2>/dev/null || echo 'NOT INSTALLED'
-            echo '=== Disk Space ==='
-            df -h / | tail -1
-            echo '=== Memory ==='
-            free -h | head -2
-            echo '=== Ports ==='
-            ss -tlnp | grep -E ':(80|443|9090)\b' || echo 'Ports 80/443/9090 available'
-"@
-    }
-    'deploy' {
-        Test-SshConnection
-        Build-Locally
-        New-Backup
-        Send-Files
-        Deploy-Services
-        Write-Info "Deployment complete!"
-    }
-    'rollback' {
-        Test-SshConnection
-        Invoke-Rollback
-    }
-    'status' {
-        Test-SshConnection
-        Invoke-Remote @"
-            cd ${DeployPath} 2>/dev/null || { echo 'Not deployed'; exit 1; }
-            docker compose ps
-            echo ''
-            curl -sf http://localhost:9090/api/v1/health && echo ' - Health: OK' || echo ' - Health: FAIL'
-"@
+    "start"     { Do-Start }
+    "stop"      { Do-Stop }
+    "restart"   { Do-Restart }
+    "status"    { Do-Status }
+    "logs"      { Do-Logs }
+    "update"    { Do-Update }
+    "backup"    { Do-Backup }
+    "uninstall" { Do-Uninstall }
+    default {
+        Write-Host "DevDash Docker 部署工具 (PowerShell)"
+        Write-Host ""
+        Write-Host "用法: .\deploy.ps1 [命令]"
+        Write-Host ""
+        Write-Host "命令: start | stop | restart | status | logs | update | backup | uninstall"
+        Write-Host ""
+        Write-Host "环境变量: VERSION, PORT, JWT_SECRET, TZ, INTERVAL"
     }
 }

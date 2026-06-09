@@ -32,6 +32,9 @@
 - [项目结构](#-项目结构)
 - [CI/CD](#-cicd)
 - [部署工具](#-部署工具)
+  - [一键部署脚本](#一键部署脚本)
+  - [Kubernetes 部署](#kubernetes-部署)
+- [数据采集实现原理](#-数据采集实现原理)
 - [API 文档](#-api-文档)
 - [安全特性](#-安全特性)
 - [常见问题](#-常见问题)
@@ -778,6 +781,232 @@ DEPLOY_HOST=prod.example.com DEPLOY_ENV=production bash deploy.sh deploy
 # 部署到测试环境
 DEPLOY_HOST=staging.example.com DEPLOY_ENV=staging bash deploy.sh deploy
 ```
+
+### Kubernetes 部署
+
+项目提供完整的 Kubernetes 部署配置，位于 `k8s/` 目录。
+
+**配置文件说明：**
+
+| 文件 | 说明 |
+|------|------|
+| `k8s/deployment.yml` | 完整 K8s 部署清单（Namespace + Secret + ConfigMap + Deployment + PVC + Service + Ingress） |
+| `k8s/deploy.sh` | K8s 部署管理脚本 |
+
+**一键部署：**
+
+```bash
+# 1. 修改 Secret 中的密钥
+# 编辑 k8s/deployment.yml，将 JWT_SECRET 和 ENCRYPTION_KEY 替换为随机值
+# 生成方法: openssl rand -hex 32
+
+# 2. 部署到集群
+kubectl apply -f k8s/
+
+# 3. 等待 Pod 就绪
+kubectl -n devdash rollout status deployment/devdash
+
+# 4. 端口转发测试
+kubectl -n devdash port-forward svc/devdash 9090:9090
+# 访问 http://localhost:9090
+```
+
+**使用部署脚本：**
+
+```bash
+# 部署
+./k8s/deploy.sh deploy
+
+# 查看状态
+./k8s/deploy.sh status
+
+# 更新镜像
+./k8s/deploy.sh upgrade ghcr.io/gxfdev/devdash:v1.1.0
+
+# 查看日志
+./k8s/deploy.sh logs
+
+# 扩缩容
+./k8s/deploy.sh scale 2
+
+# 删除
+./k8s/deploy.sh destroy
+```
+
+**K8s 部署架构：**
+
+```
+┌──────────────────────────────────────────────────┐
+│  Ingress (nginx)                                 │
+│  devdash.example.com → svc/devdash:9090          │
+└──────────────────┬───────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────┐
+│  Service (ClusterIP)                             │
+│  devdash:9090                                    │
+└──────────────────┬───────────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────────┐
+│  Deployment (1 replica)                          │
+│  ┌─────────────────────────────────────────────┐ │
+│  │ Pod                                         │ │
+│  │  Container: ghcr.io/gxfdev/devdash:latest   │ │
+│  │  Limits: 1 CPU / 512Mi RAM                  │ │
+│  │  Mounts: /data (PVC), /host/proc, /host/sys │ │
+│  └─────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+```
+
+> **注意**：K8s 部署需要将宿主机的 `/proc`、`/sys`、`/dev`、`/etc` 挂载到容器中才能采集宿主机指标。Pod 仅调度到 Linux 节点。
+
+---
+
+## 🔬 数据采集实现原理
+
+DevDash 使用 [gopsutil](https://github.com/shirou/gopsutil) 库实现跨平台的系统指标采集，核心代码位于 `server/internal/collector/collector.go`。
+
+### 采集架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Collector.Collect()                       │
+│                                                              │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │
+│  │ collectCPU│ │collectMem│ │collectDisk│ │ collectNetwork│  │
+│  │  (并发)   │ │  (并发)   │ │  (并发)   │ │   (并发)      │  │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬────────┘  │
+│       │            │            │               │            │
+│  ┌────▼────────────▼────────────▼───────────────▼────────┐  │
+│  │              sync.WaitGroup (6 goroutines)             │  │
+│  └───────────────────────┬───────────────────────────────┘  │
+│                          │                                   │
+│  ┌───────────────────────▼───────────────────────────────┐  │
+│  │  collectProcesses / collectGPU / collectDiskIO /       │  │
+│  │  collectTCPConns / collectSensors (顺序执行)           │  │
+│  └───────────────────────┬───────────────────────────────┘  │
+│                          ▼                                   │
+│                    model.Snapshot                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### CPU 采集原理
+
+**技术**：`gopsutil/v4/cpu` 包
+
+**实现流程**：
+
+1. **核心数**：调用 `runtime.NumCPU()` 获取逻辑 CPU 核心数
+2. **总使用率**：调用 `cpu.Percent(0, false)` 获取整体 CPU 使用百分比
+   - 参数 `0` 表示不等待，直接返回自上次调用以来的 CPU 使用率
+   - 参数 `false` 表示返回总体使用率而非每核使用率
+3. **每核使用率**：调用 `cpu.Percent(0, true)` 获取每个逻辑核心的使用率
+4. **防抖处理**：通过 `prevCPUTime` 记录上次采集时间，如果两次采集间隔超过 30 秒或为首次采集，使用缓存值避免异常波动
+
+**底层原理**（Linux）：
+- 读取 `/proc/stat` 文件获取 CPU 时间片（user/nice/system/idle/iowait/irq/softirq/steal）
+- 计算公式：`usage = (total - idle) / total * 100`
+- Docker 环境下通过 `HOST_PROC=/host/proc` 读取宿主机的 `/proc`
+
+**底层原理**（Windows）：
+- 调用 Windows API `GetSystemTimes()` 获取 idle/kernel/user 时间
+- 同样通过差值计算使用率
+
+### 内存采集原理
+
+**技术**：`gopsutil/v4/mem` 包
+
+**实现流程**：
+
+1. **物理内存**：调用 `mem.VirtualMemory()` 获取
+   - `Total`：总物理内存（字节）
+   - `Used`：已用内存（字节）
+   - `Available`：可用内存（字节）
+   - `UsedPercent`：使用百分比
+2. **交换分区**：调用 `mem.SwapMemory()` 获取
+   - `Total`：交换分区总量
+   - `Used`：交换分区已用
+3. **单位转换**：字节 → GB（`bytes / 1024^3`），保留两位小数
+
+**底层原理**（Linux）：
+- 读取 `/proc/meminfo` 文件
+- 关键字段：`MemTotal`、`MemFree`、`MemAvailable`、`Buffers`、`Cached`、`SwapTotal`、`SwapFree`
+- `Used = Total - Available`（更准确的方式，因为 Available 包含了可回收的缓存）
+
+**底层原理**（Windows）：
+- 调用 `GlobalMemoryStatusEx()` API 获取 `MEMORYSTATUSEX` 结构体
+
+### 磁盘采集原理
+
+**技术**：`gopsutil/v4/disk` 包
+
+**实现流程**：
+
+1. **分区列表**：调用 `disk.Partitions(false)` 获取所有挂载分区
+   - 参数 `false` 表示不显示虚拟/伪文件系统
+2. **分区使用率**：对每个分区调用 `disk.Usage(mountpoint)` 获取
+   - `Total`：分区总容量
+   - `Used`：已用空间
+   - `Free`：可用空间
+   - `UsedPercent`：使用百分比
+3. **主分区选择**：自动选择容量最大的分区作为主显示指标
+4. **Windows 兼容**：如果 `Partitions()` 失败，回退到直接查询 `C:` 盘
+
+**磁盘 I/O 速率采集**：
+
+1. **累计字节数**：调用 `disk.IOCounters()` 获取所有磁盘设备的累计读写字节数
+2. **速率计算**：通过两次采集的差值除以时间间隔计算实时速率
+   ```
+   ReadRateMB = (currentReadBytes - lastReadBytes) / elapsedSeconds / 1024 / 1024
+   WriteRateMB = (currentWriteBytes - lastWriteBytes) / elapsedSeconds / 1024 / 1024
+   ```
+3. **线程安全**：使用 `sync.RWMutex` 保护上次采集值，防止并发读写
+
+**底层原理**（Linux）：
+- 分区信息：读取 `/proc/mounts` 和 `/etc/mtab`
+- 使用率：调用 `statvfs()` 系统调用获取文件系统统计
+- I/O 统计：读取 `/proc/diskstats` 或 `/sys/block/*/stat`
+
+**底层原理**（Windows）：
+- 使用率：调用 `GetDiskFreeSpaceExW()` API
+- I/O 统计：通过 `Win32_PerfFormattedData_PerfDisk_LogicalDisk` WMI 查询
+
+### 网络采集原理
+
+**技术**：`gopsutil/v4/net` 包
+
+**实现流程**：
+
+1. **累计流量**：调用 `net.IOCounters(false)` 获取网络接口总流量
+   - `BytesRecv`：总接收字节数
+   - `BytesSent`：总发送字节数
+2. **速率计算**：与磁盘 I/O 类似，通过差值/时间间隔计算实时速率
+   ```
+   RecvRateMB = (currentRecv - lastRecv) / elapsed / 1024 / 1024
+   SentRateMB = (currentSent - lastSent) / elapsed / 1024 / 1024
+   ```
+
+### Docker 环境下的采集
+
+在容器中运行时，默认只能看到容器自身的资源信息。DevDash 通过挂载宿主机目录来采集宿主机数据：
+
+| 环境变量 | 挂载目录 | 用途 |
+|---------|---------|------|
+| `HOST_PROC=/host/proc` | `-v /proc:/host/proc:ro` | CPU、内存、进程、TCP 连接 |
+| `HOST_SYS=/host/sys` | `-v /sys:/host/sys:ro` | 磁盘 I/O、传感器 |
+| `HOST_DEV=/host/dev` | `-v /dev:/host/dev:ro` | 磁盘设备信息 |
+| `HOST_ETC=/host/etc` | `-v /etc:/host/etc:ro` | 主机名、OS 信息 |
+
+gopsutil 在 `init()` 阶段检测这些环境变量，自动将读取路径从 `/proc` 重定向到 `/host/proc`，从而在容器内获取宿主机指标。
+
+### 采集调度
+
+- **默认间隔**：5 秒（可通过 `INTERVAL` 环境变量或设置页面调整，范围 3-300 秒）
+- **并发采集**：CPU、内存、磁盘、网络、负载、主机信息 6 个指标并发采集（`sync.WaitGroup`）
+- **顺序采集**：进程列表、GPU、传感器、磁盘 I/O、TCP 连接在并发采集后顺序执行
+- **超时控制**：整体采集超时 30 秒（`context.WithTimeout`）
+- **容错机制**：每个采集函数都有 `recover()` 防止 panic 导致整体崩溃
+
+---
 
 ### Makefile 快捷命令
 

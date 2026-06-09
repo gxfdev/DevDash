@@ -38,7 +38,7 @@ func main() {
 	defer s.Close()
 
 	filemgr.SetOpCallback(func(op, path, name, ext string, size int64, isDir bool) {
-		s.RecordFileOp(map[string]interface{}{
+		s.RecordFileOp(map[string]any{
 			"operation": op,
 			"path":      path,
 			"name":      name,
@@ -55,7 +55,7 @@ func main() {
 
 	r := gin.Default()
 
-	r.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, err interface{}) {
+	r.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, err any) {
 		log.Printf("[panic] recovered: %v", err)
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})
 	}))
@@ -164,16 +164,13 @@ func startCollection(c *collector.Collector, s *store.Store, cfg *config.Config,
 	ticker := time.NewTicker(getInterval())
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			collectOnce()
-			// Check if interval changed
-			if cfg.CollectInterval != currentInterval {
-				currentInterval = cfg.CollectInterval
-				ticker.Reset(getInterval())
-				log.Printf("[collect] interval updated to %ds", currentInterval)
-			}
+	for range ticker.C {
+		collectOnce()
+		// Check if interval changed
+		if cfg.CollectInterval != currentInterval {
+			currentInterval = cfg.CollectInterval
+			ticker.Reset(getInterval())
+			log.Printf("[collect] interval updated to %ds", currentInterval)
 		}
 	}
 }
@@ -182,7 +179,7 @@ func corsMiddleware() gin.HandlerFunc {
 	allowedOrigins := os.Getenv("CORS_ORIGINS")
 	allowedMap := make(map[string]bool)
 	if allowedOrigins != "" {
-		for _, o := range strings.Split(allowedOrigins, ",") {
+		for o := range strings.SplitSeq(allowedOrigins, ",") {
 			allowedMap[strings.TrimSpace(o)] = true
 		}
 	} else {

@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/gxfdev/DevDash/server/internal/alert"
 	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/collector"
 	"github.com/gxfdev/DevDash/server/internal/config"
@@ -69,6 +70,7 @@ type Handler struct {
 	collector      *collector.Collector
 	store          *store.Store
 	cfg            *config.Config
+	alertEngine    *alert.Engine
 	mu             sync.RWMutex
 	cachedSnapshot interface{}
 }
@@ -79,6 +81,10 @@ func NewHandler(c *collector.Collector, s *store.Store, cfg *config.Config) *Han
 		store:     s,
 		cfg:       cfg,
 	}
+}
+
+func (h *Handler) SetAlertEngine(e *alert.Engine) {
+	h.alertEngine = e
 }
 
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
@@ -160,6 +166,10 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	v1.POST("/alert-rules", auth.RequireRole("admin"), h.createAlertRule)
 	v1.PUT("/alert-rules/:id", auth.RequireRole("admin"), h.updateAlertRule)
 	v1.DELETE("/alert-rules/:id", auth.RequireRole("admin"), h.deleteAlertRule)
+
+	v1.GET("/alert-notify/config", h.getAlertNotifyConfig)
+	v1.PUT("/alert-notify/config", auth.RequireRole("admin"), h.updateAlertNotifyConfig)
+	v1.POST("/alert-notify/test", auth.RequireRole("admin"), h.testAlertNotify)
 
 	v1.GET("/audit-logs", h.listAuditLogs)
 	v1.POST("/collect", auth.RequireRole("admin"), h.triggerCollect)
@@ -1567,6 +1577,52 @@ func (h *Handler) deleteAlertRule(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": "ok"})
+}
+
+// ── Alert Notification Config ─────────────────────────────────
+
+func (h *Handler) getAlertNotifyConfig(c *gin.Context) {
+	if h.alertEngine == nil {
+		c.JSON(200, alert.AlertConfig{Browser: true})
+		return
+	}
+	c.JSON(200, h.alertEngine.GetConfig())
+}
+
+func (h *Handler) updateAlertNotifyConfig(c *gin.Context) {
+	if h.alertEngine == nil {
+		c.JSON(500, gin.H{"error": "alert engine not initialized"})
+		return
+	}
+	var cfg alert.AlertConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+	h.alertEngine.SetConfig(cfg)
+	h.auditLog(c, "update_alert_notify_config", "alert notification config updated", "success")
+	c.JSON(200, gin.H{"status": "ok", "config": cfg})
+}
+
+func (h *Handler) testAlertNotify(c *gin.Context) {
+	if h.alertEngine == nil {
+		c.JSON(500, gin.H{"error": "alert engine not initialized"})
+		return
+	}
+	testAlert := map[string]interface{}{
+		"node_id":   "test",
+		"node_name": "测试主机",
+		"metric":    "test",
+		"level":     "warning",
+		"message":   "这是一条测试告警消息 - 验证通知渠道是否正常工作",
+		"value":     99.9,
+		"threshold": 90.0,
+		"time":      time.Now(),
+		"status":    "firing",
+	}
+	go h.alertEngine.SendNotifications(testAlert)
+	h.auditLog(c, "test_alert_notify", "sent test alert notification", "success")
+	c.JSON(200, gin.H{"status": "ok", "message": "测试告警已发送，请检查各通知渠道"})
 }
 
 // ── Audit Logs ────────────────────────────────────────────────

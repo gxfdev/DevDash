@@ -70,6 +70,7 @@ func main() {
 	}
 
 	handler := api.NewHandler(c, s, cfg)
+	handler.SetAlertEngine(alertEngine)
 	handler.RegisterRoutes(r)
 
 	go startCollection(c, s, cfg, alertEngine, handler)

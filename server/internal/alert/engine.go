@@ -2,12 +2,16 @@ package alert
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +34,9 @@ type AlertConfig struct {
 	WebhookSecret  string `json:"webhook_secret"`
 	Feishu         bool   `json:"feishu"`
 	FeishuURL      string `json:"feishu_url"`
+	DingTalk       bool   `json:"dingtalk"`
+	DingTalkURL    string `json:"dingtalk_url"`
+	DingTalkSecret string `json:"dingtalk_secret"`
 }
 
 type Engine struct {
@@ -42,12 +49,43 @@ type Engine struct {
 }
 
 func NewEngine(s *store.Store) *Engine {
-	return &Engine{
+	e := &Engine{
 		store:       s,
 		lastAlerts:  make(map[string]time.Time),
 		cooldownSec: 300,
 		config:      AlertConfig{Browser: true},
 	}
+	e.loadConfig()
+	return e
+}
+
+func (e *Engine) loadConfig() {
+	if e.store == nil {
+		return
+	}
+	data, err := e.store.GetKV("alert_config")
+	if err != nil || data == "" {
+		return
+	}
+	var cfg AlertConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err == nil {
+		e.configMu.Lock()
+		e.config = cfg
+		e.configMu.Unlock()
+		log.Printf("[alert] config loaded from store")
+	}
+}
+
+func (e *Engine) SaveConfig() error {
+	if e.store == nil {
+		return fmt.Errorf("store not available")
+	}
+	cfg := e.GetConfig()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return e.store.SetKV("alert_config", string(data))
 }
 
 func (e *Engine) GetConfig() AlertConfig {
@@ -58,8 +96,11 @@ func (e *Engine) GetConfig() AlertConfig {
 
 func (e *Engine) SetConfig(cfg AlertConfig) {
 	e.configMu.Lock()
-	defer e.configMu.Unlock()
 	e.config = cfg
+	e.configMu.Unlock()
+	if err := e.SaveConfig(); err != nil {
+		log.Printf("[alert] failed to save config: %v", err)
+	}
 }
 
 func (e *Engine) Evaluate(snap *model.Snapshot) {
@@ -382,6 +423,10 @@ func (e *Engine) setCooldown(key string) {
 	e.lastAlerts[key] = time.Now()
 }
 
+func (e *Engine) SendNotifications(alert map[string]interface{}) {
+	e.sendNotifications(alert)
+}
+
 func (e *Engine) sendNotifications(alert map[string]interface{}) {
 	cfg := e.GetConfig()
 
@@ -399,6 +444,10 @@ func (e *Engine) sendNotifications(alert map[string]interface{}) {
 
 	if cfg.Feishu && cfg.FeishuURL != "" {
 		go e.sendFeishuNotification(cfg, alert)
+	}
+
+	if cfg.DingTalk && cfg.DingTalkURL != "" {
+		go e.sendDingTalkNotification(cfg, alert)
 	}
 }
 
@@ -549,4 +598,85 @@ func (e *Engine) sendFeishuNotification(cfg AlertConfig, alert map[string]interf
 	defer resp.Body.Close()
 
 	log.Printf("[alert] feishu notification sent (status %d)", resp.StatusCode)
+}
+
+func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[alert] dingtalk notification panic: %v", r)
+		}
+	}()
+
+	levelEmoji := "⚠️"
+	if alert["level"] == "critical" {
+		levelEmoji = "🔴"
+	}
+
+	// 钉钉 markdown 消息格式
+	title := fmt.Sprintf("%s DevDash告警 - %s", levelEmoji, alert["level"])
+	text := fmt.Sprintf("### %s DevDash告警\n\n"+
+		"**主机**: %s\n\n"+
+		"**指标**: %s\n\n"+
+		"**当前值**: %.2f\n\n"+
+		"**阈值**: %.1f\n\n"+
+		"**消息**: %s\n\n"+
+		"**时间**: %s",
+		levelEmoji, alert["level"],
+		alert["node_name"],
+		alert["metric"],
+		alert["value"].(float64),
+		alert["threshold"].(float64),
+		alert["message"],
+		alert["time"].(time.Time).Format("2006-01-02 15:04:05"))
+
+	payload := map[string]interface{}{
+		"msgtype": "markdown",
+		"markdown": map[string]string{
+			"title": title,
+			"text":  text,
+		},
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[alert] dingtalk marshal failed: %v", err)
+		return
+	}
+
+	// 钉钉加签验证
+	reqURL := cfg.DingTalkURL
+	if cfg.DingTalkSecret != "" {
+		timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
+		stringToSign := timestamp + "\n" + cfg.DingTalkSecret
+		mac := hmac.New(sha256.New, []byte(cfg.DingTalkSecret))
+		mac.Write([]byte(stringToSign))
+		signData := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+		sign := url.QueryEscape(signData)
+		if strings.Contains(reqURL, "?") {
+			reqURL = fmt.Sprintf("%s&timestamp=%s&sign=%s", reqURL, timestamp, sign)
+		} else {
+			reqURL = fmt.Sprintf("%s?timestamp=%s&sign=%s", reqURL, timestamp, sign)
+		}
+	}
+
+	req, err := http.NewRequest("POST", reqURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		log.Printf("[alert] dingtalk request create failed: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[alert] dingtalk send failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		log.Printf("[alert] dingtalk notification sent (status %d)", resp.StatusCode)
+	} else {
+		log.Printf("[alert] dingtalk returned status %d", resp.StatusCode)
+	}
 }

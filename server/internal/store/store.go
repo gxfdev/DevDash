@@ -366,6 +366,41 @@ func (s *Store) seedDefaultUser() {
 	s.ensureColumn("users", "must_change_pwd", "INTEGER DEFAULT 0", "BOOLEAN DEFAULT FALSE")
 	s.ensureColumn("alerts", "node_name", "TEXT DEFAULT ''", "TEXT DEFAULT ''")
 	s.ensureColumn("alerts", "message", "TEXT DEFAULT ''", "TEXT DEFAULT ''")
+	s.ensureKVTable()
+}
+
+func (s *Store) ensureKVTable() {
+	if s.tableExists("kv_store") {
+		return
+	}
+	var sql string
+	if s.IsPostgreSQL() {
+		sql = `CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+	} else {
+		sql = `CREATE TABLE kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`
+	}
+	if _, err := s.db.Exec(sql); err != nil {
+		log.Printf("[store] warning: create kv_store table: %v", err)
+	}
+}
+
+func (s *Store) GetKV(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(fmt.Sprintf("SELECT value FROM kv_store WHERE key = %s", s.placeholder(1)), key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (s *Store) SetKV(key, value string) error {
+	s.ensureKVTable()
+	if s.IsPostgreSQL() {
+		_, err := s.db.Exec("INSERT INTO kv_store (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP", key, value)
+		return err
+	}
+	_, err := s.db.Exec("INSERT INTO kv_store (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP", key, value, value)
+	return err
 }
 
 func (s *Store) placeholder(n int) string {

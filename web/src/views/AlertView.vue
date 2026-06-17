@@ -30,6 +30,110 @@
         <n-tab-pane name="rules" tab="⚙️ 告警规则">
           <n-data-table :columns="ruleColumns" :data="rules" :bordered="false" size="small" :row-key="(r:any) => r.id" />
         </n-tab-pane>
+
+        <n-tab-pane name="notify" tab="🔔 通知配置">
+          <div class="notify-config">
+            <div class="section-card">
+              <div class="section-title">📡 通知渠道配置</div>
+              <p class="section-desc">配置告警消息推送到飞书、钉钉、邮件或自定义Webhook</p>
+
+              <n-form label-placement="top" style="max-width:600px">
+                <!-- 飞书 -->
+                <div class="channel-block">
+                  <div class="channel-header">
+                    <n-switch v-model:value="notifyConfig.feishu" />
+                    <span class="channel-name">飞书机器人</span>
+                  </div>
+                  <n-form-item label="飞书 Webhook URL" v-if="notifyConfig.feishu">
+                    <n-input v-model:value="notifyConfig.feishu_url" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxx" />
+                  </n-form-item>
+                </div>
+
+                <!-- 钉钉 -->
+                <div class="channel-block">
+                  <div class="channel-header">
+                    <n-switch v-model:value="notifyConfig.dingtalk" />
+                    <span class="channel-name">钉钉机器人</span>
+                  </div>
+                  <template v-if="notifyConfig.dingtalk">
+                    <n-form-item label="钉钉 Webhook URL">
+                      <n-input v-model:value="notifyConfig.dingtalk_url" placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxxxx" />
+                    </n-form-item>
+                    <n-form-item label="加签密钥 (可选)">
+                      <n-input v-model:value="notifyConfig.dingtalk_secret" placeholder="SEC..." type="password" show-password-on="mousedown" />
+                    </n-form-item>
+                  </template>
+                </div>
+
+                <!-- Webhook -->
+                <div class="channel-block">
+                  <div class="channel-header">
+                    <n-switch v-model:value="notifyConfig.webhook_enabled" />
+                    <span class="channel-name">自定义 Webhook</span>
+                  </div>
+                  <template v-if="notifyConfig.webhook_enabled">
+                    <n-form-item label="Webhook URL">
+                      <n-input v-model:value="notifyConfig.webhook_url" placeholder="https://your-webhook.com/alert" />
+                    </n-form-item>
+                    <n-form-item label="Webhook Secret (可选)">
+                      <n-input v-model:value="notifyConfig.webhook_secret" placeholder="用于验证请求来源" type="password" show-password-on="mousedown" />
+                    </n-form-item>
+                  </template>
+                </div>
+
+                <!-- 邮件 -->
+                <div class="channel-block">
+                  <div class="channel-header">
+                    <n-switch v-model:value="notifyConfig.email_enabled" />
+                    <span class="channel-name">邮件通知</span>
+                  </div>
+                  <template v-if="notifyConfig.email_enabled">
+                    <n-space>
+                      <n-form-item label="SMTP 服务器"><n-input v-model:value="notifyConfig.email_smtp" placeholder="smtp.gmail.com" style="width:200px" /></n-form-item>
+                      <n-form-item label="端口"><n-input-number v-model:value="notifyConfig.email_port" :min="1" :max="65535" style="width:100px" /></n-form-item>
+                    </n-space>
+                    <n-form-item label="用户名"><n-input v-model:value="notifyConfig.email_user" placeholder="user@gmail.com" /></n-form-item>
+                    <n-form-item label="密码/授权码"><n-input v-model:value="notifyConfig.email_password" type="password" show-password-on="mousedown" /></n-form-item>
+                    <n-form-item label="发件人"><n-input v-model:value="notifyConfig.email_from" placeholder="devdash@gmail.com" /></n-form-item>
+                    <n-form-item label="收件人"><n-input v-model:value="notifyConfig.email_to" placeholder="admin@example.com" /></n-form-item>
+                  </template>
+                </div>
+
+                <!-- 浏览器 -->
+                <div class="channel-block">
+                  <div class="channel-header">
+                    <n-switch v-model:value="notifyConfig.browser" />
+                    <span class="channel-name">浏览器通知</span>
+                  </div>
+                </div>
+              </n-form>
+
+              <n-space style="margin-top:16px">
+                <n-button type="primary" :loading="notifySaving" @click="saveNotifyConfig">保存配置</n-button>
+                <n-button :loading="notifyTesting" @click="testNotify">发送测试告警</n-button>
+              </n-space>
+            </div>
+
+            <div class="section-card" style="margin-top:16px">
+              <div class="section-title">📖 接入指南</div>
+              <div class="guide-content">
+                <h4>飞书机器人接入</h4>
+                <ol>
+                  <li>打开飞书群 → 群设置 → 群机器人 → 添加机器人 → 自定义机器人</li>
+                  <li>复制 Webhook URL 填入上方配置</li>
+                  <li>保存后点击"发送测试告警"验证</li>
+                </ol>
+                <h4>钉钉机器人接入</h4>
+                <ol>
+                  <li>打开钉钉群 → 群设置 → 智能群助手 → 添加机器人 → 自定义</li>
+                  <li>安全设置选择"加签"，复制密钥填入上方配置</li>
+                  <li>复制 Webhook URL 填入上方配置</li>
+                  <li>保存后点击"发送测试告警"验证</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </n-tab-pane>
       </n-tabs>
 
       <n-modal v-model:show="showRule" preset="card" title="添加告警规则" style="width:440px">
@@ -82,6 +186,27 @@ const showRule = ref(false)
 const saving = ref(false)
 const silencingId = ref<number | null>(null)
 const ruleForm = ref({ metric: 'cpu', op: '>', threshold: 90, level: 'warning' as string, channels: ['browser'], enabled: true })
+
+const notifyConfig = ref({
+  browser: true,
+  email_enabled: false,
+  email_smtp: '',
+  email_port: 587,
+  email_user: '',
+  email_password: '',
+  email_from: '',
+  email_to: '',
+  webhook_enabled: false,
+  webhook_url: '',
+  webhook_secret: '',
+  feishu: false,
+  feishu_url: '',
+  dingtalk: false,
+  dingtalk_url: '',
+  dingtalk_secret: '',
+})
+const notifySaving = ref(false)
+const notifyTesting = ref(false)
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const POLL_INTERVAL = 15000
@@ -241,11 +366,39 @@ onMounted(async () => {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission()
   }
+
+  // 加载通知配置
+  try {
+    const { data } = await alertAPI.getNotifyConfig()
+    if (data) Object.assign(notifyConfig.value, data)
+  } catch (e: unknown) {
+    console.warn('Failed to load notify config:', (e as Error)?.message)
+  }
 })
 
 onUnmounted(() => {
   stopPolling()
 })
+
+async function saveNotifyConfig() {
+  notifySaving.value = true
+  try {
+    await alertAPI.updateNotifyConfig(notifyConfig.value)
+    message.success('通知配置已保存')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '保存失败'))
+  } finally { notifySaving.value = false }
+}
+
+async function testNotify() {
+  notifyTesting.value = true
+  try {
+    await alertAPI.testNotify()
+    message.success('测试告警已发送，请检查各通知渠道')
+  } catch (e: unknown) {
+    message.error(getErrorMessage(e, '发送失败'))
+  } finally { notifyTesting.value = false }
+}
 </script>
 
 <style scoped>
@@ -261,4 +414,14 @@ h2 { font-size: 20px; font-weight: 600; margin: 0; }
 .alert-body { flex: 1; min-width: 0; }
 .alert-name { font-weight: 600; color: #e6edf3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .alert-detail { font-size: 12px; color: #8b949e; margin-top: 2px; }
+.notify-config { max-width: 800px; }
+.section-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 20px; }
+.section-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+.section-desc { font-size: 13px; color: #8b949e; margin-bottom: 16px; }
+.channel-block { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.channel-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.channel-name { font-weight: 500; }
+.guide-content { color: #8b949e; font-size: 13px; line-height: 1.8; }
+.guide-content h4 { color: #e6edf3; margin: 12px 0 4px; }
+.guide-content ol { padding-left: 20px; }
 </style>

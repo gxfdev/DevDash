@@ -50,6 +50,9 @@ export const alertAPI = {
   updateRule: (id: string, rule: Partial<AlertRule>) => client.put(`/alert-rules/${id}`, rule),
   deleteRule: (id: string) => client.delete(`/alert-rules/${id}`),
   silence: (id: string) => client.post(`/alerts/${id}/silence`),
+  getNotifyConfig: () => client.get('/alert-notify/config'),
+  updateNotifyConfig: (config: Record<string, unknown>) => client.put('/alert-notify/config', config),
+  testNotify: () => client.post('/alert-notify/test'),
 }
 
 export const scriptAPI = {

@@ -3,9 +3,10 @@
   <img src="https://img.shields.io/badge/Vue-3.4+-4FC08D?style=flat-square&logo=vue.js" alt="Vue" />
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
   <img src="https://img.shields.io/github/actions/workflow/status/gxfdev/DevDash/ci.yml?style=flat-square&label=CI" alt="CI" />
   <img src="https://img.shields.io/github/v/tag/gxfdev/DevDash?style=flat-square&label=version" alt="Version" />
+  <img src="https://img.shields.io/badge/ghcr.io-gxfdev%2Fdevdash-blue?style=flat-square&logo=github" alt="GHCR" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
 </p>
 
 <h1 align="center">DevDash - 轻量级运维监控面板</h1>
@@ -1225,6 +1226,14 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 
 ## 📝 更新日志
 
+### v1.3.2 (2026-06-17) - Docker镜像发布与文档完善
+
+**改进**：
+- ✅ **GHCR镜像发布** - Docker镜像已推送至 `ghcr.io/gxfdev/devdash:latest`，支持 `linux/amd64` + `linux/arm64` 双架构
+- ✅ **CI/CD流水线优化** - 修复 `go vet` 参数错位、`govulncheck` 误报过滤（jwt.ParseUnverified）
+- ✅ **README徽章** - 新增GHCR镜像徽章，调整徽章排列
+- ✅ **一键Docker部署** - 完善Linux/Windows/macOS一键部署命令，新增CentOS 7兼容部署指南
+
 ### v1.3.1 (2026-06-17) - 文档与CI/CD完善
 
 **改进**：
@@ -1232,6 +1241,13 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 - ✅ **CI/CD验证** - GitHub Actions流水线全面验证通过（Lint → Test → Build → Docker Build Test → Push）
 - ✅ **README更新** - 更新告警中心功能描述，完善多渠道通知说明
 - ✅ **Docker镜像构建** - 推送代码后自动触发CI/CD，构建并推送Docker镜像至GHCR
+- ✅ **CI流水线修复** - 修复`go vet`报错（fmt.Sprintf参数对齐）和`govulncheck`误报过滤（jwt.ParseUnverified已知误报）
+
+**Docker镜像信息**：
+- 镜像地址：`ghcr.io/gxfdev/devdash:latest`
+- 支持架构：`linux/amd64` + `linux/arm64`
+- CI构建验证：[CI #57](https://github.com/gxfdev/DevDash/actions/runs/27692003852) ✅ 全部通过（8/8 jobs）
+- 快速部署：`docker run -d -p 9090:9090 -v devdash-data:/data -e JWT_SECRET=$(openssl rand -hex 32) ghcr.io/gxfdev/devdash:latest`
 
 ### v1.3.0 (2026-06-17) - 告警通知增强
 

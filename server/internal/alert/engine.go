@@ -621,7 +621,7 @@ func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]inte
 		"**阈值**: %.1f\n\n"+
 		"**消息**: %s\n\n"+
 		"**时间**: %s",
-		levelEmoji, alert["level"],
+		levelEmoji,
 		alert["node_name"],
 		alert["metric"],
 		alert["value"].(float64),

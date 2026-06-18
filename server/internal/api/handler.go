@@ -808,6 +808,10 @@ func isPathSafe(p string) bool {
 	if strings.TrimSpace(p) == "" && p != "" {
 		return false
 	}
+	// Reject any path containing ".." segments before cleaning
+	if strings.Contains(p, "..") {
+		return false
+	}
 	if runtime.GOOS != "windows" {
 		if len(p) >= 2 && p[1] == ':' && (p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z') {
 			return false
@@ -1153,7 +1157,11 @@ func (h *Handler) createScript(c *gin.Context) {
 		return
 	}
 	if req.Interpreter == "" {
-		req.Interpreter = "/bin/bash"
+		if runtime.GOOS == "windows" {
+			req.Interpreter = "powershell"
+		} else {
+			req.Interpreter = "/bin/bash"
+		}
 	}
 	if !isAllowedInterpreter(req.Interpreter) {
 		c.JSON(400, gin.H{"error": "interpreter not allowed"})
@@ -1258,12 +1266,29 @@ func (h *Handler) checkScriptSyntax(c *gin.Context) {
 		return
 	}
 	if req.Interpreter == "" {
-		req.Interpreter = "/bin/bash"
+		if runtime.GOOS == "windows" {
+			req.Interpreter = "powershell"
+		} else {
+			req.Interpreter = "/bin/bash"
+		}
 	}
 	warnings := checkScriptSecurity(req.Content)
 	syntaxOk := true
 	syntaxMsg := ""
-	if strings.Contains(req.Interpreter, "bash") || strings.Contains(req.Interpreter, "sh") {
+	if strings.Contains(req.Interpreter, "powershell") || strings.Contains(req.Interpreter, "pwsh") {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, req.Interpreter, "-NoProfile", "-Command", req.Content)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			syntaxOk = false
+			syntaxMsg = strings.TrimSpace(stderr.String())
+			if syntaxMsg == "" {
+				syntaxMsg = err.Error()
+			}
+		}
+	} else if strings.Contains(req.Interpreter, "bash") || (strings.Contains(req.Interpreter, "sh") && !strings.Contains(req.Interpreter, "powershell")) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, req.Interpreter, "-n", "-c", req.Content)
@@ -1301,6 +1326,10 @@ func isAllowedInterpreter(interp string) bool {
 		"/bin/bash", "/bin/sh", "/bin/dash", "/bin/zsh",
 		"/usr/bin/bash", "/usr/bin/sh", "/usr/bin/python3", "/usr/bin/python",
 		"/usr/bin/perl", "/usr/bin/ruby", "/usr/bin/node",
+		"powershell", "pwsh", "cmd",
+		"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+		"C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+		"cmd.exe",
 	}
 	for _, a := range allowed {
 		if interp == a {

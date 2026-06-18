@@ -1220,11 +1220,18 @@ func (s *Store) SaveAlertRule(rule map[string]any) error {
 		)
 		return err
 	}
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		fmt.Sprintf("INSERT INTO alert_rules (name, metric, op, threshold, level, enabled) VALUES (%s)", s.placeholders(6)),
 		name, metric, op, threshold, level, enabled,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	lastID, err := res.LastInsertId()
+	if err == nil {
+		rule["id"] = int(lastID)
+	}
+	return nil
 }
 
 func (s *Store) DeleteAlertRule(id int) error {

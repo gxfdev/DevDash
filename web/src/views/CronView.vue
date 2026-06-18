@@ -8,7 +8,7 @@
         </n-space>
       </div>
 
-      <n-data-table :columns="columns" :data="jobs" :bordered="false" :loading="loading" row-key="id" />
+      <n-data-table :columns="columns" :data="jobs" :bordered="false" :loading="loading" :row-key="(r:any) => r.id || String(Math.random())" />
 
       <n-modal v-model:show="showAdd" preset="card" title="新建计划任务" style="width:500px">
         <n-form :model="form" label-placement="top">
@@ -35,7 +35,7 @@
         <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
           <n-input v-model:value="logSearch" size="small" placeholder="搜索关键词" style="width:200px" clearable />
         </div>
-        <n-data-table :columns="logColumns" :data="filteredLogs" size="small" :bordered="false" />
+        <n-data-table :columns="logColumns" :data="filteredLogs" size="small" :bordered="false" :row-key="(r:any) => r.id || r.timestamp || String(Math.random())" />
       </n-modal>
     </div>
   </app-layout>

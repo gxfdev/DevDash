@@ -24,11 +24,11 @@
         </n-tab-pane>
 
         <n-tab-pane name="history" tab="📋 历史记录">
-          <n-data-table :columns="historyColumns" :data="historyList" :bordered="false" :loading="loading" size="small" :row-key="(r:any) => r.id" />
+          <n-data-table :columns="historyColumns" :data="historyList" :bordered="false" :loading="loading" size="small" :row-key="(r:any) => r.id || String(Math.random())" />
         </n-tab-pane>
 
         <n-tab-pane name="rules" tab="⚙️ 告警规则">
-          <n-data-table :columns="ruleColumns" :data="rules" :bordered="false" size="small" :row-key="(r:any) => r.id" />
+          <n-data-table :columns="ruleColumns" :data="rules" :bordered="false" size="small" :row-key="(r:any) => r.id || String(Math.random())" />
         </n-tab-pane>
 
         <n-tab-pane name="notify" tab="🔔 通知配置">

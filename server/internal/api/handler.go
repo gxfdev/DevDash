@@ -324,7 +324,12 @@ func (h *Handler) authMe(c *gin.Context) {
 	if err == nil && user != nil {
 		mustChangePwd = user.MustChangePwd
 	}
-	c.JSON(200, gin.H{"username": username, "role": role, "must_change_pwd": mustChangePwd})
+	c.JSON(200, gin.H{
+		"username":        username,
+		"role":            role,
+		"must_change_pwd": mustChangePwd,
+		"server_os":       runtime.GOOS,
+	})
 }
 
 func (h *Handler) changePassword(c *gin.Context) {

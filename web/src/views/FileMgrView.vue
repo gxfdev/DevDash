@@ -72,7 +72,7 @@
 import { ref, onMounted, h } from 'vue'
 import { NButton, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import { fileAPI } from '@/api'
+import { fileAPI, authAPI } from '@/api'
 import { getErrorMessage } from '@/api/client'
 
 const message = useMessage()
@@ -86,20 +86,21 @@ const showNewDir = ref(false)
 const newFileName = ref('')
 const newDirName = ref('')
 const fileInput = ref<HTMLInputElement>()
-const isWindows = navigator.userAgent.indexOf('Windows') > -1
+// 根据服务器OS判断路径格式，而非浏览器UA（避免Windows浏览器访问Linux容器时路径错误）
+const isWindows = ref(navigator.userAgent.indexOf('Windows') > -1)
 
 const showPreview = ref(false)
 const previewContent = ref<string | null>(null)
 const previewLoading = ref(false)
 
 function getDefaultRoot() {
-  return isWindows ? 'C:\\' : '/'
+  return isWindows.value ? 'C:\\' : '/'
 }
 
 function normalizePath(p: string): string {
   if (!p) return getDefaultRoot()
   p = p.trim()
-  if (isWindows) {
+  if (isWindows.value) {
     if (p === '/' || p === '') return 'C:\\'
     return p.replace(/\//g, '\\')
   }
@@ -142,7 +143,7 @@ function formatSize(s: number) {
 }
 
 function joinPath(base: string, name: string): string {
-  if (isWindows) {
+  if (isWindows.value) {
     base = base.replace(/\\/g, '/')
     if (base.endsWith('/')) base = base.slice(0, -1)
     return (base + '/' + name).replace(/\//g, '\\')
@@ -158,7 +159,7 @@ async function fetchDir() {
     const { data } = await fileAPI.list(path.replace(/\\/g, '/'))
     files.value = Array.isArray(data) ? data : []
 
-    if (isWindows && !dirs.value.some(d => d === 'C:\\')) {
+    if (isWindows.value && !dirs.value.some(d => d === 'C:\\')) {
       const drives = ['C:\\', 'D:\\', 'E:\\']
       dirs.value.unshift(...drives.filter(d => !dirs.value.includes(d)))
     }
@@ -256,6 +257,13 @@ async function doUpload(e: Event) {
 }
 
 onMounted(async () => {
+  // 从后端获取服务器OS，避免Windows浏览器访问Linux容器时路径错误
+  try {
+    const { data: me } = await authAPI.me()
+    if (me.server_os) {
+      isWindows.value = me.server_os === 'windows'
+    }
+  } catch { /* 使用浏览器UA作为fallback */ }
   currentDir.value = getDefaultRoot()
   dirs.value = [getDefaultRoot()]
   await fetchDir()

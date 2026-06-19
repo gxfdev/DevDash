@@ -32,8 +32,11 @@ import (
 	"github.com/gxfdev/DevDash/server/internal/store"
 	"github.com/gxfdev/DevDash/server/internal/terminal"
 
+	_ "github.com/gxfdev/DevDash/server/internal/metrics"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var upgrader = websocket.Upgrader{
@@ -104,6 +107,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 
 	api.GET("/v1/health", h.healthCheck)
 	api.GET("/v1/readiness", h.readinessCheck)
+	api.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	api.POST("/auth/login", h.login)
 	api.POST("/auth/refresh", h.refreshToken)

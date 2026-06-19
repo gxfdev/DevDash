@@ -1,0 +1,72 @@
+groups:
+  - name: devdash-alerts
+    rules:
+      # 服务可用性告警
+      - alert: DevDashServiceDown
+        expr: up{job="devdash"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DevDash服务不可用"
+          description: "DevDash实例 {{ $labels.instance }} 已离线超过1分钟"
+
+      # 高CPU使用率告警
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{job="node_exporter",mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU使用率过高"
+          description: "主机 {{ $labels.instance }} CPU使用率超过80%持续5分钟"
+
+      # 高内存使用率告警
+      - alert: HighMemoryUsage
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "内存使用率过高"
+          description: "主机内存使用率超过85%持续5分钟"
+
+      # 磁盘空间不足告警
+      - alert: LowDiskSpace
+        expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "磁盘空间不足"
+          description: "挂载点 {{ $labels.mountpoint }} 磁盘使用率超过90%"
+
+      # 容器OOM风险告警
+      - alert: ContainerOOMRisk
+        expr: container_memory_working_set_bytes / container_spec_memory_limit_bytes > 0.9
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "容器内存接近限制"
+          description: "容器 {{ $labels.name }} 内存使用率超过90%"
+
+      # HTTP错误率告警
+      - alert: HighHTTPErrorRate
+        expr: rate(devdash_http_requests_total{status=~"5.."}[5m]) / rate(devdash_http_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP错误率过高"
+          description: "5xx错误率超过10%持续2分钟"
+
+      # 采集任务超时告警
+      - alert: CollectTimeout
+        expr: devdash_collect_duration_seconds > 30
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "指标采集超时"
+          description: "系统指标采集耗时超过30秒"

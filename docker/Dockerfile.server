@@ -1,6 +1,8 @@
+# ===== 阶段1: 前端构建 =====
 FROM node:20-alpine AS web-builder
 
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
@@ -8,44 +10,60 @@ RUN npm ci --registry=https://registry.npmmirror.com
 
 COPY web/ .
 ENV VITE_API_BASE_URL=/api/v1
-RUN npx vite build --outDir dist
+RUN npx vite build --outDir dist \
+    && rm -rf node_modules
 
 
+# ===== 阶段2: 后端构建 =====
 FROM golang:1.26-alpine AS server-builder
 
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
 
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates \
+    && rm -rf /var/cache/apk/*
 
 ENV GOWORK=off
+ENV GOPROXY=https://goproxy.cn,direct
 
 WORKDIR /build
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 
 COPY server/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.vcsRef=${VCS_REF}" -trimpath -o /build/devdash ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.vcsRef=${VCS_REF}" \
+    -trimpath \
+    -o /build/devdash ./cmd/server
 
 
+# ===== 阶段3: 运行时 =====
 FROM alpine:3.21
 
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
 
+# 安装运行时依赖：
+# - ca-certificates: HTTPS 通信
+# - tzdata: 时区支持
+# - curl: 健康检查
+# - nsenter + util-linux: 容器内访问主机命名空间
 RUN apk add --no-cache ca-certificates tzdata curl nsenter util-linux \
     && rm -rf /var/cache/apk/* \
-    && addgroup -S devdash && adduser -S devdash -G devdash \
-    && mkdir -p /data && chown devdash:devdash /data
+    && addgroup -S devdash \
+    && adduser -S devdash -G devdash \
+    && mkdir -p /data \
+    && chown devdash:devdash /data
 
 LABEL org.opencontainers.image.title="DevDash" \
       org.opencontainers.image.description="Lightweight server monitoring dashboard" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.source="https://github.com/gxfdev/DevDash"
+      org.opencontainers.image.source="https://github.com/gxfdev/DevDash" \
+      org.opencontainers.image.licenses="MIT"
 
 ENV TZ=Asia/Shanghai
 ENV GIN_MODE=release

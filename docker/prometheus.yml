@@ -5,14 +5,16 @@ global:
     monitor: 'devdash'
 
 scrape_configs:
+  # DevDash应用自身指标
   - job_name: 'devdash'
     static_configs:
       - targets: ['devdash:9090']
         labels:
           group: 'devdash'
-    metrics_path: '/metrics'
+    metrics_path: '/api/metrics'
     scrape_interval: 10s
 
+  # 主机节点指标
   - job_name: 'node_exporter'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -20,6 +22,7 @@ scrape_configs:
           group: 'infrastructure'
     scrape_interval: 10s
 
+  # 容器资源指标
   - job_name: 'cadvisor'
     static_configs:
       - targets: ['cadvisor:8080']
@@ -27,9 +30,14 @@ scrape_configs:
           group: 'containers'
     scrape_interval: 10s
 
+# 告警规则配置
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# Alertmanager配置（可选，未启用时告警仅显示在Prometheus UI）
 alerting:
   alertmanagers:
     - static_configs:
         - targets: []
-
-rule_files: []
+          # 如需启用Alertmanager，取消注释并配置：
+          # - targets: ['alertmanager:9093']

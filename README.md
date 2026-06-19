@@ -757,7 +757,249 @@ git push origin v1.0.0
 
 ---
 
-## 🛠️ 部署工具
+## � 容器化部署详解
+
+### 容器化概念与优势
+
+**容器化**是将应用程序及其所有依赖项打包到一个标准化单元（容器）中的技术，确保应用在任何环境中都能一致运行。
+
+**核心优势**：
+- **环境一致性**：开发、测试、生产环境完全相同，消除"在我机器上能跑"问题
+- **快速启动**：容器秒级启动，相比虚拟机快100倍
+- **资源高效**：共享主机内核，无Guest OS开销，密度提升5-10倍
+- **版本可控**：镜像版本化管理，支持快速回滚
+- **弹性伸缩**：结合Kubernetes实现自动扩缩容
+- **微服务友好**：每个服务独立容器，独立部署和升级
+
+**常用容器技术对比**：
+
+| 技术 | 类型 | 特点 | 适用场景 |
+|------|------|------|----------|
+| **Docker** | 容器运行时 | 最流行，生态丰富，简单易用 | 开发、测试、单机生产 |
+| **containerd** | 容器运行时 | 轻量级，K8s默认运行时 | Kubernetes集群 |
+| **Podman** | 容器引擎 | 无守护进程，rootless | 安全要求高的环境 |
+| **Kubernetes** | 容器编排 | 自动扩缩容、服务发现、滚动更新 | 大规模生产集群 |
+
+### 镜像构建（多阶段Dockerfile）
+
+DevDash采用**三阶段构建**，最终镜像仅约30MB：
+
+```
+阶段1: node:20-alpine     → 构建前端静态文件
+阶段2: golang:1.26-alpine → 编译Go二进制
+阶段3: alpine:3.21        → 运行时（最小化）
+```
+
+**优化策略**：
+- 多阶段构建：构建工具不进入最终镜像
+- `-ldflags="-s -w"`：去除调试信息，二进制减小40%
+- `-trimpath`：去除文件路径信息
+- `rm -rf node_modules`：构建后清理缓存
+- `.dockerignore`：排除.git、测试、文档等无关文件
+- Alpine基础镜像：仅5MB，比Ubuntu小20倍
+
+**本地构建**：
+
+```bash
+# 构建镜像
+docker build -f docker/Dockerfile.server -t devdash:latest .
+
+# 查看镜像大小
+docker images devdash:latest
+
+# 运行容器
+docker run -d --name devdash -p 9090:9090 \
+  -v devdash-data:/data \
+  -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host:rw \
+  -e HOST_ROOT=/host -e JWT_SECRET=your-secret \
+  devdash:latest
+```
+
+### 镜像推送到 GitHub Container Registry (GHCR)
+
+#### 1. 认证配置
+
+```bash
+# 创建 Personal Access Token
+# 访问 https://github.com/settings/tokens
+# 勾选权限: write:packages, read:packages
+
+# 登录 GHCR
+export GHCR_TOKEN=ghp_your_token_here
+echo $GHCR_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+```
+
+#### 2. 标签规范
+
+DevDash遵循 [Semantic Versioning](https://semver.org/)：
+
+| 标签 | 说明 | 示例 |
+|------|------|------|
+| `latest` | 最新稳定版 | `ghcr.io/gxfdev/devdash:latest` |
+| `vX.Y.Z` | 完整版本号 | `ghcr.io/gxfdev/devdash:v1.5.0` |
+| `X.Y` | 主次版本 | `ghcr.io/gxfdev/devdash:1.5` |
+| `X` | 主版本 | `ghcr.io/gxfdev/devdash:1` |
+| `sha-xxxxxx` | Git提交哈希 | `ghcr.io/gxfdev/devdash:sha-0901bd8` |
+
+#### 3. 推送命令
+
+```bash
+# 方式一：使用脚本（推荐）
+chmod +x docker/build-push-ghcr.sh
+./docker/build-push-ghcr.sh v1.5.0
+
+# 方式二：手动操作
+docker tag devdash:latest ghcr.io/gxfdev/devdash:v1.5.0
+docker tag devdash:latest ghcr.io/gxfdev/devdash:latest
+docker push ghcr.io/gxfdev/devdash:v1.5.0
+docker push ghcr.io/gxfdev/devdash:latest
+```
+
+#### 4. CI/CD 自动推送
+
+推送git tag自动触发GitHub Actions构建并推送（见 [`.github/workflows/release.yml`](docker/../.github/workflows/release.yml)）：
+
+```bash
+git tag v1.5.0
+git push origin v1.5.0
+# → 自动构建 linux/amd64 + linux/arm64 双架构镜像
+# → 推送到 ghcr.io/gxfdev/devdash:v1.5.0
+# → 创建 GitHub Release
+```
+
+#### 5. 拉取镜像
+
+```bash
+# 拉取最新版
+docker pull ghcr.io/gxfdev/devdash:latest
+
+# 拉取指定版本
+docker pull ghcr.io/gxfdev/devdash:v1.5.0
+```
+
+---
+
+## 📊 容器监控方案
+
+### 监控架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Grafana (可视化)                      │
+│                   http://localhost:3001                  │
+└────────────────────────┬────────────────────────────────┘
+                         │ 查询
+┌────────────────────────▼────────────────────────────────┐
+│                Prometheus (时序数据库)                   │
+│                   http://localhost:9091                 │
+│              存储30天 / 最大5GB / 15s采集               │
+└───┬───────────────┬───────────────┬────────────────────┘
+    │ scrape        │ scrape        │ scrape
+┌───▼──────┐  ┌────▼──────┐  ┌────▼──────┐
+│ DevDash  │  │  Node     │  │ cAdvisor  │
+│ /metrics │  │ Exporter  │  │           │
+│ :9090    │  │ :9100     │  │ :8080     │
+└──────────┘  └───────────┘  └───────────┘
+   应用指标      主机指标       容器指标
+```
+
+### 监控组件
+
+| 组件 | 端口 | 作用 | 资源限制 |
+|------|------|------|----------|
+| **Prometheus** | 9091 | 时序数据存储与查询 | 512MB / 1CPU |
+| **Node Exporter** | 9100 | 主机CPU/内存/磁盘/网络指标 | 128MB / 0.5CPU |
+| **cAdvisor** | 8080 | 容器资源使用指标 | 256MB / 0.5CPU |
+| **Grafana** | 3001 | 可视化仪表盘 | 256MB / 1CPU |
+
+### 启动监控栈
+
+```bash
+# 启动监控服务（与DevDash主服务一起运行）
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+# 查看状态
+docker compose -f docker-compose.monitoring.yml ps
+
+# 查看日志
+docker compose -f docker-compose.monitoring.yml logs -f prometheus
+```
+
+**访问地址**：
+- Prometheus: http://localhost:9091
+- Grafana: http://localhost:3001 (admin / 自定义密码)
+- cAdvisor: http://localhost:8080
+- Node Exporter: http://localhost:9100
+
+### DevDash 自定义指标
+
+DevDash通过 `/api/metrics` 端点暴露以下Prometheus指标：
+
+| 指标 | 类型 | 说明 |
+|------|------|------|
+| `devdash_http_requests_total` | Counter | HTTP请求总数（按method/path/status） |
+| `devdash_http_request_duration_seconds` | Histogram | HTTP请求延迟分布 |
+| `devdash_collect_duration_seconds` | Histogram | 系统指标采集耗时 |
+| `devdash_cronjob_executions_total` | Counter | Cron任务执行次数（按job_id/status） |
+| `devdash_terminal_sessions_active` | Gauge | 活跃终端会话数 |
+| `devdash_alerts_active` | Gauge | 活跃告警数 |
+
+### 告警规则
+
+告警规则定义在 [`docker/alert-rules.yml`](docker/alert-rules.yml)：
+
+| 告警名称 | 触发条件 | 持续时间 | 严重级别 |
+|----------|----------|----------|----------|
+| DevDashServiceDown | 服务不可达 | 1m | critical |
+| HighCPUUsage | CPU > 80% | 5m | warning |
+| HighMemoryUsage | 内存 > 85% | 5m | warning |
+| LowDiskSpace | 磁盘 > 90% | 5m | critical |
+| ContainerOOMRisk | 容器内存 > 90% | 2m | warning |
+| HighHTTPErrorRate | 5xx错误率 > 10% | 2m | warning |
+| CollectTimeout | 采集耗时 > 30s | 2m | warning |
+
+### Grafana 仪表盘
+
+预置仪表盘自动加载（[`docker/grafana/dashboards/devdash-overview.json`](docker/grafana/dashboards/devdash-overview.json)）：
+
+- **CPU使用率**（仪表盘）
+- **内存使用率**（仪表盘）
+- **磁盘使用率**（柱状图）
+- **网络流量**（时序图，RX/TX）
+- **HTTP请求速率**（时序图，按方法）
+- **HTTP请求延迟**（p50/p95分位）
+- **HTTP状态码分布**（堆叠图）
+- **活跃终端会话数**（统计）
+- **活跃告警数**（统计）
+- **Cron任务执行速率**（时序图）
+
+### 自定义告警通知（可选）
+
+如需邮件/Webhook通知，添加Alertmanager：
+
+```yaml
+# docker-compose.monitoring.yml 追加
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./docker/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    networks:
+      - devdash-net
+```
+
+```yaml
+# docker/prometheus.yml 取消注释 alertmanager targets
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+```
+
+---
+
+## �️ 部署工具
 
 ### 一键部署脚本
 
@@ -1225,6 +1467,18 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 ---
 
 ## 📝 更新日志
+
+### v1.6.0 (2026-06-19) - 容器监控方案
+
+**重大新功能**：
+- ✅ **Prometheus指标端点** - 新增`/api/metrics`端点，暴露6个自定义指标（HTTP请求/延迟/Cron任务/终端会话/告警/采集耗时）
+- ✅ **metrics指标收集包** - 新增`server/internal/metrics`包，使用prometheus/client_golang自动注册Counter/Histogram/Gauge
+- ✅ **告警规则配置** - 新增7条告警规则（服务宕机/CPU/内存/磁盘/容器OOM/HTTP错误率/采集超时）
+- ✅ **Grafana仪表盘** - 预置10个监控面板（CPU/内存/磁盘/网络/HTTP/Cron/终端/告警），自动provisioning加载
+- ✅ **GHCR推送脚本** - 新增`docker/build-push-ghcr.sh`脚本，支持认证/标签/推送全流程
+- ✅ **Dockerfile优化** - 添加GOPROXY镜像源、构建后清理node_modules、添加OCI标准LABEL
+- ✅ **.dockerignore** - 排除.git/测试/文档/构建产物，减小构建上下文
+- ✅ **容器化部署文档** - README新增容器化概念/优势/技术对比/构建优化/GHCR推送/监控方案完整文档
 
 ### v1.5.0 (2026-06-19) - Docker容器主机访问支持
 

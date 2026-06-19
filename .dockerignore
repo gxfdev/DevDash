@@ -1,25 +1,43 @@
-node_modules
-web/node_modules
-server/devdash
-server/devdash.exe
-server/devdash.exe~
-server/agent
-data
-*.db
+# Version control
 .git
-.github
 .gitignore
-*.md
-.env
-.env.*
+.github
+
+# IDE
 .vscode
 .idea
-*.log
-test-*.ps1
-test_*.go
-docker-compose.yml
-docker-compose.prod.yml
-dist/
-scripts/
+*.swp
+*.swo
+
+# Documentation
+docs
+*.md
 LICENSE
-Makefile
+
+# Test files
+**/*_test.go
+**/testdata
+server/coverage
+web/coverage
+
+# Build artifacts
+server/devdash
+server/devdash.exe
+web/dist
+web/node_modules
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+
+# Logs
+*.log
+
+# Docker
+docker-compose*.yml
+Dockerfile*

@@ -1226,6 +1226,20 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 
 ## 📝 更新日志
 
+### v1.4.1 (2026-06-19) - Windows计划任务修复
+
+**重大修复**：
+- ✅ **Windows计划任务触发器重写** - 完全重写`parseCronToTrigger`为`buildWindowsTrigger`，支持所有cron表达式模式：
+  - `*/N * * * *` → 每N分钟重复（使用`-RepetitionInterval`）
+  - `M * * * *` → 每小时第M分钟
+  - `M H * * *` → 每天H:M（使用`-Daily -At`）
+  - `M H * * D` → 每周D的H:M（使用`-Weekly -DaysOfWeek`）
+  - `M H D * *` → 每月D号（Windows不支持月度，用Weekly近似）
+  - `*/N */M * * *` → 每M小时N分钟间隔
+- ✅ **PowerShell命令构建修复** - 使用变量赋值方式构建触发器，避免内联注释导致`Register-ScheduledTask`被忽略
+- ✅ **runCronJob类型断言修复** - 修复`runCronJob`中`id`字段类型断言失败导致任务无法运行的问题（`int` vs `float64`）
+- ✅ **错误信息增强** - Windows计划任务注册失败时返回PowerShell stderr详细信息
+
 ### v1.4.0 (2026-06-19) - 企业级安全加固与跨平台兼容性修复
 
 **重大修复**：

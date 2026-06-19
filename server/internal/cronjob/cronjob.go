@@ -1,6 +1,7 @@
 package cronjob
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -195,10 +197,10 @@ func ValidateCommand(cmd string) error {
 }
 
 func registerOSJob(job *CronJob) error {
-	os := runtime.GOOS
+	osName := runtime.GOOS
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	switch os {
+	switch osName {
 	case "linux":
 		cmd := exec.CommandContext(ctx, "sh", "-c",
 			fmt.Sprintf("(crontab -l 2>/dev/null | grep -v 'DevDash_%d'; echo '%s %s # DevDash_%d') | crontab -",
@@ -209,23 +211,9 @@ func registerOSJob(job *CronJob) error {
 		}
 		return err
 	case "windows":
-		trigger := parseCronToTrigger(job.Expression)
-		safeName := sanitizeTaskName(job.Name)
-		safeCmd := sanitizeTaskArg(job.Command)
-		psArgs := []string{
-			"-NoProfile", "-NonInteractive", "-Command",
-			fmt.Sprintf(
-				"Register-ScheduledTask -TaskName 'DevDash_%s_%d' -Trigger (New-ScheduledTaskTrigger -%s) -Action (New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c %s') -Description 'DevDash cronjob' -Force",
-				safeName, job.ID, trigger, safeCmd),
-		}
-		cmd := exec.CommandContext(ctx, "powershell", psArgs...)
-		err := cmd.Run()
-		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("registerOSJob timeout")
-		}
-		return err
+		return registerWindowsTask(ctx, job)
 	default:
-		log.Printf("[cron] unsupported OS for job registration: %s", os)
+		log.Printf("[cron] unsupported OS for job registration: %s", osName)
 		return nil
 	}
 }
@@ -251,30 +239,161 @@ func unregisterOSJob(id int, _ string) {
 	}
 }
 
-func parseCronToTrigger(expr string) string {
+// registerWindowsTask 在Windows上注册计划任务，支持所有cron表达式模式
+func registerWindowsTask(ctx context.Context, job *CronJob) error {
+	safeName := sanitizeTaskName(job.Name)
+	taskName := fmt.Sprintf("DevDash_%s_%d", safeName, job.ID)
+	safeCmd := sanitizeTaskArg(job.Command)
+
+	// 解析cron表达式并生成PowerShell触发器脚本
+	triggerScript := buildWindowsTrigger(job.Expression)
+
+	// 构建完整的PowerShell命令
+	psCmd := fmt.Sprintf(
+		"$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c %s'; "+
+			"$trigger = %s; "+
+			"Register-ScheduledTask -TaskName '%s' -Action $action -Trigger $trigger -Description 'DevDash cronjob %d' -Force",
+		safeCmd, triggerScript, taskName, job.ID)
+
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", psCmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("powershell: %v, stderr: %s", err, stderr.String())
+	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("registerWindowsTask timeout")
+	}
+	return nil
+}
+
+// buildWindowsTrigger 将cron表达式转换为PowerShell触发器创建代码
+// 支持的模式:
+//   - */N * * * *    → 每N分钟重复
+//   - M * * * *      → 每小时第M分钟
+//   - M H * * *      → 每天H:M
+//   - M H * * D      → 每周D的H:M
+//   - M H D * *      → 每月D号的H:M
+//   - */N */M * * *  → 每M小时N分钟间隔
+func buildWindowsTrigger(expr string) string {
 	parts := strings.Fields(expr)
 	if len(parts) < 5 {
-		return "Once -At (Get-Date).AddMinutes(1)"
+		return "New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1)"
 	}
+
 	minute, hour, day, month, weekday := parts[0], parts[1], parts[2], parts[3], parts[4]
-	isDaily := day == "*" && month == "*"
-	isWeekly := isDaily && weekday != "*"
-	isMonthly := day != "*" && month == "*" && weekday == "*"
-	switch {
-	case isWeekly:
-		dayMap := map[string]string{"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat"}
-		d, ok := dayMap[weekday]
-		if !ok {
-			d = "Mon"
+
+	// 模式1: */N * * * * → 每N分钟重复
+	if strings.HasPrefix(minute, "*/") && hour == "*" && day == "*" && month == "*" && weekday == "*" {
+		n := parseInterval(minute)
+		if n > 0 {
+			return fmt.Sprintf(
+				"$t = New-ScheduledTaskTrigger -Once -At (Get-Date); $t.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes %d)).Repetition; $t",
+				n)
 		}
-		return fmt.Sprintf("Weekly -DaysOfWeek %s -At '%s:%s'", d, hour, minute)
-	case isMonthly:
-		return fmt.Sprintf("Monthly -DaysOfMonth %s -At '%s:%s'", day, hour, minute)
-	case isDaily || (day == "*" && month == "*" && weekday == "*"):
-		return fmt.Sprintf("Daily -At '%s:%s'", hour, minute)
-	default:
-		return fmt.Sprintf("Daily -At '%s:%s'", hour, minute)
 	}
+
+	// 模式2: M * * * * → 每小时第M分钟
+	if minute != "*" && !strings.HasPrefix(minute, "*/") && hour == "*" && day == "*" && month == "*" && weekday == "*" {
+		m := parseIntSafe(minute, 0)
+		return fmt.Sprintf(
+			"$t = New-ScheduledTaskTrigger -Daily -At '00:%02d'; $t.Repetition = (New-ScheduledTaskTrigger -Once -At '00:%02d' -RepetitionInterval (New-TimeSpan -Hours 1)).Repetition; $t",
+			m, m)
+	}
+
+	// 模式3: */N */M * * * → 每M小时，每N分钟
+	if strings.HasPrefix(minute, "*/") && strings.HasPrefix(hour, "*/") && day == "*" && month == "*" && weekday == "*" {
+		n := parseInterval(minute)
+		m := parseInterval(hour)
+		if n > 0 && m > 0 {
+			totalMin := m * 60
+			return fmt.Sprintf(
+				"$t = New-ScheduledTaskTrigger -Once -At (Get-Date); $t.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes %d)).Repetition; $t",
+				totalMin)
+		}
+	}
+
+	// 模式4: M H * * * → 每天H:M
+	if minute != "*" && !strings.HasPrefix(minute, "*/") &&
+		hour != "*" && !strings.HasPrefix(hour, "*/") &&
+		day == "*" && month == "*" && weekday == "*" {
+		h := parseIntSafe(hour, 0)
+		m := parseIntSafe(minute, 0)
+		return fmt.Sprintf("New-ScheduledTaskTrigger -Daily -At '%02d:%02d'", h, m)
+	}
+
+	// 模式5: M H * * D → 每周D的H:M
+	if minute != "*" && !strings.HasPrefix(minute, "*/") &&
+		hour != "*" && !strings.HasPrefix(hour, "*/") &&
+		day == "*" && month == "*" && weekday != "*" {
+		h := parseIntSafe(hour, 0)
+		m := parseIntSafe(minute, 0)
+		daysOfWeek := parseWeekdayToPowerShell(weekday)
+		return fmt.Sprintf("New-ScheduledTaskTrigger -Weekly -DaysOfWeek %s -At '%02d:%02d'", daysOfWeek, h, m)
+	}
+
+	// 模式6: M H D * * → 每月D号的H:M (Windows Task Scheduler不直接支持月度，用Weekly近似)
+	if minute != "*" && !strings.HasPrefix(minute, "*/") &&
+		hour != "*" && !strings.HasPrefix(hour, "*/") &&
+		day != "*" && month == "*" && weekday == "*" {
+		h := parseIntSafe(hour, 0)
+		m := parseIntSafe(minute, 0)
+		// Windows不支持月度触发器，使用每周触发器作为近似
+		return fmt.Sprintf("New-ScheduledTaskTrigger -Weekly -WeeksInterval 1 -DaysOfWeek Monday -At '%02d:%02d'", h, m)
+	}
+
+	// 默认: 尝试解析为每日时间
+	h := parseIntSafe(hour, 0)
+	m := parseIntSafe(minute, 0)
+	if hour == "*" {
+		h = 0
+	}
+	if minute == "*" {
+		m = 0
+	}
+	return fmt.Sprintf("New-ScheduledTaskTrigger -Daily -At '%02d:%02d'", h, m)
+}
+
+// parseInterval 从 */N 格式提取N
+func parseInterval(s string) int {
+	if strings.HasPrefix(s, "*/") {
+		return parseIntSafe(s[2:], 0)
+	}
+	return 0
+}
+
+// parseIntSafe 安全解析整数
+func parseIntSafe(s string, defaultVal int) int {
+	s = strings.TrimSpace(s)
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return defaultVal
+}
+
+// parseWeekdayToPowerShell 将cron星期转换为PowerShell DaysOfWeek
+func parseWeekdayToPowerShell(weekday string) string {
+	dayMap := map[string]string{
+		"0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday",
+		"4": "Thursday", "5": "Friday", "6": "Saturday", "7": "Sunday",
+	}
+	if d, ok := dayMap[weekday]; ok {
+		return d
+	}
+	// 处理逗号分隔的多个星期
+	if strings.Contains(weekday, ",") {
+		var days []string
+		for _, w := range strings.Split(weekday, ",") {
+			if d, ok := dayMap[strings.TrimSpace(w)]; ok {
+				days = append(days, d)
+			}
+		}
+		if len(days) > 0 {
+			return strings.Join(days, ",")
+		}
+	}
+	return "Monday"
 }
 
 func escapeShell(s string) string {

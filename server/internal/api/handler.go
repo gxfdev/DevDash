@@ -788,7 +788,19 @@ func (h *Handler) runCronJob(c *gin.Context) {
 	jobs := h.store.ListCronJobs("self")
 	var targetJob map[string]any
 	for _, j := range jobs {
-		if jid, ok := j["id"].(float64); ok && int(jid) == id {
+		// ListCronJobs返回的id可能是int或float64类型
+		var jid int
+		switch v := j["id"].(type) {
+		case int:
+			jid = v
+		case float64:
+			jid = int(v)
+		case int64:
+			jid = int(v)
+		default:
+			continue
+		}
+		if jid == id {
 			targetJob = j
 			break
 		}

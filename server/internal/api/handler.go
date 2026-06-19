@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/gxfdev/DevDash/server/internal/auth"
 	"github.com/gxfdev/DevDash/server/internal/collector"
 	"github.com/gxfdev/DevDash/server/internal/config"
+	"github.com/gxfdev/DevDash/server/internal/cronjob"
 	"github.com/gxfdev/DevDash/server/internal/filemgr"
 	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/store"
@@ -687,32 +689,37 @@ func (h *Handler) createCronJob(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if name, ok := job["name"].(string); !ok || strings.TrimSpace(name) == "" {
-		c.JSON(400, gin.H{"error": "name is required"})
+	cronJob := &cronjob.CronJob{}
+	if v, ok := job["name"].(string); ok {
+		cronJob.Name = v
+	}
+	if v, ok := job["expression"].(string); ok {
+		cronJob.Expression = v
+	}
+	if v, ok := job["command"].(string); ok {
+		cronJob.Command = v
+	}
+	if v, ok := job["type"].(string); ok {
+		cronJob.Type = v
+	} else {
+		cronJob.Type = "shell"
+	}
+	if v, ok := job["enabled"].(bool); ok {
+		cronJob.Enabled = v
+	} else {
+		cronJob.Enabled = true
+	}
+	cronJob.NodeID = "self"
+	if err := cronjob.Create(cronJob, h.store); err != nil {
+		status := 500
+		if strings.Contains(err.Error(), "cannot be empty") || strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "not allowed") {
+			status = 400
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	if expr, ok := job["expression"].(string); !ok || strings.TrimSpace(expr) == "" {
-		c.JSON(400, gin.H{"error": "expression is required"})
-		return
-	}
-	if cmd, ok := job["command"].(string); !ok || strings.TrimSpace(cmd) == "" {
-		c.JSON(400, gin.H{"error": "command is required"})
-		return
-	}
-	job["node_id"] = "self"
-	if _, ok := job["enabled"]; !ok {
-		job["enabled"] = true
-	}
-	if _, ok := job["type"]; !ok {
-		job["type"] = "shell"
-	}
-	jobID, err := h.store.SaveCronJob(job)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-	h.auditLog(c, "create_cronjob", fmt.Sprintf("job_id=%d name=%s", jobID, job["name"]), "success")
-	c.JSON(200, gin.H{"status": "ok", "id": jobID})
+	h.auditLog(c, "create_cronjob", fmt.Sprintf("job_id=%d name=%s", cronJob.ID, cronJob.Name), "success")
+	c.JSON(200, gin.H{"status": "ok", "id": cronJob.ID})
 }
 
 func (h *Handler) updateCronJob(c *gin.Context) {
@@ -726,10 +733,32 @@ func (h *Handler) updateCronJob(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	job["id"] = float64(id)
-	job["node_id"] = "self"
-	if _, err := h.store.SaveCronJob(job); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	cronJob := &cronjob.CronJob{}
+	cronJob.ID = id
+	if v, ok := job["name"].(string); ok {
+		cronJob.Name = v
+	}
+	if v, ok := job["expression"].(string); ok {
+		cronJob.Expression = v
+	}
+	if v, ok := job["command"].(string); ok {
+		cronJob.Command = v
+	}
+	if v, ok := job["type"].(string); ok {
+		cronJob.Type = v
+	} else {
+		cronJob.Type = "shell"
+	}
+	if v, ok := job["enabled"].(bool); ok {
+		cronJob.Enabled = v
+	}
+	cronJob.NodeID = "self"
+	if err := cronjob.Update(cronJob, h.store); err != nil {
+		status := 500
+		if strings.Contains(err.Error(), "cannot be empty") || strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "not allowed") {
+			status = 400
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	h.auditLog(c, "update_cronjob", fmt.Sprintf("job_id=%d", id), "success")
@@ -742,7 +771,7 @@ func (h *Handler) deleteCronJob(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid job id"})
 		return
 	}
-	if err := h.store.DeleteCronJob(id); err != nil {
+	if err := cronjob.Delete(id, "self", h.store); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -1341,22 +1370,22 @@ func isAllowedInterpreter(interp string) bool {
 
 func checkScriptSecurity(content string) []string {
 	var warnings []string
+	// 使用正则表达式检测危险模式
 	dangerousPatterns := []struct {
-		pattern string
+		regex   *regexp.Regexp
 		message string
 	}{
-		{"rm -rf /", "dangerous: rm -rf / detected"},
-		{":(){ :|:& };:", "dangerous: fork bomb detected"},
-		{"mkfs.", "dangerous: filesystem format command detected"},
-		{"dd if=", "warning: dd command detected, verify intent"},
-		{"> /dev/sd", "dangerous: direct disk write detected"},
-		{"chmod -R 777 /", "dangerous: recursive world-writable permission detected"},
-		{"curl.*|.*sh", "warning: piping curl to shell detected"},
-		{"wget.*|.*sh", "warning: piping wget to shell detected"},
+		{regexp.MustCompile(`(?i)rm\s+-rf\s+/`), "dangerous: rm -rf / detected"},
+		{regexp.MustCompile(`(?i):\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;`), "dangerous: fork bomb detected"},
+		{regexp.MustCompile(`(?i)mkfs\.`), "dangerous: filesystem format command detected"},
+		{regexp.MustCompile(`(?i)dd\s+if=`), "warning: dd command detected, verify intent"},
+		{regexp.MustCompile(`(?i)>\s*/dev/sd`), "dangerous: direct disk write detected"},
+		{regexp.MustCompile(`(?i)chmod\s+-R\s+777\s+/`), "dangerous: recursive world-writable permission detected"},
+		{regexp.MustCompile(`(?i)curl\s+.*\|\s*(sh|bash)`), "warning: piping curl to shell detected"},
+		{regexp.MustCompile(`(?i)wget\s+.*\|\s*(sh|bash)`), "warning: piping wget to shell detected"},
 	}
-	lower := strings.ToLower(content)
 	for _, p := range dangerousPatterns {
-		if strings.Contains(lower, p.pattern) {
+		if p.regex.MatchString(content) {
 			warnings = append(warnings, p.message)
 		}
 	}
@@ -1368,7 +1397,9 @@ func (h *Handler) executeScript(interpreter, content string, timeout time.Durati
 	result := &ExecResult{
 		StartTime: start.Format("2006-01-02 15:04:05"),
 	}
-	tmpFile, err := os.CreateTemp("", "devdash-script-*")
+	// 根据解释器类型确定临时文件扩展名
+	ext := getScriptExtension(interpreter)
+	tmpFile, err := os.CreateTemp("", "devdash-script-*"+ext)
 	if err != nil {
 		result.Error = fmt.Sprintf("create temp file: %v", err)
 		result.ExitCode = -1
@@ -1382,7 +1413,21 @@ func (h *Handler) executeScript(interpreter, content string, timeout time.Durati
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, interpreter, tmpFile.Name())
+
+	// 根据解释器类型构建命令参数
+	var cmd *exec.Cmd
+	interpLower := strings.ToLower(interpreter)
+	if strings.Contains(interpLower, "powershell") || strings.Contains(interpLower, "pwsh") {
+		// PowerShell 需要 -File 参数执行脚本文件
+		cmd = exec.CommandContext(ctx, interpreter, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmpFile.Name())
+	} else if interpLower == "cmd" || interpLower == "cmd.exe" {
+		// CMD 使用 /c 参数
+		cmd = exec.CommandContext(ctx, interpreter, "/c", tmpFile.Name())
+	} else {
+		// bash/sh/python/perl/node 等直接传递文件路径
+		cmd = exec.CommandContext(ctx, interpreter, tmpFile.Name())
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1408,10 +1453,37 @@ func (h *Handler) executeScript(interpreter, content string, timeout time.Durati
 	return result
 }
 
+func getScriptExtension(interpreter string) string {
+	interpLower := strings.ToLower(interpreter)
+	switch {
+	case strings.Contains(interpLower, "powershell") || strings.Contains(interpLower, "pwsh"):
+		return ".ps1"
+	case strings.Contains(interpLower, "python"):
+		return ".py"
+	case strings.Contains(interpLower, "perl"):
+		return ".pl"
+	case strings.Contains(interpLower, "ruby"):
+		return ".rb"
+	case strings.Contains(interpLower, "node"):
+		return ".js"
+	case strings.Contains(interpLower, "cmd"):
+		return ".bat"
+	default:
+		return ".sh"
+	}
+}
+
 func (h *Handler) executeCommand(cmdStr string, timeout time.Duration) *ExecResult {
 	start := time.Now()
 	result := &ExecResult{
 		StartTime: start.Format("2006-01-02 15:04:05"),
+	}
+	// 命令安全验证
+	if err := cronjob.ValidateCommand(cmdStr); err != nil {
+		result.Error = fmt.Sprintf("command validation failed: %v", err)
+		result.ExitCode = -1
+		result.EndTime = time.Now().Format("2006-01-02 15:04:05")
+		return result
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

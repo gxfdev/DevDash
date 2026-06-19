@@ -69,10 +69,17 @@ const showResult = ref(false)
 const saving = ref(false)
 const execLoading = ref(false)
 const editingId = ref<number | null>(null)
-const form = ref({ name: '', interpreter: '/bin/bash', description: '', content: '' })
+const isWindows = navigator.userAgent.indexOf('Windows') > -1
+const form = ref({ name: '', interpreter: isWindows ? 'powershell' : '/bin/bash', description: '', content: '' })
 const execResult = ref<{ exit_code: number; output: string; duration_ms: number }>({ exit_code: 0, output: '', duration_ms: 0 })
 
-const interpreterOptions = [
+const interpreterOptions = isWindows ? [
+  { label: 'PowerShell (powershell)', value: 'powershell' },
+  { label: 'PowerShell (pwsh)', value: 'pwsh' },
+  { label: 'CMD (cmd)', value: 'cmd' },
+  { label: 'Python (python)', value: 'python' },
+  { label: 'Node.js (node)', value: 'node' },
+] : [
   { label: 'Bash (/bin/bash)', value: '/bin/bash' },
   { label: 'Sh (/bin/sh)', value: '/bin/sh' },
   { label: 'Python3 (/usr/bin/python3)', value: '/usr/bin/python3' },
@@ -118,7 +125,7 @@ async function fetchScripts() {
 
 function openCreate() {
   editingId.value = null
-  form.value = { name: '', interpreter: '/bin/bash', description: '', content: '' }
+  form.value = { name: '', interpreter: isWindows ? 'powershell' : '/bin/bash', description: '', content: '' }
   showEditor.value = true
 }
 
@@ -127,7 +134,7 @@ async function openEdit(r: any) {
     const { data } = await scriptAPI.get(String(r.id))
     form.value = {
       name: data.name || '',
-      interpreter: data.interpreter || '/bin/bash',
+      interpreter: data.interpreter || (isWindows ? 'powershell' : '/bin/bash'),
       description: data.description || '',
       content: data.content || '',
     }

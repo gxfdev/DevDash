@@ -324,9 +324,10 @@ func Upload(path string, data []byte) error {
 	}
 
 	ext := strings.ToLower(filepath.Ext(validatedPath))
+	// 仅阻止Windows可执行文件和Web脚本，允许.sh等Linux脚本
 	dangerousExts := map[string]bool{
-		".exe": true, ".bat": true, ".cmd": true, ".ps1": true,
-		".sh": true, ".php": true, ".jsp": true, ".asp": true,
+		".exe": true, ".bat": true, ".cmd": true,
+		".php": true, ".jsp": true, ".asp": true,
 		".com": true, ".scr": true, ".vbs": true,
 	}
 	if dangerousExts[ext] {

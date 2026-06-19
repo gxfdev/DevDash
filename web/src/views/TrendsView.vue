@@ -441,7 +441,7 @@ async function buildCharts() {
   disposeCharts()
   await nextTick()
   if (cpuRef.value) {
-    cpuChart = echarts.init(cpuRef.value, 'dark')
+    cpuChart = echarts.init(cpuRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = makePercentYAxis()
@@ -455,7 +455,7 @@ async function buildCharts() {
   }
 
   if (memRef.value) {
-    memChart = echarts.init(memRef.value, 'dark')
+    memChart = echarts.init(memRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = makePercentYAxis()
@@ -469,7 +469,7 @@ async function buildCharts() {
   }
 
   if (diskRef.value) {
-    diskChart = echarts.init(diskRef.value, 'dark')
+    diskChart = echarts.init(diskRef.value)
     const opt = makeBaseOpt()
     opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
     opt.xAxis = makeTimeAxis()
@@ -486,7 +486,7 @@ async function buildCharts() {
   }
 
   if (netRef.value) {
-    netChart = echarts.init(netRef.value, 'dark')
+    netChart = echarts.init(netRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = { type: 'value', min: 0, axisLine: { lineStyle: { color: '#30363d' } }, axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' }, splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } } }
@@ -498,7 +498,7 @@ async function buildCharts() {
   }
 
   if (compareCpuMemRef.value) {
-    compareCpuMemChart = echarts.init(compareCpuMemRef.value, 'dark')
+    compareCpuMemChart = echarts.init(compareCpuMemRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = makePercentYAxis()
@@ -513,7 +513,7 @@ async function buildCharts() {
   }
 
   if (compareDiskNetRef.value) {
-    compareDiskNetChart = echarts.init(compareDiskNetRef.value, 'dark')
+    compareDiskNetChart = echarts.init(compareDiskNetRef.value)
     const opt = makeBaseOpt()
     opt.grid = { top: 40, right: 55, bottom: 30, left: 55 }
     opt.xAxis = makeTimeAxis()
@@ -534,7 +534,7 @@ async function buildCharts() {
   }
 
   if (anomalyCpuRef.value) {
-    anomalyCpuChart = echarts.init(anomalyCpuRef.value, 'dark')
+    anomalyCpuChart = echarts.init(anomalyCpuRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = makePercentYAxis()
@@ -546,7 +546,7 @@ async function buildCharts() {
   }
 
   if (anomalyMemRef.value) {
-    anomalyMemChart = echarts.init(anomalyMemRef.value, 'dark')
+    anomalyMemChart = echarts.init(anomalyMemRef.value)
     const opt = makeBaseOpt()
     opt.xAxis = makeTimeAxis()
     opt.yAxis = makePercentYAxis()

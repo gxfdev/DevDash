@@ -119,21 +119,9 @@ func (c *Collector) collectCPU(_ context.Context) model.CPUMetrics {
 	m := model.CPUMetrics{Cores: runtime.NumCPU()}
 	if p, err := cpu.Percent(0, false); err == nil && len(p) > 0 {
 		c.mu.Lock()
-		now := time.Now()
-		if c.prevCPUTime.IsZero() {
-			c.prevCPUPer = p[0]
-			c.prevCPUTime = now
-			m.UsagePercent = round(p[0])
-		} else {
-			elapsed := now.Sub(c.prevCPUTime).Seconds()
-			if elapsed > 0 && elapsed < 30 {
-				m.UsagePercent = round(p[0])
-			} else {
-				m.UsagePercent = round(c.prevCPUPer)
-			}
-			c.prevCPUPer = p[0]
-			c.prevCPUTime = now
-		}
+		c.prevCPUPer = p[0]
+		c.prevCPUTime = time.Now()
+		m.UsagePercent = round(p[0])
 		c.mu.Unlock()
 	}
 	if p, err := cpu.Percent(0, true); err == nil {

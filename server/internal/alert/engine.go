@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -530,10 +531,16 @@ func (e *Engine) sendWebhookNotification(cfg AlertConfig, alert map[string]inter
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if len(bodyStr) > 500 {
+		bodyStr = bodyStr[:500]
+	}
+
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[alert] webhook notification sent to %s (status %d)", cfg.WebhookURL, resp.StatusCode)
+		log.Printf("[alert] webhook notification sent to %s (status %d, body: %s)", cfg.WebhookURL, resp.StatusCode, bodyStr)
 	} else {
-		log.Printf("[alert] webhook returned status %d", resp.StatusCode)
+		log.Printf("[alert] webhook failed (status %d, body: %s)", resp.StatusCode, bodyStr)
 	}
 }
 
@@ -549,27 +556,30 @@ func (e *Engine) sendFeishuNotification(cfg AlertConfig, alert map[string]interf
 		levelEmoji = "🔴"
 	}
 
+	// 安全获取数值，避免类型断言panic
+	value, _ := alert["value"].(float64)
+	threshold, _ := alert["threshold"].(float64)
+	nodeName, _ := alert["node_name"].(string)
+	metric, _ := alert["metric"].(string)
+	level, _ := alert["level"].(string)
+	alertMsg, _ := alert["message"].(string)
+
 	payload := map[string]interface{}{
 		"msg_type": "interactive",
 		"card": map[string]interface{}{
 			"header": map[string]interface{}{
 				"title": map[string]string{
 					"tag":     "plain_text",
-					"content": fmt.Sprintf("%s DevDash 告警 - %s", levelEmoji, alert["level"]),
+					"content": fmt.Sprintf("%s DevDash 告警 - %s", levelEmoji, level),
 				},
-				"template": map[string]string{
-					"tag": "blue",
-				},
+				"template": "blue",
 			},
 			"elements": []map[string]interface{}{
 				{
 					"tag": "div",
 					"text": map[string]string{
-						"tag": "lark_md",
-						"content": fmt.Sprintf("**主机**: %s\n**指标**: %s\n**当前值**: %.2f\n**阈值**: %.1f\n**消息**: %s",
-							alert["node_name"], alert["metric"],
-							alert["value"].(float64), alert["threshold"].(float64),
-							alert["message"]),
+						"tag":     "lark_md",
+						"content": fmt.Sprintf("**主机**: %s\n**指标**: %s\n**当前值**: %.2f\n**阈值**: %.1f\n**消息**: %s", nodeName, metric, value, threshold, alertMsg),
 					},
 				},
 			},
@@ -597,7 +607,23 @@ func (e *Engine) sendFeishuNotification(cfg AlertConfig, alert map[string]interf
 	}
 	defer resp.Body.Close()
 
-	log.Printf("[alert] feishu notification sent (status %d)", resp.StatusCode)
+	// 读取响应体以便诊断问题
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if len(bodyStr) > 500 {
+		bodyStr = bodyStr[:500]
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// 检查飞书返回的业务码
+		if len(bodyStr) > 0 {
+			log.Printf("[alert] feishu notification sent (status %d, body: %s)", resp.StatusCode, bodyStr)
+		} else {
+			log.Printf("[alert] feishu notification sent (status %d)", resp.StatusCode)
+		}
+	} else {
+		log.Printf("[alert] feishu notification failed (status %d, body: %s)", resp.StatusCode, bodyStr)
+	}
 }
 
 func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]interface{}) {
@@ -612,8 +638,22 @@ func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]inte
 		levelEmoji = "🔴"
 	}
 
+	// 安全获取数值，避免类型断言panic
+	value, _ := alert["value"].(float64)
+	threshold, _ := alert["threshold"].(float64)
+	nodeName, _ := alert["node_name"].(string)
+	metric, _ := alert["metric"].(string)
+	level, _ := alert["level"].(string)
+	alertMsg, _ := alert["message"].(string)
+	var timeStr string
+	if t, ok := alert["time"].(time.Time); ok {
+		timeStr = t.Format("2006-01-02 15:04:05")
+	} else {
+		timeStr = time.Now().Format("2006-01-02 15:04:05")
+	}
+
 	// 钉钉 markdown 消息格式
-	title := fmt.Sprintf("%s DevDash告警 - %s", levelEmoji, alert["level"])
+	title := fmt.Sprintf("%s DevDash告警 - %s", levelEmoji, level)
 	text := fmt.Sprintf("### %s DevDash告警\n\n"+
 		"**主机**: %s\n\n"+
 		"**指标**: %s\n\n"+
@@ -621,13 +661,7 @@ func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]inte
 		"**阈值**: %.1f\n\n"+
 		"**消息**: %s\n\n"+
 		"**时间**: %s",
-		levelEmoji,
-		alert["node_name"],
-		alert["metric"],
-		alert["value"].(float64),
-		alert["threshold"].(float64),
-		alert["message"],
-		alert["time"].(time.Time).Format("2006-01-02 15:04:05"))
+		levelEmoji, nodeName, metric, value, threshold, alertMsg, timeStr)
 
 	payload := map[string]interface{}{
 		"msgtype": "markdown",
@@ -674,9 +708,20 @@ func (e *Engine) sendDingTalkNotification(cfg AlertConfig, alert map[string]inte
 	}
 	defer resp.Body.Close()
 
+	// 读取响应体以便诊断问题
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	if len(bodyStr) > 500 {
+		bodyStr = bodyStr[:500]
+	}
+
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[alert] dingtalk notification sent (status %d)", resp.StatusCode)
+		if len(bodyStr) > 0 {
+			log.Printf("[alert] dingtalk notification sent (status %d, body: %s)", resp.StatusCode, bodyStr)
+		} else {
+			log.Printf("[alert] dingtalk notification sent (status %d)", resp.StatusCode)
+		}
 	} else {
-		log.Printf("[alert] dingtalk returned status %d", resp.StatusCode)
+		log.Printf("[alert] dingtalk notification failed (status %d, body: %s)", resp.StatusCode, bodyStr)
 	}
 }

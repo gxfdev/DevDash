@@ -87,10 +87,12 @@ func Create(job *CronJob, s *store.Store) error {
 		return fmt.Errorf("failed to save cron job: %w", err)
 	}
 	job.ID = int(jobID)
-	if err := registerOSJob(job); err != nil {
-		log.Printf("[cron] Warning: OS scheduler registration failed for job %d: %v", job.ID, err)
-		_ = s.DeleteCronJob(job.ID)
-		return fmt.Errorf("OS scheduler registration failed (job rolled back): %w", err)
+	// 仅当任务启用时才注册OS调度器
+	if job.Enabled {
+		if err := registerOSJob(job); err != nil {
+			log.Printf("[cron] Warning: OS scheduler registration failed for job %d: %v", job.ID, err)
+			// 不回滚，仅记录警告。任务仍保存在数据库中，可手动运行
+		}
 	}
 	return nil
 }
@@ -99,6 +101,8 @@ func Update(job *CronJob, s *store.Store) error {
 	if err := validateJobInput(job); err != nil {
 		return err
 	}
+	// 先注销旧的OS任务
+	unregisterOSJob(job.ID, job.NodeID)
 	_, err := s.SaveCronJob(map[string]any{
 		"id":         float64(job.ID),
 		"node_id":    job.NodeID,
@@ -108,7 +112,16 @@ func Update(job *CronJob, s *store.Store) error {
 		"type":       job.Type,
 		"enabled":    job.Enabled,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to update cron job: %w", err)
+	}
+	// 如果任务启用，重新注册OS任务
+	if job.Enabled {
+		if err := registerOSJob(job); err != nil {
+			log.Printf("[cron] Warning: OS scheduler re-registration failed for job %d: %v", job.ID, err)
+		}
+	}
+	return nil
 }
 
 func Delete(id int, nodeID string, s *store.Store) error {
@@ -150,6 +163,10 @@ func validateJobInput(job *CronJob) error {
 }
 
 func validateCommand(cmd string) error {
+	return ValidateCommand(cmd)
+}
+
+func ValidateCommand(cmd string) error {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
 		return errors.New("command cannot be empty")
@@ -157,15 +174,16 @@ func validateCommand(cmd string) error {
 	if len(cmd) > 1024 {
 		return errors.New("command too long (max 1024 characters)")
 	}
-	allowedCmdPattern := regexp.MustCompile(`^[a-zA-Z0-9_/\-\.]+(\s+[a-zA-Z0-9_/\-\.\*\?\[\]=&%@!+,~^<>:]+)*$`)
+	// 允许常见的shell字符：管道、重定向、分号、引号、变量、通配符等
+	allowedCmdPattern := regexp.MustCompile(`^[a-zA-Z0-9_/\-\.]+(\s+[a-zA-Z0-9_/\-\.\*\?\[\]=&%@!+,~^<>:;|'"$(){}]+)*$`)
 	if !allowedCmdPattern.MatchString(cmd) {
-		return errors.New("command contains disallowed characters. Only alphanumeric, spaces, and common path/symbol characters are permitted")
+		return errors.New("command contains disallowed characters. Only alphanumeric, spaces, and common shell characters are permitted")
 	}
+	// 仅阻止真正危险的系统级命令
 	dangerousBinaries := []string{
 		"rm", "dd", "mkfs", "shutdown", "reboot",
 		"halt", "poweroff", "init", "passwd",
-		"crontab", "iptables", "nc", "ncat", "socat",
-		"wget", "curl",
+		"crontab", "iptables",
 	}
 	binaryName := strings.Fields(cmd)[0]
 	for _, d := range dangerousBinaries {

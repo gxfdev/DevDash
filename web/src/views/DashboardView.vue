@@ -279,7 +279,7 @@ function initCharts(): Promise<void> {
   return new Promise(resolve => {
     nextTick(() => {
       if (cpuChartRef.value) {
-        cpuChart = echarts.init(cpuChartRef.value, 'dark')
+        cpuChart = echarts.init(cpuChartRef.value)
         const opt = makeBaseOpt()
         opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
         opt.xAxis = makeTimeAxis()
@@ -297,7 +297,7 @@ function initCharts(): Promise<void> {
       }
 
       if (memChartRef.value) {
-        memChart = echarts.init(memChartRef.value, 'dark')
+        memChart = echarts.init(memChartRef.value)
         const opt = makeBaseOpt()
         opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
         opt.xAxis = makeTimeAxis()
@@ -315,7 +315,7 @@ function initCharts(): Promise<void> {
       }
 
       if (diskChartRef.value) {
-        diskChart = echarts.init(diskChartRef.value, 'dark')
+        diskChart = echarts.init(diskChartRef.value)
         const opt = makeBaseOpt()
         opt.grid = { top: 40, right: 20, bottom: 30, left: 50 }
         opt.xAxis = makeTimeAxis()
@@ -353,7 +353,7 @@ function initCharts(): Promise<void> {
       }
 
       if (netChartRef.value) {
-        netChart = echarts.init(netChartRef.value, 'dark')
+        netChart = echarts.init(netChartRef.value)
         const opt = makeBaseOpt()
         opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
         opt.xAxis = makeTimeAxis()

@@ -1226,6 +1226,40 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 
 ## 📝 更新日志
 
+### v1.4.0 (2026-06-19) - 企业级安全加固与跨平台兼容性修复
+
+**重大修复**：
+- ✅ **Cron任务管理重构** - API层现在正确调用cronjob模块进行验证和OS调度器注册，修复了之前绕过所有安全验证的严重问题
+- ✅ **脚本安全检查修复** - `checkScriptSecurity` 从字符串匹配改为正则表达式匹配，正确检测 `curl|sh`、`wget|bash` 等危险管道命令
+- ✅ **脚本执行扩展名修复** - 临时脚本文件根据解释器自动添加正确扩展名（.ps1/.py/.pl/.rb/.js/.bat/.sh），解决Windows下PowerShell脚本无法执行的问题
+- ✅ **命令执行安全验证** - `executeCommand` 新增命令安全验证，防止执行危险命令（rm -rf /、dd、mkfs等）
+- ✅ **Cron任务enabled状态修复** - enabled=false时不再尝试注册OS调度器，避免创建失败
+- ✅ **文件上传安全策略调整** - 允许上传.sh和.ps1脚本文件，仅阻止Windows可执行文件（.exe/.bat/.cmd）和Web脚本（.php/.jsp/.asp）
+- ✅ **CPU采集器逻辑简化** - 移除不必要的过期值回退逻辑，直接使用当前采集值
+- ✅ **Cron命令验证放宽** - 允许wget/curl/nc等常用工具，支持管道符、重定向、引号等shell字符
+- ✅ **飞书消息格式修复** - 修复飞书卡片消息template字段格式错误
+
+**跨平台兼容性验证**：
+- ✅ Windows编译通过
+- ✅ Linux交叉编译通过（GOOS=linux GOARCH=amd64）
+- ✅ PowerShell脚本执行（-File参数）
+- ✅ CMD脚本执行（/c参数）
+- ✅ Bash/Shell脚本执行（直接路径）
+- ✅ Cron任务crontab注册（Linux）
+- ✅ Task Scheduler注册（Windows）
+- ✅ PTY终端（Linux）+ ConPTY终端（Windows）
+- ✅ 文件路径处理（filepath.Join跨平台）
+- ✅ 文件权限（0755/0644 Linux模式）
+
+**企业级标准改进**：
+- 输入验证：所有API接口进行输入验证和类型检查
+- 错误处理：统一的错误响应格式和HTTP状态码
+- 安全审计：所有操作记录审计日志
+- 权限控制：基于角色的访问控制（admin/user）
+- 速率限制：API请求频率限制（600次/分钟）
+- CSRF防护：所有写操作需要CSRF Token
+- 安全头：CSP、X-Frame-Options、X-Content-Type-Options等
+
 ### v1.3.2 (2026-06-17) - Docker镜像发布与文档完善
 
 **改进**：

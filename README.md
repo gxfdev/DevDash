@@ -137,18 +137,24 @@
 # 0. 如已存在旧容器，先清理（首次部署可跳过）
 docker rm -f devdash 2>/dev/null
 
-# Linux / macOS — 一键启动
+# Linux — 一键启动（完整功能：文件管理+脚本执行+定时任务）
 docker run -d \
   --name devdash \
   --restart unless-stopped \
+  --pid=host \
+  --cap-add SYS_PTRACE \
+  --cap-add SYS_ADMIN \
+  --cap-add SYS_CHROOT \
   -p 9090:9090 \
   -v devdash-data:/data \
+  -v /:/host:rw \
   -v /proc:/host/proc:ro \
   -v /sys:/host/sys:ro \
   -v /dev:/host/dev:ro \
   -v /etc/hostname:/etc/hostname:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e "JWT_SECRET=$(openssl rand -hex 32)" \
+  -e HOST_ROOT=/host \
   -e HOST_PROC=/host/proc \
   -e HOST_SYS=/host/sys \
   -e HOST_DEV=/host/dev \

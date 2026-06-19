@@ -117,7 +117,8 @@ func (c *Collector) Collect() (*model.Snapshot, error) {
 
 func (c *Collector) collectCPU(_ context.Context) model.CPUMetrics {
 	m := model.CPUMetrics{Cores: runtime.NumCPU()}
-	if p, err := cpu.Percent(0, false); err == nil && len(p) > 0 {
+	// 使用500ms延迟采集，避免首次调用返回0或不准确的值
+	if p, err := cpu.Percent(500*time.Millisecond, false); err == nil && len(p) > 0 {
 		c.mu.Lock()
 		c.prevCPUPer = p[0]
 		c.prevCPUTime = time.Now()

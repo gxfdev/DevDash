@@ -55,6 +55,15 @@ client.interceptors.response.use(
   (res) => res,
   async (err) => {
     const originalRequest = err.config
+    // 瞬时网络错误自动重试（如 ERR_NETWORK_CHANGED）
+    if (!err.response && originalRequest && !originalRequest._networkRetry) {
+      const method = (originalRequest.method || '').toLowerCase()
+      if (['get', 'head', 'options'].includes(method)) {
+        originalRequest._networkRetry = true
+        await new Promise((r) => setTimeout(r, 1000))
+        return client(originalRequest)
+      }
+    }
     if (err.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       if (isRefreshing) {

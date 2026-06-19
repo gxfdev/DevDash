@@ -49,8 +49,8 @@ ARG VERSION=dev
 # - ca-certificates: HTTPS 通信
 # - tzdata: 时区支持
 # - curl: 健康检查
-# - nsenter + util-linux: 容器内访问主机命名空间
-RUN apk add --no-cache ca-certificates tzdata curl nsenter util-linux \
+# - util-linux: 提供 nsenter，容器内访问主机命名空间
+RUN apk add --no-cache ca-certificates tzdata curl util-linux \
     && rm -rf /var/cache/apk/* \
     && addgroup -S devdash \
     && adduser -S devdash -G devdash \

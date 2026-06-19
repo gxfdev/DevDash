@@ -250,12 +250,33 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 #### 指定版本
 
 ```bash
-# 使用特定版本
-docker pull ghcr.io/gxfdev/devdash:v0.1.0
-docker run -d ... ghcr.io/gxfdev/devdash:v0.1.0
+# 使用特定版本（推荐生产环境固定版本）
+docker pull ghcr.io/gxfdev/devdash:v1.7.0
+docker run -d ... ghcr.io/gxfdev/devdash:v1.7.0
 
 # 查看所有可用版本
 # https://github.com/gxfdev/DevDash/pkgs/container/devdash
+```
+
+#### 带监控面板部署（Prometheus + Grafana）
+
+```bash
+# 1. 下载编排文件（主服务 + 监控栈）
+curl -O https://raw.githubusercontent.com/gxfdev/DevDash/main/docker-compose.ghcr.yml
+curl -O https://raw.githubusercontent.com/gxfdev/DevDash/main/docker-compose.monitoring.yml
+curl -O -o docker/prometheus.yml --create-dirs https://raw.githubusercontent.com/gxfdev/DevDash/main/docker/prometheus.yml
+curl -O -o docker/alert-rules.yml https://raw.githubusercontent.com/gxfdev/DevDash/main/docker/alert-rules.yml
+
+# 2. 生成密钥并启动（主服务 + 监控）
+export JWT_SECRET=$(openssl rand -hex 32)
+export GRAFANA_PASSWORD=$(openssl rand -hex 8)
+docker compose -f docker-compose.ghcr.yml -f docker-compose.monitoring.yml up -d
+
+# 3. 访问各服务
+# DevDash:      http://localhost:9090  (admin / admin123)
+# Grafana:      http://localhost:3001  (admin / $GRAFANA_PASSWORD)
+# Prometheus:   http://localhost:9091
+# cAdvisor:     http://localhost:8080
 ```
 
 #### 常用管理命令
@@ -836,22 +857,22 @@ DevDash遵循 [Semantic Versioning](https://semver.org/)：
 | 标签 | 说明 | 示例 |
 |------|------|------|
 | `latest` | 最新稳定版 | `ghcr.io/gxfdev/devdash:latest` |
-| `vX.Y.Z` | 完整版本号 | `ghcr.io/gxfdev/devdash:v1.5.0` |
-| `X.Y` | 主次版本 | `ghcr.io/gxfdev/devdash:1.5` |
+| `vX.Y.Z` | 完整版本号 | `ghcr.io/gxfdev/devdash:v1.7.0` |
+| `X.Y` | 主次版本 | `ghcr.io/gxfdev/devdash:1.7` |
 | `X` | 主版本 | `ghcr.io/gxfdev/devdash:1` |
-| `sha-xxxxxx` | Git提交哈希 | `ghcr.io/gxfdev/devdash:sha-0901bd8` |
+| `sha-xxxxxx` | Git提交哈希 | `ghcr.io/gxfdev/devdash:sha-2232c4f` |
 
 #### 3. 推送命令
 
 ```bash
 # 方式一：使用脚本（推荐）
 chmod +x docker/build-push-ghcr.sh
-./docker/build-push-ghcr.sh v1.5.0
+./docker/build-push-ghcr.sh v1.7.0
 
 # 方式二：手动操作
-docker tag devdash:latest ghcr.io/gxfdev/devdash:v1.5.0
+docker tag devdash:latest ghcr.io/gxfdev/devdash:v1.7.0
 docker tag devdash:latest ghcr.io/gxfdev/devdash:latest
-docker push ghcr.io/gxfdev/devdash:v1.5.0
+docker push ghcr.io/gxfdev/devdash:v1.7.0
 docker push ghcr.io/gxfdev/devdash:latest
 ```
 
@@ -860,10 +881,10 @@ docker push ghcr.io/gxfdev/devdash:latest
 推送git tag自动触发GitHub Actions构建并推送（见 [`.github/workflows/release.yml`](docker/../.github/workflows/release.yml)）：
 
 ```bash
-git tag v1.5.0
-git push origin v1.5.0
+git tag v1.7.0
+git push origin v1.7.0
 # → 自动构建 linux/amd64 + linux/arm64 双架构镜像
-# → 推送到 ghcr.io/gxfdev/devdash:v1.5.0
+# → 推送到 ghcr.io/gxfdev/devdash:v1.7.0
 # → 创建 GitHub Release
 ```
 
@@ -874,7 +895,7 @@ git push origin v1.5.0
 docker pull ghcr.io/gxfdev/devdash:latest
 
 # 拉取指定版本
-docker pull ghcr.io/gxfdev/devdash:v1.5.0
+docker pull ghcr.io/gxfdev/devdash:v1.7.0
 ```
 
 ---
@@ -1071,7 +1092,7 @@ kubectl -n devdash port-forward svc/devdash 9090:9090
 ./k8s/deploy.sh status
 
 # 更新镜像
-./k8s/deploy.sh upgrade ghcr.io/gxfdev/devdash:v1.1.0
+./k8s/deploy.sh upgrade ghcr.io/gxfdev/devdash:v1.7.0
 
 # 查看日志
 ./k8s/deploy.sh logs
@@ -1467,6 +1488,16 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 ---
 
 ## 📝 更新日志
+
+### v1.7.0 (2026-06-19) - 运维脚本工具集
+
+**重大新功能**：
+- ✅ **11个运维脚本** - 新增4类共11个实用脚本，覆盖运维全流程
+- ✅ **运维部署脚本** - `service.sh`（服务管理，自动检测systemd/docker）、`restore.sh`（数据恢复，支持dry-run预演）
+- ✅ **Docker管理脚本** - `docker-clean.sh`（资源清理4种模式）、`docker-health.sh`（容器健康检查+端口+HTTP端点）、`docker-logs.sh`（日志查看）
+- ✅ **开发工具脚本** - `test.sh`（单元/集成/覆盖率/lint测试）、`migrate.sh`（数据库迁移管理）
+- ✅ **系统运维脚本** - `log-clean.sh`（日志清理）、`monitor.sh`（实时性能监控）、`ssl-renew.sh`（SSL证书续期）、`firewall.sh`（防火墙配置，支持ufw/firewalld/iptables）
+- ✅ **README部署文档更新** - 更新版本引用至v1.7.0，新增带监控面板的部署说明
 
 ### v1.6.0 (2026-06-19) - 容器监控方案
 

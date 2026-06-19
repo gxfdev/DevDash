@@ -134,6 +134,9 @@
 无需克隆代码，直接拉取预构建镜像运行，**30 秒内启动**：
 
 ```bash
+# 0. 如已存在旧容器，先清理（首次部署可跳过）
+docker rm -f devdash 2>/dev/null
+
 # Linux / macOS — 一键启动
 docker run -d \
   --name devdash \
@@ -285,7 +288,17 @@ docker compose -f docker-compose.ghcr.yml -f docker-compose.monitoring.yml up -d
 docker ps                          # 查看运行状态
 docker logs -f devdash             # 查看实时日志
 docker restart devdash             # 重启容器
-docker pull ghcr.io/gxfdev/devdash:latest && docker restart devdash  # 更新
+
+# 更新到最新版（自动清理旧容器并重建）
+docker pull ghcr.io/gxfdev/devdash:latest && \
+docker rm -f devdash && \
+docker run -d --name devdash --restart unless-stopped -p 9090:9090 \
+  -v devdash-data:/data -v /proc:/host/proc:ro -v /sys:/host/sys:ro \
+  -v /dev:/host/dev:ro -v /etc/hostname:/etc/hostname:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e "JWT_SECRET=$(openssl rand -hex 32)" -e HOST_PROC=/host/proc \
+  -e HOST_SYS=/host/sys -e HOST_DEV=/host/dev -e HOST_ETC=/host/etc \
+  -e GIN_MODE=release -e TZ=Asia/Shanghai ghcr.io/gxfdev/devdash:latest
 
 # 备份数据
 docker cp devdash:/data/devdash.db ./backup-$(date +%Y%m%d).db

@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/gxfdev/DevDash/server/internal/hostpath"
 )
 
 type FileInfo struct {
@@ -94,6 +96,18 @@ func validatePath(userPath string) (string, error) {
 	return "", fmt.Errorf("access denied: path outside allowed directories")
 }
 
+// resolveHostPath 将用户请求的主机路径映射为容器内可访问的实际路径。
+// 当运行在容器中且配置了 HOST_ROOT 时，将主机路径映射到挂载点。
+// 验证通过后返回容器内实际路径。
+func resolveHostPath(userPath string) (string, error) {
+	validated, err := validatePath(userPath)
+	if err != nil {
+		return "", err
+	}
+	// 映射到容器内挂载点
+	return hostpath.ToContainer(validated), nil
+}
+
 func checkDangerousPath(path string) bool {
 	lowerPath := strings.ToLower(filepath.Clean(path))
 	for dangerous := range dangerousPaths {
@@ -121,12 +135,12 @@ func SanitizeFileName(name string) string {
 }
 
 func ListDir(path string) ([]FileInfo, error) {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return nil, fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) {
+	if checkDangerousPath(path) {
 		return nil, fmt.Errorf("access to system directory is restricted")
 	}
 
@@ -142,7 +156,7 @@ func ListDir(path string) ([]FileInfo, error) {
 			continue
 		}
 
-		fullPath := filepath.Join(validatedPath, e.Name())
+		fullPath := filepath.Join(path, e.Name())
 		result = append(result, FileInfo{
 			Name:     e.Name(),
 			Size:     info.Size(),
@@ -156,12 +170,12 @@ func ListDir(path string) ([]FileInfo, error) {
 }
 
 func ReadFile(path string) ([]byte, error) {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return nil, fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) {
+	if checkDangerousPath(path) {
 		return nil, fmt.Errorf("access to system file is restricted")
 	}
 
@@ -186,12 +200,12 @@ func ReadFile(path string) ([]byte, error) {
 }
 
 func WriteFile(path string, data []byte) error {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) {
+	if checkDangerousPath(path) {
 		return fmt.Errorf("write to system directory is not allowed")
 	}
 
@@ -208,22 +222,22 @@ func WriteFile(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("write failed: %w", err)
 	}
-	notifyOp("create", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), int64(len(data)), false)
+	notifyOp("create", path, filepath.Base(path), filepath.Ext(path), int64(len(data)), false)
 	return nil
 }
 
 func Delete(path string) error {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) {
+	if checkDangerousPath(path) {
 		return fmt.Errorf("deletion of system files is not allowed")
 	}
 
 	defaultRoot := GetDefaultRoot()
-	if validatedPath == defaultRoot || filepath.Dir(validatedPath) == defaultRoot {
+	if path == defaultRoot || filepath.Dir(path) == defaultRoot {
 		return fmt.Errorf("cannot delete root or home directory")
 	}
 
@@ -231,7 +245,7 @@ func Delete(path string) error {
 	if err != nil {
 		return fmt.Errorf("delete failed: %w", err)
 	}
-	notifyOp("delete", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), 0, false)
+	notifyOp("delete", path, filepath.Base(path), filepath.Ext(path), 0, false)
 	return nil
 }
 
@@ -241,12 +255,12 @@ func Mkdir(path string) error {
 		return fmt.Errorf("invalid directory name")
 	}
 
-	validatedPath, err := validatePath(safeName)
+	validatedPath, err := resolveHostPath(safeName)
 	if err != nil {
 		return fmt.Errorf("path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(validatedPath) {
+	if checkDangerousPath(path) {
 		return fmt.Errorf("cannot create directory in system location")
 	}
 
@@ -254,12 +268,12 @@ func Mkdir(path string) error {
 	if err != nil {
 		return fmt.Errorf("mkdir failed: %w", err)
 	}
-	notifyOp("create", validatedPath, filepath.Base(validatedPath), "", 0, true)
+	notifyOp("create", path, filepath.Base(path), "", 0, true)
 	return nil
 }
 
 func Rename(old, new string) error {
-	oldPath, err := validatePath(old)
+	oldPath, err := resolveHostPath(old)
 	if err != nil {
 		return fmt.Errorf("source path validation failed: %w", err)
 	}
@@ -275,7 +289,7 @@ func Rename(old, new string) error {
 		return fmt.Errorf("destination path validation failed: %w", err)
 	}
 
-	if checkDangerousPath(oldPath) || checkDangerousPath(newValidatedPath) {
+	if checkDangerousPath(old) || checkDangerousPath(new) {
 		return fmt.Errorf("operation on system paths is not allowed")
 	}
 
@@ -318,12 +332,12 @@ func GetDriveLetters() []string {
 }
 
 func Upload(path string, data []byte) error {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return fmt.Errorf("upload path validation failed: %w", err)
 	}
 
-	ext := strings.ToLower(filepath.Ext(validatedPath))
+	ext := strings.ToLower(filepath.Ext(path))
 	// 仅阻止Windows可执行文件和Web脚本，允许.sh等Linux脚本
 	dangerousExts := map[string]bool{
 		".exe": true, ".bat": true, ".cmd": true,
@@ -342,7 +356,7 @@ func Upload(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
-	notifyOp("upload", validatedPath, filepath.Base(validatedPath), filepath.Ext(validatedPath), int64(len(data)), false)
+	notifyOp("upload", path, filepath.Base(path), filepath.Ext(path), int64(len(data)), false)
 	return nil
 }
 
@@ -351,7 +365,7 @@ func Download(path string) ([]byte, error) {
 }
 
 func Chmod(path, mode string) error {
-	validatedPath, err := validatePath(path)
+	validatedPath, err := resolveHostPath(path)
 	if err != nil {
 		return fmt.Errorf("path validation failed: %w", err)
 	}

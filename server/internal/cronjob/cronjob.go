@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gxfdev/DevDash/server/internal/hostpath"
 	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/store"
 )
@@ -202,9 +203,16 @@ func registerOSJob(job *CronJob) error {
 	defer cancel()
 	switch osName {
 	case "linux":
-		cmd := exec.CommandContext(ctx, "sh", "-c",
-			fmt.Sprintf("(crontab -l 2>/dev/null | grep -v 'DevDash_%d'; echo '%s %s # DevDash_%d') | crontab -",
-				job.ID, job.Expression, escapeShell(job.Command), job.ID))
+		cronCmd := fmt.Sprintf("(crontab -l 2>/dev/null | grep -v 'DevDash_%d'; echo '%s %s # DevDash_%d') | crontab -",
+			job.ID, job.Expression, escapeShell(job.Command), job.ID)
+		var cmd *exec.Cmd
+		if hostpath.Enabled() {
+			// 容器内：通过 nsenter 在主机上注册 crontab
+			cmd = exec.CommandContext(ctx, "nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1",
+				"/bin/sh", "-c", cronCmd)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", cronCmd)
+		}
 		err := cmd.Run()
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("registerOSJob timeout")
@@ -226,8 +234,15 @@ func unregisterOSJob(id int, _ string) {
 		if id <= 0 {
 			return
 		}
-		exec.CommandContext(ctx, "sh", "-c",
-			fmt.Sprintf("crontab -l 2>/dev/null | grep -v 'DevDash_%d' | crontab -", id)).Run()
+		cronCmd := fmt.Sprintf("crontab -l 2>/dev/null | grep -v 'DevDash_%d' | crontab -", id)
+		var cmd *exec.Cmd
+		if hostpath.Enabled() {
+			cmd = exec.CommandContext(ctx, "nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1",
+				"/bin/sh", "-c", cronCmd)
+		} else {
+			cmd = exec.CommandContext(ctx, "sh", "-c", cronCmd)
+		}
+		cmd.Run()
 	case "windows":
 		if id <= 0 {
 			return

@@ -35,7 +35,7 @@ ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION=dev
 
-RUN apk add --no-cache ca-certificates tzdata curl \
+RUN apk add --no-cache ca-certificates tzdata curl nsenter util-linux \
     && rm -rf /var/cache/apk/* \
     && addgroup -S devdash && adduser -S devdash -G devdash \
     && mkdir -p /data && chown devdash:devdash /data

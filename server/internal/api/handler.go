@@ -27,6 +27,7 @@ import (
 	"github.com/gxfdev/DevDash/server/internal/config"
 	"github.com/gxfdev/DevDash/server/internal/cronjob"
 	"github.com/gxfdev/DevDash/server/internal/filemgr"
+	"github.com/gxfdev/DevDash/server/internal/hostpath"
 	"github.com/gxfdev/DevDash/server/internal/model"
 	"github.com/gxfdev/DevDash/server/internal/store"
 	"github.com/gxfdev/DevDash/server/internal/terminal"
@@ -1435,6 +1436,22 @@ func (h *Handler) executeScript(interpreter, content string, timeout time.Durati
 	} else if interpLower == "cmd" || interpLower == "cmd.exe" {
 		// CMD 使用 /c 参数
 		cmd = exec.CommandContext(ctx, interpreter, "/c", tmpFile.Name())
+	} else if hostpath.Enabled() {
+		// 容器内执行主机脚本：通过 nsenter 进入主机命名空间
+		// 将脚本文件复制到主机可访问路径
+		hostScriptPath := hostpath.ToContainer("/tmp/" + filepath.Base(tmpFile.Name()))
+		if data, err := os.ReadFile(tmpFile.Name()); err == nil {
+			if err := os.WriteFile(hostScriptPath, data, 0755); err == nil {
+				defer os.Remove(hostScriptPath)
+				hostScript := "/tmp/" + filepath.Base(tmpFile.Name())
+				cmd = exec.CommandContext(ctx, "nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1",
+					interpreter, hostScript)
+			} else {
+				cmd = exec.CommandContext(ctx, interpreter, tmpFile.Name())
+			}
+		} else {
+			cmd = exec.CommandContext(ctx, interpreter, tmpFile.Name())
+		}
 	} else {
 		// bash/sh/python/perl/node 等直接传递文件路径
 		cmd = exec.CommandContext(ctx, interpreter, tmpFile.Name())
@@ -1502,6 +1519,10 @@ func (h *Handler) executeCommand(cmdStr string, timeout time.Duration) *ExecResu
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "cmd", "/c", cmdStr)
+	} else if hostpath.Enabled() {
+		// 容器内执行主机命令：通过 nsenter 进入主机命名空间
+		cmd = exec.CommandContext(ctx, "nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1",
+			"/bin/sh", "-c", cmdStr)
 	} else {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
 	}

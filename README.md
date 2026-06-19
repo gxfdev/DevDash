@@ -1226,6 +1226,18 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 
 ## 📝 更新日志
 
+### v1.5.0 (2026-06-19) - Docker容器主机访问支持
+
+**重大新功能**：
+- ✅ **HOST_ROOT主机路径映射** - 新增`hostpath`包，容器内通过`HOST_ROOT=/host`环境变量映射主机文件系统
+- ✅ **文件管理操作主机** - filemgr模块所有操作（ListDir/ReadFile/WriteFile/Delete/Mkdir/Rename/Upload/Chmod）支持映射到主机路径
+- ✅ **脚本执行操作主机** - executeScript将脚本复制到主机/tmp后通过`nsenter`执行，确保操作主机环境
+- ✅ **命令执行操作主机** - executeCommand通过`nsenter -m -u -i -n -p -t 1`进入主机命名空间执行
+- ✅ **Crontab注册操作主机** - Linux的crontab注册/注销通过nsenter在主机上执行
+- ✅ **终端访问主机** - 容器内终端通过nsenter连接主机shell
+- ✅ **Docker配置更新** - docker-compose挂载`/:/host:rw`，添加SYS_ADMIN/SYS_CHROOT capability，安装nsenter工具
+- ✅ **前端Cron更新修复** - 修复前端使用PATCH而非PUT导致cron任务更新失败的问题
+
 ### v1.4.1 (2026-06-19) - Windows计划任务修复
 
 **重大修复**：

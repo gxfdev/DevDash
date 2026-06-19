@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+	"github.com/gxfdev/DevDash/server/internal/hostpath"
 )
 
 type ptyProcess struct {
@@ -22,7 +23,13 @@ type ptyProcess struct {
 }
 
 func createPtyProcess(shell string, cols, rows int16) (*ptyProcess, error) {
-	cmd := exec.Command(shell)
+	var cmd *exec.Cmd
+	if hostpath.Enabled() {
+		// 容器内：通过 nsenter 进入主机命名空间执行 shell
+		cmd = exec.Command("nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1", shell)
+	} else {
+		cmd = exec.Command(shell)
+	}
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		"COLUMNS="+fmt.Sprintf("%d", cols),

@@ -11,6 +11,7 @@ services:
       - /dev:/host/dev:ro
       - /etc/hostname:/etc/hostname:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/host:rw
     environment:
       - PORT=9090
       - INTERVAL=${INTERVAL:-5}
@@ -27,9 +28,14 @@ services:
       - HOST_SYS=/host/sys
       - HOST_DEV=/host/dev
       - HOST_ETC=/host/etc
+      - HOST_ROOT=/host
     restart: unless-stopped
     mem_limit: 512m
     cpus: "2.0"
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+      - SYS_CHROOT
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9090/api/v1/health"]
       interval: 30s

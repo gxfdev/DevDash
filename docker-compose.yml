@@ -13,6 +13,7 @@ services:
       - /dev:/host/dev:ro
       - /etc/hostname:/etc/hostname:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/host:rw
     environment:
       - PORT=9090
       - INTERVAL=5
@@ -28,12 +29,12 @@ services:
       - HOST_SYS=/host/sys
       - HOST_DEV=/host/dev
       - HOST_ETC=/host/etc
+      - HOST_ROOT=/host
     restart: unless-stopped
     restart_delay: 5s
     mem_limit: 512m
     cpus: "2.0"
     pids_limit: 256
-    read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
     cap_drop:
@@ -41,6 +42,8 @@ services:
     cap_add:
       - NET_BIND_SERVICE
       - SYS_PTRACE
+      - SYS_ADMIN
+      - SYS_CHROOT
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 15s

@@ -109,6 +109,21 @@ func resolveHostPath(userPath string) (string, error) {
 }
 
 func checkDangerousPath(path string) bool {
+	// 容器模式下（HOST_ROOT已配置），允许查看宿主机所有目录
+	// 仅阻止对容器自身关键路径的写操作
+	if hostpath.Enabled() {
+		containerOnly := map[string]bool{
+			"/proc": true, "/sys": true, "/dev": true,
+		}
+		lowerPath := strings.ToLower(filepath.Clean(path))
+		for dangerous := range containerOnly {
+			if strings.HasPrefix(lowerPath, dangerous) {
+				return true
+			}
+		}
+		return false
+	}
+	// 非容器模式：阻止访问系统关键目录
 	lowerPath := strings.ToLower(filepath.Clean(path))
 	for dangerous := range dangerousPaths {
 		if strings.HasPrefix(lowerPath, strings.ToLower(dangerous)) {
@@ -250,12 +265,17 @@ func Delete(path string) error {
 }
 
 func Mkdir(path string) error {
-	safeName := SanitizeFileName(path)
-	if safeName == "" {
+	if path == "" {
 		return fmt.Errorf("invalid directory name")
 	}
 
-	validatedPath, err := resolveHostPath(safeName)
+	// 验证路径安全性，保留完整路径（不截断为文件名）
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "." || cleanPath == ".." {
+		return fmt.Errorf("invalid directory name")
+	}
+
+	validatedPath, err := resolveHostPath(cleanPath)
 	if err != nil {
 		return fmt.Errorf("path validation failed: %w", err)
 	}

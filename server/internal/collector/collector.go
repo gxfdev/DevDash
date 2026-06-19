@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gxfdev/DevDash/server/internal/hostpath"
 	"github.com/gxfdev/DevDash/server/internal/model"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -165,7 +166,12 @@ func (c *Collector) collectDisk(_ context.Context) model.DiskMetrics {
 	var best disk.UsageStat
 	var found bool
 	for _, p := range partitions {
-		u, err := disk.Usage(p.Mountpoint)
+		// 容器模式下，将主机挂载点映射到容器内路径
+		mountpoint := p.Mountpoint
+		if hostpath.Enabled() {
+			mountpoint = hostpath.ToContainer(mountpoint)
+		}
+		u, err := disk.Usage(mountpoint)
 		if err != nil || u.Total == 0 {
 			continue
 		}

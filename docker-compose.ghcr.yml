@@ -30,6 +30,7 @@ services:
       - HOST_ETC=/host/etc
       - HOST_ROOT=/host
     restart: unless-stopped
+    pid: host
     mem_limit: 512m
     cpus: "2.0"
     cap_add:

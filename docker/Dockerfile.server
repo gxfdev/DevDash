@@ -50,12 +50,11 @@ ARG VERSION=dev
 # - tzdata: 时区支持
 # - curl: 健康检查
 # - util-linux: 提供 nsenter，容器内访问主机命名空间
-RUN apk add --no-cache ca-certificates tzdata curl util-linux \
+# - bash: 脚本执行默认解释器
+# - coreutils: 提供 crontab 等基础工具
+RUN apk add --no-cache ca-certificates tzdata curl util-linux bash coreutils \
     && rm -rf /var/cache/apk/* \
-    && addgroup -S devdash \
-    && adduser -S devdash -G devdash \
-    && mkdir -p /data \
-    && chown devdash:devdash /data
+    && mkdir -p /data
 
 LABEL org.opencontainers.image.title="DevDash" \
       org.opencontainers.image.description="Lightweight server monitoring dashboard" \
@@ -70,6 +69,7 @@ ENV GIN_MODE=release
 ENV PORT=9090
 ENV DB_PATH=/data/devdash.db
 ENV STATIC_DIR=/srv/www
+ENV HOST_ROOT=/host
 ENV HOST_PROC=/host/proc
 ENV HOST_SYS=/host/sys
 ENV HOST_DEV=/host/dev
@@ -77,10 +77,6 @@ ENV HOST_ETC=/host/etc
 
 COPY --from=server-builder /build/devdash /usr/local/bin/devdash
 COPY --from=web-builder /build/web/dist /srv/www
-
-RUN chown -R devdash:devdash /srv/www
-
-USER devdash
 
 EXPOSE 9090
 

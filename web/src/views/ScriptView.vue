@@ -54,10 +54,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, h } from 'vue'
+import { ref, onMounted, computed, h } from 'vue'
 import { NButton, NTag, NPopconfirm, useMessage } from 'naive-ui'
 import AppLayout from '@/components/AppLayout.vue'
-import { scriptAPI } from '@/api'
+import { scriptAPI, authAPI } from '@/api'
 import { getErrorMessage } from '@/api/client'
 
 const message = useMessage()
@@ -69,11 +69,11 @@ const showResult = ref(false)
 const saving = ref(false)
 const execLoading = ref(false)
 const editingId = ref<number | null>(null)
-const isWindows = navigator.userAgent.indexOf('Windows') > -1
-const form = ref({ name: '', interpreter: isWindows ? 'powershell' : '/bin/bash', description: '', content: '' })
+const isWindows = ref(navigator.userAgent.indexOf('Windows') > -1)
+const form = ref({ name: '', interpreter: isWindows.value ? 'powershell' : '/bin/bash', description: '', content: '' })
 const execResult = ref<{ exit_code: number; output: string; duration_ms: number }>({ exit_code: 0, output: '', duration_ms: 0 })
 
-const interpreterOptions = isWindows ? [
+const interpreterOptions = computed(() => isWindows.value ? [
   { label: 'PowerShell (powershell)', value: 'powershell' },
   { label: 'PowerShell (pwsh)', value: 'pwsh' },
   { label: 'CMD (cmd)', value: 'cmd' },
@@ -86,7 +86,7 @@ const interpreterOptions = isWindows ? [
   { label: 'Python (/usr/bin/python)', value: '/usr/bin/python' },
   { label: 'Node.js (/usr/bin/node)', value: '/usr/bin/node' },
   { label: 'Perl (/usr/bin/perl)', value: '/usr/bin/perl' },
-]
+])
 
 const columns = [
   { title: '名称', key: 'name', width: 160 },
@@ -125,7 +125,7 @@ async function fetchScripts() {
 
 function openCreate() {
   editingId.value = null
-  form.value = { name: '', interpreter: isWindows ? 'powershell' : '/bin/bash', description: '', content: '' }
+  form.value = { name: '', interpreter: isWindows.value ? 'powershell' : '/bin/bash', description: '', content: '' }
   showEditor.value = true
 }
 
@@ -134,7 +134,7 @@ async function openEdit(r: any) {
     const { data } = await scriptAPI.get(String(r.id))
     form.value = {
       name: data.name || '',
-      interpreter: data.interpreter || (isWindows ? 'powershell' : '/bin/bash'),
+      interpreter: data.interpreter || (isWindows.value ? 'powershell' : '/bin/bash'),
       description: data.description || '',
       content: data.content || '',
     }
@@ -200,7 +200,13 @@ async function executeScript(r: any) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const { data: me } = await authAPI.me()
+    if (me.server_os) {
+      isWindows.value = me.server_os === 'windows'
+    }
+  } catch { /* fallback to browser UA */ }
   fetchScripts()
 })
 </script>

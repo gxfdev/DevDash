@@ -134,8 +134,9 @@
 无需克隆代码，直接拉取预构建镜像运行，**30 秒内启动**：
 
 ```bash
-# 0. 如已存在旧容器，先清理（首次部署可跳过）
+# 0. 如已存在旧容器和旧镜像，先清理（首次部署可跳过）
 docker rm -f devdash 2>/dev/null
+docker rmi ghcr.io/gxfdev/devdash:latest 2>/dev/null
 
 # Linux — 一键启动（完整功能：文件管理+脚本执行+定时任务）
 docker run -d \
@@ -295,16 +296,23 @@ docker ps                          # 查看运行状态
 docker logs -f devdash             # 查看实时日志
 docker restart devdash             # 重启容器
 
-# 更新到最新版（自动清理旧容器并重建）
+# 更新到最新版（清理旧容器+旧镜像，重新部署完整功能）
 docker pull ghcr.io/gxfdev/devdash:latest && \
 docker rm -f devdash && \
-docker run -d --name devdash --restart unless-stopped -p 9090:9090 \
-  -v devdash-data:/data -v /proc:/host/proc:ro -v /sys:/host/sys:ro \
+docker run -d --name devdash --restart unless-stopped \
+  --pid=host --cap-add SYS_PTRACE --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+  -p 9090:9090 \
+  -v devdash-data:/data -v /:/host:rw \
+  -v /proc:/host/proc:ro -v /sys:/host/sys:ro \
   -v /dev:/host/dev:ro -v /etc/hostname:/etc/hostname:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -e "JWT_SECRET=$(openssl rand -hex 32)" -e HOST_PROC=/host/proc \
-  -e HOST_SYS=/host/sys -e HOST_DEV=/host/dev -e HOST_ETC=/host/etc \
+  -e "JWT_SECRET=$(openssl rand -hex 32)" -e HOST_ROOT=/host \
+  -e HOST_PROC=/host/proc -e HOST_SYS=/host/sys \
+  -e HOST_DEV=/host/dev -e HOST_ETC=/host/etc \
   -e GIN_MODE=release -e TZ=Asia/Shanghai ghcr.io/gxfdev/devdash:latest
+
+# 清理悬空的旧镜像（释放磁盘空间）
+docker image prune -f
 
 # 备份数据
 docker cp devdash:/data/devdash.db ./backup-$(date +%Y%m%d).db
@@ -848,10 +856,16 @@ docker build -f docker/Dockerfile.server -t devdash:latest .
 docker images devdash:latest
 
 # 运行容器
-docker run -d --name devdash -p 9090:9090 \
+docker run -d --name devdash --restart unless-stopped \
+  --pid=host --cap-add SYS_PTRACE --cap-add SYS_ADMIN --cap-add SYS_CHROOT \
+  -p 9090:9090 \
   -v devdash-data:/data \
-  -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host:rw \
-  -e HOST_ROOT=/host -e JWT_SECRET=your-secret \
+  -v /:/host:rw -v /proc:/host/proc:ro -v /sys:/host/sys:ro \
+  -v /dev:/host/dev:ro -v /etc/hostname:/etc/hostname:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -e HOST_ROOT=/host -e HOST_PROC=/host/proc -e HOST_SYS=/host/sys \
+  -e HOST_DEV=/host/dev -e HOST_ETC=/host/etc \
+  -e JWT_SECRET=your-secret -e TZ=Asia/Shanghai \
   devdash:latest
 ```
 
@@ -1623,7 +1637,7 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 - 镜像地址：`ghcr.io/gxfdev/devdash:latest`
 - 支持架构：`linux/amd64` + `linux/arm64`
 - CI构建验证：[CI #57](https://github.com/gxfdev/DevDash/actions/runs/27692003852) ✅ 全部通过（8/8 jobs）
-- 快速部署：`docker run -d -p 9090:9090 -v devdash-data:/data -e JWT_SECRET=$(openssl rand -hex 32) ghcr.io/gxfdev/devdash:latest`
+- 快速部署：`docker rm -f devdash 2>/dev/null; docker rmi ghcr.io/gxfdev/devdash:latest 2>/dev/null; docker pull ghcr.io/gxfdev/devdash:latest && docker run -d --name devdash --pid=host --cap-add SYS_PTRACE --cap-add SYS_ADMIN --cap-add SYS_CHROOT -p 9090:9090 -v devdash-data:/data -v /:/host:rw -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /dev:/host/dev:ro -v /etc/hostname:/etc/hostname:ro -v /var/run/docker.sock:/var/run/docker.sock:ro -e JWT_SECRET=$(openssl rand -hex 32) -e HOST_ROOT=/host -e HOST_PROC=/host/proc -e HOST_SYS=/host/sys -e HOST_DEV=/host/dev -e HOST_ETC=/host/etc -e TZ=Asia/Shanghai ghcr.io/gxfdev/devdash:latest`
 
 ### v1.3.0 (2026-06-17) - 告警通知增强
 

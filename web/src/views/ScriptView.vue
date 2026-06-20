@@ -69,8 +69,9 @@ const showResult = ref(false)
 const saving = ref(false)
 const execLoading = ref(false)
 const editingId = ref<number | null>(null)
-const isWindows = ref(navigator.userAgent.indexOf('Windows') > -1)
-const form = ref({ name: '', interpreter: isWindows.value ? 'powershell' : '/bin/bash', description: '', content: '' })
+// 默认Linux，只有后端明确返回windows才用Windows
+const isWindows = ref(false)
+const form = ref({ name: '', interpreter: '/bin/bash', description: '', content: '' })
 const execResult = ref<{ exit_code: number; output: string; duration_ms: number }>({ exit_code: 0, output: '', duration_ms: 0 })
 
 const interpreterOptions = computed(() => isWindows.value ? [
@@ -203,10 +204,10 @@ async function executeScript(r: any) {
 onMounted(async () => {
   try {
     const { data: me } = await authAPI.me()
-    if (me.server_os) {
-      isWindows.value = me.server_os === 'windows'
+    if (me.server_os === 'windows') {
+      isWindows.value = true
     }
-  } catch { /* fallback to browser UA */ }
+  } catch { /* 默认Linux */ }
   fetchScripts()
 })
 </script>

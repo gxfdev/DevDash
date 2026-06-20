@@ -86,8 +86,9 @@ const showNewDir = ref(false)
 const newFileName = ref('')
 const newDirName = ref('')
 const fileInput = ref<HTMLInputElement>()
-// 根据服务器OS判断路径格式，而非浏览器UA（避免Windows浏览器访问Linux容器时路径错误）
-const isWindows = ref(navigator.userAgent.indexOf('Windows') > -1)
+// 默认Linux路径，只有后端明确返回windows时才用Windows路径
+// 不依赖浏览器UA（Windows浏览器访问Linux容器时会误判）
+const isWindows = ref(false)
 
 const showPreview = ref(false)
 const previewContent = ref<string | null>(null)
@@ -158,11 +159,6 @@ async function fetchDir() {
     const path = normalizePath(currentDir.value)
     const { data } = await fileAPI.list(path.replace(/\\/g, '/'))
     files.value = Array.isArray(data) ? data : []
-
-    if (isWindows.value && !dirs.value.some(d => d === 'C:\\')) {
-      const drives = ['C:\\', 'D:\\', 'E:\\']
-      dirs.value.unshift(...drives.filter(d => !dirs.value.includes(d)))
-    }
   } catch (e: unknown) {
     message.error('读取失败: ' + getErrorMessage(e, '未知错误'))
     files.value = []
@@ -257,13 +253,14 @@ async function doUpload(e: Event) {
 }
 
 onMounted(async () => {
-  // 从后端获取服务器OS，避免Windows浏览器访问Linux容器时路径错误
+  // 从后端获取服务器OS，只有明确返回windows才用Windows路径
+  // 默认Linux路径（此工具主要部署在Linux服务器/容器上）
   try {
     const { data: me } = await authAPI.me()
-    if (me.server_os) {
-      isWindows.value = me.server_os === 'windows'
+    if (me.server_os === 'windows') {
+      isWindows.value = true
     }
-  } catch { /* 使用浏览器UA作为fallback */ }
+  } catch { /* 默认Linux */ }
   currentDir.value = getDefaultRoot()
   dirs.value = [getDefaultRoot()]
   await fetchDir()

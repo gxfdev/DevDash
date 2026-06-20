@@ -1176,23 +1176,38 @@ func (s *Store) ListAlertRules() []map[string]any {
 	if !s.tableExists("alert_rules") {
 		return nil
 	}
-	rows, err := s.db.Query("SELECT id, name, metric, op, threshold, level, enabled FROM alert_rules ORDER BY id")
+	// 确保 channels 列存在（兼容旧表）
+	s.ensureColumn("alert_rules", "channels", "TEXT DEFAULT 'browser'", "TEXT DEFAULT 'browser'")
+	rows, err := s.db.Query("SELECT id, name, metric, op, threshold, level, enabled, channels FROM alert_rules ORDER BY id")
 	if err != nil {
-		return nil
+		// fallback: 旧表没有 channels 列
+		rows, err = s.db.Query("SELECT id, name, metric, op, threshold, level, enabled, 'browser' FROM alert_rules ORDER BY id")
+		if err != nil {
+			return nil
+		}
 	}
 	defer rows.Close()
 	var result []map[string]any
 	for rows.Next() {
 		var id int
-		var name, metric, op, level string
+		var name, metric, op, level, channelsStr string
 		var threshold float64
 		var enabled int
-		if err := rows.Scan(&id, &name, &metric, &op, &threshold, &level, &enabled); err != nil {
+		if err := rows.Scan(&id, &name, &metric, &op, &threshold, &level, &enabled, &channelsStr); err != nil {
 			continue
+		}
+		// 解析 channels（逗号分隔字符串）
+		channels := []string{"browser"}
+		if channelsStr != "" {
+			parts := strings.Split(channelsStr, ",")
+			if len(parts) > 0 {
+				channels = parts
+			}
 		}
 		result = append(result, map[string]any{
 			"id": id, "name": name, "metric": metric, "op": op,
 			"threshold": threshold, "level": level, "enabled": enabled != 0,
+			"channels": channels,
 		})
 	}
 	return result
@@ -1200,6 +1215,7 @@ func (s *Store) ListAlertRules() []map[string]any {
 
 func (s *Store) SaveAlertRule(rule map[string]any) error {
 	s.ensureAlertRulesTable()
+	s.ensureColumn("alert_rules", "channels", "TEXT DEFAULT 'browser'", "TEXT DEFAULT 'browser'")
 	id, _ := rule["id"].(float64)
 	name, _ := rule["name"].(string)
 	metric, _ := rule["metric"].(string)
@@ -1213,17 +1229,32 @@ func (s *Store) SaveAlertRule(rule map[string]any) error {
 	if e, ok := rule["enabled"].(bool); ok && !e {
 		enabled = 0
 	}
+	// 序列化 channels 为逗号分隔字符串
+	channelsStr := "browser"
+	if ch, ok := rule["channels"].([]string); ok && len(ch) > 0 {
+		channelsStr = strings.Join(ch, ",")
+	} else if ch, ok := rule["channels"].([]interface{}); ok && len(ch) > 0 {
+		parts := make([]string, 0, len(ch))
+		for _, c := range ch {
+			if s, ok := c.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		if len(parts) > 0 {
+			channelsStr = strings.Join(parts, ",")
+		}
+	}
 	if id > 0 {
 		_, err := s.db.Exec(
-			fmt.Sprintf("UPDATE alert_rules SET name=%s, metric=%s, op=%s, threshold=%s, level=%s, enabled=%s WHERE id=%s",
-				s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6), s.placeholder(7)),
-			name, metric, op, threshold, level, enabled, int(id),
+			fmt.Sprintf("UPDATE alert_rules SET name=%s, metric=%s, op=%s, threshold=%s, level=%s, enabled=%s, channels=%s WHERE id=%s",
+				s.placeholder(1), s.placeholder(2), s.placeholder(3), s.placeholder(4), s.placeholder(5), s.placeholder(6), s.placeholder(7), s.placeholder(8)),
+			name, metric, op, threshold, level, enabled, channelsStr, int(id),
 		)
 		return err
 	}
 	res, err := s.db.Exec(
-		fmt.Sprintf("INSERT INTO alert_rules (name, metric, op, threshold, level, enabled) VALUES (%s)", s.placeholders(6)),
-		name, metric, op, threshold, level, enabled,
+		fmt.Sprintf("INSERT INTO alert_rules (name, metric, op, threshold, level, enabled, channels) VALUES (%s)", s.placeholders(7)),
+		name, metric, op, threshold, level, enabled, channelsStr,
 	)
 	if err != nil {
 		return err

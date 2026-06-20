@@ -213,10 +213,9 @@ const POLL_INTERVAL = 15000
 
 const metricOptions = [
   { label: 'CPU 使用率', value: 'cpu' },
-  { label: '内存使用率', value: 'memory' },
+  { label: '内存使用率', value: 'mem' },
   { label: '磁盘使用率', value: 'disk' },
-  { label: '1分钟负载', value: 'load1' },
-  { label: '5分钟负载', value: 'load5' },
+  { label: '系统负载', value: 'load' },
 ]
 
 const opOptions = [
@@ -323,6 +322,12 @@ const ruleColumns = [
   { title: '级别', key: 'level', render: (r: any) => h(NTag, { type: (r.level || '') === 'critical' ? 'error' : 'warning', size: 'small' }, () => (r.level || '') === 'critical' ? '严重' : '警告') },
   { title: '渠道', key: 'channels', render: (r: any) => Array.isArray(r.channels) ? r.channels.join(', ') : 'browser' },
   { title: '状态', key: 'enabled', render: (r: any) => h(NTag, { size: 'small', type: r.enabled ? 'success' : 'default' }, () => r.enabled ? '启用' : '禁用') },
+  {
+    title: '操作', key: 'actions', width: 120,
+    render: (r: any) => h('div', { style: 'display:flex; gap:8px' }, [
+      h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => confirmDeleteRule(r) }, () => '删除'),
+    ]),
+  },
 ]
 
 async function addRule() {
@@ -336,6 +341,24 @@ async function addRule() {
   } catch (e: unknown) {
     message.error(getErrorMessage(e, '创建失败'))
   } finally { saving.value = false }
+}
+
+function confirmDeleteRule(rule: any) {
+  dialog.warning({
+    title: '删除告警规则',
+    content: `确定要删除该规则吗？指标：${metricOptions.find(m => m.value === rule.metric)?.label || rule.metric}`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await alertAPI.deleteRule(String(rule.id))
+        message.success('规则已删除')
+        await fetchAlerts()
+      } catch (e: unknown) {
+        message.error(getErrorMessage(e, '删除失败'))
+      }
+    },
+  })
 }
 
 async function silenceAlert(a: any) {

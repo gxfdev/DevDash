@@ -26,7 +26,13 @@ func createPtyProcess(shell string, cols, rows int16) (*ptyProcess, error) {
 	var cmd *exec.Cmd
 	if hostpath.Enabled() {
 		// 容器内：通过 nsenter 进入主机命名空间执行 shell
-		cmd = exec.Command("nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1", shell)
+		// 使用 /bin/sh 作为fallback，因为所有Linux发行版都有
+		// 如果请求的shell在主机上不存在，nsenter会失败
+		nsenterShell := shell
+		if nsenterShell == "" {
+			nsenterShell = "/bin/sh"
+		}
+		cmd = exec.Command("nsenter", "-m", "-u", "-i", "-n", "-p", "-t", "1", nsenterShell)
 	} else {
 		cmd = exec.Command(shell)
 	}

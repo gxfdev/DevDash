@@ -1508,6 +1508,18 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 
 ## 📝 更新日志
 
+### v1.8.0 (2026-06-19) - Linux容器适配修复
+
+**关键修复**：
+- ✅ **文件管理Linux适配** - 默认使用Linux路径`/`，移除浏览器UA依赖，仅在后端返回`server_os=windows`时切换Windows路径
+- ✅ **脚本管理Linux适配** - 默认解释器改为`/bin/bash`，移除浏览器UA判断
+- ✅ **终端nsenter优化** - 容器模式下通过nsenter进入主机命名空间执行shell，默认fallback到`/bin/sh`
+- ✅ **磁盘监控修复** - 容器模式下将主机挂载点映射到容器内路径，正确显示主机磁盘
+- ✅ **CPU监控修复** - 使用500ms延迟采集避免首次返回不准确值
+- ✅ **Dockerfile优化** - 移除非root用户限制（nsenter/crontab/docker.sock需要root），添加bash和coreutils依赖
+- ✅ **路径安全策略** - 容器模式下放宽系统目录限制，允许访问/etc、/root等主机目录
+- ✅ **Docker构建加速** - 添加BuildKit缓存挂载（npm和Go模块），移除不必要的python3/make/g++
+
 ### v1.7.0 (2026-06-19) - 运维脚本工具集
 
 **重大新功能**：

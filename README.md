@@ -129,6 +129,18 @@
 > 🐳 **Docker 镜像已发布到 GitHub Container Registry (GHCR)**，支持 `linux/amd64` 和 `linux/arm64` 双架构。
 > 镜像地址：`ghcr.io/gxfdev/devdash` | [查看所有版本](https://github.com/gxfdev/DevDash/pkgs/container/devdash)
 
+> ⚡ **国内加速拉取**：GHCR 在国内直连较慢，推荐使用镜像加速：
+> ```bash
+> # 方式1：使用南京大学镜像（免配置，直接替换前缀）
+> docker pull ghcr.nju.edu.cn/gxfdev/devdash:latest
+> docker tag ghcr.nju.edu.cn/gxfdev/devdash:latest ghcr.io/gxfdev/devdash:latest
+>
+> # 方式2：配置 Docker daemon 镜像加速（一次性配置，永久生效）
+> # /etc/docker/daemon.json 添加：
+> # { "registry-mirrors": ["https://ghcr.nju.edu.cn"] }
+> # 然后：systemctl restart docker
+> ```
+
 ### 方式一：一键 Docker 部署（推荐）
 
 无需克隆代码，直接拉取预构建镜像运行，**30 秒内启动**：
@@ -297,6 +309,7 @@ docker logs -f devdash             # 查看实时日志
 docker restart devdash             # 重启容器
 
 # 更新到最新版（清理旧容器+旧镜像，重新部署完整功能）
+# 国内用户可用 ghcr.nju.edu.cn 替换 ghcr.io 加速拉取
 docker pull ghcr.io/gxfdev/devdash:latest && \
 docker rm -f devdash && \
 docker run -d --name devdash --restart unless-stopped \

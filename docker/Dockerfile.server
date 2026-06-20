@@ -1,12 +1,13 @@
+# syntax=docker/dockerfile:1.7
+
 # ===== 阶段1: 前端构建 =====
 FROM node:20-alpine AS web-builder
 
-RUN apk add --no-cache python3 make g++ \
-    && rm -rf /var/cache/apk/*
-
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci --registry=https://registry.npmmirror.com
+# BuildKit缓存npm下载，npm ci自动按平台跳过不需要的optional依赖
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --registry=https://registry.npmmirror.com
 
 COPY web/ .
 ENV VITE_API_BASE_URL=/api/v1
@@ -29,10 +30,12 @@ ENV GOPROXY=https://goproxy.cn,direct
 
 WORKDIR /build
 COPY server/go.mod server/go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY server/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.vcsRef=${VCS_REF}" \
     -trimpath \
     -o /build/devdash ./cmd/server

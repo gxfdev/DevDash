@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1088,13 +1089,13 @@ func (s *Store) ListAlerts(nodeID string, limit int) []map[string]any {
 		var id int
 		var nid, nodeName, alertType, level, status, message string
 		var value, threshold float64
-		var t time.Time
-		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &t, &status, &message); err != nil {
+		var timeStr string
+		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &timeStr, &status, &message); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "node_name": nodeName, "type": alertType, "level": level,
-			"value": value, "threshold": threshold, "time": t, "status": status, "message": message,
+			"value": value, "threshold": threshold, "time": parseTimeStr(timeStr), "status": status, "message": message,
 		})
 	}
 	return result
@@ -1117,16 +1118,42 @@ func (s *Store) ListActiveAlerts(nodeID string) []map[string]any {
 		var id int
 		var nid, nodeName, alertType, level, status, message string
 		var value, threshold float64
-		var t time.Time
-		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &t, &status, &message); err != nil {
+		var timeStr string
+		if err := rows.Scan(&id, &nid, &nodeName, &alertType, &level, &value, &threshold, &timeStr, &status, &message); err != nil {
 			continue
 		}
 		result = append(result, map[string]any{
 			"id": id, "node_id": nid, "node_name": nodeName, "type": alertType, "level": level,
-			"value": value, "threshold": threshold, "time": t, "status": status, "message": message,
+			"value": value, "threshold": threshold, "time": parseTimeStr(timeStr), "status": status, "message": message,
 		})
 	}
 	return result
+}
+
+// parseTimeStr 解析 SQLite/PostgreSQL 返回的时间字符串，返回 Unix 时间戳（秒）
+func parseTimeStr(s string) int64 {
+	if s == "" {
+		return time.Now().Unix()
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Unix()
+		}
+	}
+	// 尝试直接解析为 Unix 时间戳
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return n
+	}
+	return time.Now().Unix()
 }
 
 func (s *Store) SilenceAlert(id int) error {

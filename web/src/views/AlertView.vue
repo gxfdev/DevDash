@@ -227,19 +227,28 @@ const opOptions = [
 
 function formatTime(ts: string | number): string {
   if (!ts) return '--'
-  let num: number
+  // 如果是数字（Unix时间戳，秒或毫秒）
   if (typeof ts === 'number') {
-    num = ts
-  } else if (typeof ts === 'string') {
-    num = parseInt(ts, 10)
-    if (isNaN(num)) {
-      try { return new Date(ts).toLocaleString('zh-CN', { hour12: false }) } catch { return ts }
-    }
-  } else {
-    return String(ts)
+    let num = ts
+    if (num > 9999999999) num = Math.floor(num / 1000)
+    try { return new Date(num * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return String(num) }
   }
-  if (num > 9999999999) num = Math.floor(num / 1000)
-  try { return new Date(num * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return String(num) }
+  // 如果是字符串，先尝试解析为ISO日期（后端time.Time序列化格式）
+  if (typeof ts === 'string') {
+    const parsed = Date.parse(ts)
+    if (!isNaN(parsed)) {
+      try { return new Date(parsed).toLocaleString('zh-CN', { hour12: false }) } catch { return ts }
+    }
+    // 尝试解析为纯数字字符串（Unix时间戳）
+    const num = parseInt(ts, 10)
+    if (!isNaN(num)) {
+      let n = num
+      if (n > 9999999999) n = Math.floor(n / 1000)
+      try { return new Date(n * 1000).toLocaleString('zh-CN', { hour12: false }) } catch { return ts }
+    }
+    return ts
+  }
+  return String(ts)
 }
 
 function showBrowserNotification(alert: { metric?: string; node_name?: string; value?: number; id?: string | number; message?: string }) {
@@ -305,9 +314,9 @@ function stopPolling() {
 }
 
 const historyColumns = [
-  { title: '时间', key: 'time', render: (r: any) => formatTime(String(r.time || r.created_at || Date.now())) },
+  { title: '时间', key: 'time', render: (r: any) => formatTime(r.time || r.created_at) },
   { title: '节点', key: 'node_name', render: (r: any) => r.node_name || '本机' },
-  { title: '指标', key: 'metric', render: (r: any) => r.metric || '--' },
+  { title: '指标', key: 'type', render: (r: any) => metricOptions.find(m => m.value === (r.type || r.metric))?.label || r.type || r.metric || '--' },
   { title: '值', key: 'value', render: (r: any) => typeof r.value === 'number' ? r.value.toFixed(1) + '%' : '--' },
   {
     title: '级别', key: 'level',

@@ -8,7 +8,7 @@
         </n-space>
       </div>
 
-      <n-data-table :columns="columns" :data="scripts" :bordered="false" :loading="loading" :row-key="(r:any) => r.id || String(Math.random())" />
+      <n-data-table :columns="columns" :data="scripts" :bordered="false" :loading="loading" :row-key="(r:any) => r?.id ?? String(Math.random())" />
 
       <n-modal v-model:show="showEditor" preset="card" :title="editingId ? '编辑脚本' : '新建脚本'" style="width:700px;max-height:85vh">
         <n-form :model="form" label-placement="top">

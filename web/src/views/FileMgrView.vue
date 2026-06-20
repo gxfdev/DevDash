@@ -33,7 +33,7 @@
               :data="files"
               size="small"
               :bordered="false"
-              :row-key="(row: any) => String(row.path || row.name || Math.random())"
+              :row-key="(row: any) => String(row?.path ?? row?.name ?? Math.random())"
               :key="'files-' + currentDir"
               :scroll-x="800"
               flex-height

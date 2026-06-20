@@ -385,6 +385,7 @@ func (s *Store) ensureKVTable() {
 }
 
 func (s *Store) GetKV(key string) (string, error) {
+	s.ensureKVTable()
 	var value string
 	err := s.db.QueryRow(fmt.Sprintf("SELECT value FROM kv_store WHERE key = %s", s.placeholder(1)), key).Scan(&value)
 	if err == sql.ErrNoRows {

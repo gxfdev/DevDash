@@ -320,8 +320,8 @@ func (s *TerminalSession) resolvedShell() string {
 
 func isAllowedShell(shell string) bool {
 	allowed := []string{
-		"/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/fish", "/bin/csh", "/bin/tcsh", "/bin/ksh",
-		"/usr/bin/sh", "/usr/bin/bash", "/usr/bin/zsh", "/usr/bin/dash", "/usr/bin/fish", "/usr/bin/csh", "/usr/bin/tcsh", "/usr/bin/ksh",
+		"/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/fish", "/bin/csh", "/bin/tcsh", "/bin/ksh", "/bin/ash", "/bin/busybox",
+		"/usr/bin/sh", "/usr/bin/bash", "/usr/bin/zsh", "/usr/bin/dash", "/usr/bin/fish", "/usr/bin/csh", "/usr/bin/tcsh", "/usr/bin/ksh", "/usr/bin/ash", "/usr/bin/busybox",
 		"/usr/local/bin/fish", "/usr/local/bin/zsh", "/usr/local/bin/bash",
 		"cmd.exe", "powershell.exe", "pwsh.exe",
 	}
@@ -385,6 +385,8 @@ func AvailableShells() []ShellOption {
 			{"Fish", "/usr/bin/fish"},
 			{"Fish", "/usr/local/bin/fish"},
 			{"Dash", "/bin/dash"},
+			{"Ash", "/bin/ash"},
+			{"Ash", "/usr/bin/ash"},
 			{"Sh", "/bin/sh"},
 		}
 		seen := map[string]bool{}

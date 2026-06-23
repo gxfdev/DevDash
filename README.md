@@ -238,18 +238,24 @@ sudo tee /etc/docker/daemon.json <<'EOF'
 EOF
 sudo systemctl daemon-reload && sudo systemctl restart docker
 
-# 4. 拉取并运行 DevDash
+# 4. 拉取并运行 DevDash（完整功能：Web终端+文件管理+Docker管理）
 docker run -d \
   --name devdash \
   --restart unless-stopped \
+  --pid=host \
+  --cap-add SYS_PTRACE \
+  --cap-add SYS_ADMIN \
+  --cap-add SYS_CHROOT \
   -p 9090:9090 \
   -v devdash-data:/data \
+  -v /:/host:rw \
   -v /proc:/host/proc:ro \
   -v /sys:/host/sys:ro \
   -v /dev:/host/dev:ro \
   -v /etc/hostname:/etc/hostname:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e "JWT_SECRET=$(openssl rand -hex 32)" \
+  -e HOST_ROOT=/host \
   -e HOST_PROC=/host/proc \
   -e HOST_SYS=/host/sys \
   -e HOST_DEV=/host/dev \

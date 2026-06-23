@@ -1,0 +1,80 @@
+flowchart TB
+    subgraph Actors
+        Admin["👤 管理员(Admin)"]
+        Viewer["👤 普通用户(Viewer)"]
+        System["⚙️ 系统(System)"]
+    end
+
+    subgraph Monitor["监控功能"]
+        UC1["📊 实时监控仪表盘"]
+        UC2["📈 趋势分析与对比"]
+        UC13["🔄 数据采集存储"]
+    end
+
+    subgraph Alert["告警功能"]
+        UC6["⚙️ 告警规则配置"]
+        UC7["🔔 告警通知查看"]
+        UC14["⚠️ 异常检测告警"]
+    end
+
+    subgraph Manage["管理功能"]
+        UC3["📁 文件管理"]
+        UC4["💻 Web终端操作"]
+        UC5["⏰ 计划任务管理"]
+        UC8["🐳 容器监控管理"]
+        UC9["📜 脚本管理执行"]
+        UC10["👥 用户权限管理"]
+        UC11["📋 审计日志查看"]
+        UC12["⚙️ 系统配置"]
+        UC15["🔐 认证鉴权"]
+    end
+
+    Admin -->|查看实时指标| UC1
+    Admin -->|分析历史趋势| UC2
+    Admin -->|浏览/编辑/上传文件| UC3
+    Admin -->|执行Shell命令| UC4
+    Admin -->|创建/编辑/删除定时任务| UC5
+    Admin -->|配置告警规则与通知渠道| UC6
+    Admin -->|查看告警记录与状态| UC7
+    Admin -->|查看/管理Docker容器| UC8
+    Admin -->|编写/执行运维脚本| UC9
+    Admin -->|管理用户账号与角色| UC10
+    Admin -->|查看操作审计日志| UC11
+    Admin -->|修改系统参数| UC12
+
+    Viewer -->|查看只读仪表盘| UC1
+    Viewer -->|查看历史趋势图| UC2
+    Viewer -->|查看告警通知| UC7
+
+    System -->|定时采集CPU/内存/磁盘/网络| UC13
+    System -->|阈值比较+触发告警| UC14
+    System -->|JWT令牌验证+RBAC| UC15
+
+    UC1 -.->|include| UC13
+    UC2 -.->|include| UC13
+    UC6 -.->|include| UC14
+    UC3 -.->|extend| UC15
+    UC4 -.->|extend| UC15
+    UC5 -.->|extend| UC15
+    UC8 -.->|extend| UC15
+    UC9 -.->|extend| UC15
+    UC10 -.->|extend| UC15
+
+    style Admin fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style Viewer fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style System fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style UC1 fill:#bbdefb,stroke:#1565c0
+    style UC2 fill:#bbdefb,stroke:#1565c0
+    style UC3 fill:#c8e6c9,stroke:#2e7d32
+    style UC4 fill:#c8e6c9,stroke:#2e7d32
+    style UC5 fill:#c8e6c9,stroke:#2e7d32
+    style UC6 fill:#fff3e0,stroke:#e65100
+    style UC7 fill:#fff3e0,stroke:#e65100
+    style UC8 fill:#c8e6c9,stroke:#2e7d32
+    style UC9 fill:#c8e6c9,stroke:#2e7d32
+    style UC10 fill:#c8e6c9,stroke:#2e7d32
+    style UC11 fill:#c8e6c9,stroke:#2e7d32
+    style UC12 fill:#c8e6c9,stroke:#2e7d32
+    style UC13 fill:#fce4ec,stroke:#c62828
+    style UC14 fill:#fce4ec,stroke:#c62828
+    style UC15 fill:#fce4ec,stroke:#c62828

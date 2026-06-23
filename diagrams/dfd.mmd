@@ -1,0 +1,114 @@
+flowchart LR
+    subgraph 外部实体["  外部实体  "]
+        U["👤 运维用户"]
+        OS["🖥️ 宿主机系统"]
+        FS["📧 飞书/钉钉/邮件"]
+        DK["🐳 Docker引擎"]
+    end
+
+    subgraph 系统["  DevDash 系统内部  "]
+        subgraph P1["P1 数据采集处理"]
+            direction TB
+            P1_1["1.1 定时触发器"]
+            P1_2["1.2 gopsutil采集器"]
+            P1_3["1.3 速率计算器"]
+            P1_4["1.4 数据校验/缓存"]
+        end
+
+        subgraph P2["P2 认证与鉴权"]
+            direction TB
+            P2_1["2.1 登录验证"]
+            P2_2["2.2 JWT令牌生成"]
+            P2_3["2.3 RBAC权限检查"]
+            P2_4["2.4 速率限制"]
+        end
+
+        subgraph P3["P3 监控数据处理"]
+            direction TB
+            P3_1["3.1 实时数据聚合"]
+            P3_2["3.2 历史数据查询"]
+            P3_3["3.3 趋势分析计算"]
+            P3_4["3.3 WebSocket推送"]
+        end
+
+        subgraph P4["P4 告警引擎"]
+            direction TB
+            P4_1["4.1 规则匹配"]
+            P4_2["4.2 阈值比较"]
+            P4_3["4.3 冷却期管理"]
+            P4_4["4.4 通知分发"]
+        end
+
+        subgraph P5["P5 资源管理"]
+            direction TB
+            P5_1["5.1 文件浏览/编辑"]
+            P5_2["5.2 终端命令执行"]
+            P5_3["5.3 计划任务调度"]
+            P5_4["5.4 容器状态查询"]
+        end
+
+        D1[("D1\nmetrics\n监控数据")]
+        D2[("D2\nalerts\n告警记录")]
+        D3[("D3\nalert_rules\n告警规则")]
+        D4[("D4\nusers\n用户信息")]
+        D5[("D5\ncron_jobs\n计划任务")]
+        D6[("D6\naudit_logs\n审计日志")]
+    end
+
+    %% 外部到系统的数据流
+    U -->|"D1:登录请求\n(用户名/密码)"| P2
+    P2 -->|"D2:JWT令牌\n+刷新令牌"| U
+    U -->|"D3:API请求\n(带Token)"| P2
+    P2 -->|"D4:授权通过"| P3
+    P2 -->|"D5:授权通过"| P5
+    P3 -->|"D6:实时指标数据\n(JSON)"| U
+    P3 -->|"D7:历史趋势数据\n(JSON)"| U
+
+    %% 采集数据流
+    OS -->|"F1:CPU/内存/磁盘\n/网络原始数据"| P1_2
+    P1_2 -->|"F2:采集结果\n(Snapshot)"| P1_3
+    P1_3 -->|"F3:含速率的\n完整快照"| P1_4
+    P1_4 -->|"F4:写入metrics表"| D1
+    P1_4 -->|"F5:推送实时数据"| P3_1
+
+    %% 监控数据处理流
+    P3_1 <-->|"F6:读取/缓存"| D1
+    P3_2 -->|"F7:历史查询SQL"| D1
+    P3_3 -->|"F8:趋势计算结果"| P3_2
+    P3_4 -->|"F9:WS推送"| U
+
+    %% 告警引擎数据流
+    P1_4 -->|"F10:最新Snapshot"| P4
+    D3 -->|"F11:加载告警规则"| P4_1
+    P4_2 -->|"F12:超阈值判断"| P4_1
+    P4_3 -->|"F13:冷却检查通过"| P4_4
+    P4_4 -->|"F14:告警记录"| D2
+    P4_4 -->|"F15:通知消息"| FS
+
+    %% 资源管理数据流
+    P5_1 <-->|"F16:文件操作"| OS
+    P5_2 -->|"F17:Shell命令"| OS
+    P5_3 -->|"F18:Cron表达式解析"| D5
+    P5_3 -->|"F19:任务执行日志"| D6
+    DK -->|"F20:容器状态API"| P5_4
+    P5_4 -->|"F21:容器列表/日志"| P3
+
+    %% 审计
+    P2 -->|"F22:认证日志"| D6
+    P5 -->|"F23:操作日志"| D6
+    D4 <-->|"F24:用户CRUD"| P2
+
+    %% 样式
+    style 外部实体 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style 系统 fill:#fafafa,stroke:#424242,stroke-width:2px
+    style P1 fill:#e8f5e9,stroke:#2e7d32
+    style P2 fill:#fff3e0,stroke:#e65100
+    style P3 fill:#fce4ec,stroke:#c62828
+    style P4 fill:#f3e5f5,stroke:#6a1b9a
+    style P5 fill:#e0f7fa,stroke:#00695c
+    style D1 fill:#bbdefb,stroke:#1565c0,shape:cylinder
+    style D2 fill:#bbdefb,stroke:#1565c0,shape:cylinder
+    style D3 fill:#bbdefb,stroke:#1565c0,shape:cylinder
+    style D4 fill:#bbdefb,stroke:#1565c0,shape:cylinder
+    style D5 fill:#bbdefb,stroke:#1565c0,shape:cylinder
+    style D6 fill:#bbdefb,stroke:#1565c0,shape:cylinder

@@ -36,21 +36,21 @@ func init() {
 }
 
 type Collector struct {
-	mu            sync.RWMutex
-	lastNet       psnet.IOCountersStat
-	lastNetTime   time.Time
-	lastRecv      uint64
-	lastSent      uint64
-	lastRecvRate  float64
-	lastSentRate  float64
-	prevCPUPer    float64
-	prevCPUTime   time.Time
-	lastDiskRead  uint64
-	lastDiskWrite uint64
-	lastDiskTime  time.Time
+	mu                sync.RWMutex
+	lastNet           psnet.IOCountersStat
+	lastNetTime       time.Time
+	lastRecv          uint64
+	lastSent          uint64
+	lastRecvRate      float64
+	lastSentRate      float64
+	prevCPUPer        float64
+	prevCPUTime       time.Time
+	lastDiskRead      uint64
+	lastDiskWrite     uint64
+	lastDiskTime      time.Time
 	lastDiskReadRate  float64
 	lastDiskWriteRate float64
-	gpu           *GPUCollector
+	gpu               *GPUCollector
 }
 
 func NewCollector() *Collector {

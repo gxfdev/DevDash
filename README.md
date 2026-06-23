@@ -273,8 +273,8 @@ ip addr show | grep "inet " | grep -v 127.0.0.1
 
 ```bash
 # 使用特定版本（推荐生产环境固定版本）
-docker pull ghcr.io/gxfdev/devdash:v1.7.0
-docker run -d ... ghcr.io/gxfdev/devdash:v1.7.0
+docker pull ghcr.io/gxfdev/devdash:v1.8.1
+docker run -d ... ghcr.io/gxfdev/devdash:v1.8.1
 
 # 查看所有可用版本
 # https://github.com/gxfdev/DevDash/pkgs/container/devdash
@@ -903,7 +903,7 @@ DevDash遵循 [Semantic Versioning](https://semver.org/)：
 | 标签 | 说明 | 示例 |
 |------|------|------|
 | `latest` | 最新稳定版 | `ghcr.io/gxfdev/devdash:latest` |
-| `vX.Y.Z` | 完整版本号 | `ghcr.io/gxfdev/devdash:v1.7.0` |
+| `vX.Y.Z` | 完整版本号 | `ghcr.io/gxfdev/devdash:v1.8.1` |
 | `X.Y` | 主次版本 | `ghcr.io/gxfdev/devdash:1.7` |
 | `X` | 主版本 | `ghcr.io/gxfdev/devdash:1` |
 | `sha-xxxxxx` | Git提交哈希 | `ghcr.io/gxfdev/devdash:sha-2232c4f` |
@@ -913,12 +913,12 @@ DevDash遵循 [Semantic Versioning](https://semver.org/)：
 ```bash
 # 方式一：使用脚本（推荐）
 chmod +x docker/build-push-ghcr.sh
-./docker/build-push-ghcr.sh v1.7.0
+./docker/build-push-ghcr.sh v1.8.1
 
 # 方式二：手动操作
-docker tag devdash:latest ghcr.io/gxfdev/devdash:v1.7.0
+docker tag devdash:latest ghcr.io/gxfdev/devdash:v1.8.1
 docker tag devdash:latest ghcr.io/gxfdev/devdash:latest
-docker push ghcr.io/gxfdev/devdash:v1.7.0
+docker push ghcr.io/gxfdev/devdash:v1.8.1
 docker push ghcr.io/gxfdev/devdash:latest
 ```
 
@@ -927,10 +927,10 @@ docker push ghcr.io/gxfdev/devdash:latest
 推送git tag自动触发GitHub Actions构建并推送（见 [`.github/workflows/release.yml`](docker/../.github/workflows/release.yml)）：
 
 ```bash
-git tag v1.7.0
-git push origin v1.7.0
+git tag v1.8.1
+git push origin v1.8.1
 # → 自动构建 linux/amd64 + linux/arm64 双架构镜像
-# → 推送到 ghcr.io/gxfdev/devdash:v1.7.0
+# → 推送到 ghcr.io/gxfdev/devdash:v1.8.1
 # → 创建 GitHub Release
 ```
 
@@ -941,7 +941,7 @@ git push origin v1.7.0
 docker pull ghcr.io/gxfdev/devdash:latest
 
 # 拉取指定版本
-docker pull ghcr.io/gxfdev/devdash:v1.7.0
+docker pull ghcr.io/gxfdev/devdash:v1.8.1
 ```
 
 ---
@@ -1138,7 +1138,7 @@ kubectl -n devdash port-forward svc/devdash 9090:9090
 ./k8s/deploy.sh status
 
 # 更新镜像
-./k8s/deploy.sh upgrade ghcr.io/gxfdev/devdash:v1.7.0
+./k8s/deploy.sh upgrade ghcr.io/gxfdev/devdash:v1.8.1
 
 # 查看日志
 ./k8s/deploy.sh logs
@@ -1534,6 +1534,22 @@ A: Windows 版本需要 CGO 编译（ConPTY 终端支持），需要安装 [MinG
 ---
 
 ## 📝 更新日志
+
+### v1.8.1 (2026-06-23) - 监控曲线精度修复 + 技术文档完善
+
+**关键修复**：
+- ✅ **CPU采集精度提升** - per-core CPU使用率采集增加200ms采样延迟窗口，避免间隔过短返回0或不准确值
+- ✅ **网络速率曲线全0修复** - 后端增加`lastRecvRate`/`lastSentRate`速率缓存，采集间隔<0.5s时自动复用上次速率；前端速率为0时从累计字节数推算
+- ✅ **磁盘IO速率曲线全0修复** - 同网络速率修复方案，后端增加`lastDiskReadRate`/`lastDiskWriteRate`缓存；前端回退到累计读写量差分计算
+- ✅ **计数器重置负值保护** - 网络和磁盘计数器在系统重启后可能重置，增加负值检测将差值置0防止曲线异常尖峰
+- ✅ **TrendsView速率回退不生效** - 速率判断条件从`!== null`改为`!== null && > 0`，确保零值触发累计推算逻辑
+- ✅ **技术文档生成** - 新增论文格式技术文档（封面/中英文摘要/目录/EER图/流程图/时序图/参考文献）
+- ✅ **图表目录补充** - 新增diagrams/目录包含EER图、认证/采集/终端流程图、告警/采集/容器/登录时序图
+
+**变更文件**：
+- `server/internal/collector/collector.go` - CPU/网络/磁盘采集逻辑优化
+- `web/src/views/DashboardView.vue` - 历史数据速率回退计算
+- `web/src/views/TrendsView.vue` - 速率系列回退条件修复
 
 ### v1.8.0 (2026-06-19) - Linux容器适配修复
 

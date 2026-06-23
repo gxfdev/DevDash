@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    participant F as 前端
+    participant G as Gin后端
+    participant HP as hostpath模块
+    participant FM as filemgr模块
+    participant N as nsenter
+    participant H as 宿主机PID 1
+    participant S as Store数据库
+
+    F->>G: POST /api/v1/scripts/execute
+    G->>HP: Enabled()?
+    HP-->>G: 容器模式状态
+    G->>FM: resolveHostPath()
+    FM-->>G: 映射后路径
+    G->>N: exec.Command("nsenter","-m","-u","-i","-n","-p","-t","1",...)
+    N->>H: 执行shell命令
+    H-->>N: 命令输出
+    N-->>G: CombinedOutput()
+    G->>S: SaveAuditLog()
+    S-->>G: 日志保存成功
+    G-->>F: 返回执行结果JSON

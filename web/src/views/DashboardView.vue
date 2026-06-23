@@ -526,14 +526,50 @@ function handleResize() {
 
 const GAP_THRESHOLD_MS = 120000
 
-function pushHistoryPoint(h: any, t: number) {
+function pushHistoryPoint(h: any, t: number, prevH: any | null) {
   cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
   memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
   diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
-  diskReadData.push([t, typeof h.disk_io?.read_rate_mb === 'number' ? h.disk_io.read_rate_mb : 0])
-  diskWriteData.push([t, typeof h.disk_io?.write_rate_mb === 'number' ? h.disk_io.write_rate_mb : 0])
-  netRecvData.push([t, typeof h.network?.recv_rate_mb === 'number' ? h.network.recv_rate_mb : 0])
-  netSentData.push([t, typeof h.network?.sent_rate_mb === 'number' ? h.network.sent_rate_mb : 0])
+
+  // 磁盘IO速率：优先使用后端计算的速率，否则从累计值推算
+  let diskReadRate = typeof h.disk_io?.read_rate_mb === 'number' && h.disk_io.read_rate_mb > 0
+    ? h.disk_io.read_rate_mb : 0
+  let diskWriteRate = typeof h.disk_io?.write_rate_mb === 'number' && h.disk_io.write_rate_mb > 0
+    ? h.disk_io.write_rate_mb : 0
+  if (diskReadRate === 0 && diskWriteRate === 0 && prevH) {
+    const prevT = new Date(prevH.timestamp).getTime()
+    const dtSec = (t - prevT) / 1000
+    if (dtSec > 0) {
+      const prevReadMB = prevH.disk_io?.read_mb ?? 0
+      const prevWriteMB = prevH.disk_io?.write_mb ?? 0
+      const curReadMB = h.disk_io?.read_mb ?? 0
+      const curWriteMB = h.disk_io?.write_mb ?? 0
+      if (curReadMB > prevReadMB) diskReadRate = (curReadMB - prevReadMB) / dtSec
+      if (curWriteMB > prevWriteMB) diskWriteRate = (curWriteMB - prevWriteMB) / dtSec
+    }
+  }
+  diskReadData.push([t, parseFloat(diskReadRate.toFixed(4))])
+  diskWriteData.push([t, parseFloat(diskWriteRate.toFixed(4))])
+
+  // 网络速率：优先使用后端计算的速率，否则从累计值推算
+  let netRecvRate = typeof h.network?.recv_rate_mb === 'number' && h.network.recv_rate_mb > 0
+    ? h.network.recv_rate_mb : 0
+  let netSentRate = typeof h.network?.sent_rate_mb === 'number' && h.network.sent_rate_mb > 0
+    ? h.network.sent_rate_mb : 0
+  if (netRecvRate === 0 && netSentRate === 0 && prevH) {
+    const prevT = new Date(prevH.timestamp).getTime()
+    const dtSec = (t - prevT) / 1000
+    if (dtSec > 0) {
+      const prevRecv = prevH.network?.bytes_recv ?? 0
+      const prevSent = prevH.network?.bytes_sent ?? 0
+      const curRecv = h.network?.bytes_recv ?? 0
+      const curSent = h.network?.bytes_sent ?? 0
+      if (curRecv > prevRecv) netRecvRate = (curRecv - prevRecv) / 1024 / 1024 / dtSec
+      if (curSent > prevSent) netSentRate = (curSent - prevSent) / 1024 / 1024 / dtSec
+    }
+  }
+  netRecvData.push([t, parseFloat(netRecvRate.toFixed(4))])
+  netSentData.push([t, parseFloat(netSentRate.toFixed(4))])
 }
 
 function pushZeroPoint(ts: number) {
@@ -568,7 +604,7 @@ onMounted(async () => {
           }
         }
 
-        pushHistoryPoint(h, t)
+        pushHistoryPoint(h, t, i > 0 ? hist[i - 1] : null)
       }
       while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
       updateCharts()

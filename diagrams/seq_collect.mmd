@@ -1,0 +1,51 @@
+sequenceDiagram
+    autonumber
+    participant T as 定时器
+    participant C as Collector
+    participant G as gopsutil
+    participant H as Handler
+    participant S as Store数据库
+    participant AE as Alert Engine
+    participant N as 通知渠道
+    participant W as 前端WebSocket
+
+    T->>C: 触发采集(5秒间隔)
+    C->>C: 创建30秒超时context
+    par 并发采集
+        C->>G: cpu.Percent(500ms)
+        G-->>C: CPU使用率
+    and
+        C->>G: mem.VirtualMemory()
+        G-->>C: 内存数据
+    and
+        C->>G: disk.Partitions()+Usage()
+        G-->>C: 磁盘数据
+    and
+        C->>G: net.IOCounters()
+        G-->>C: 网络数据
+    end
+    C->>G: load.Avg()/host.Info()
+    G-->>C: 负载/主机信息
+    C->>H: 返回Snapshot结构体
+    H->>S: SaveSnapshot()
+    S-->>H: 存储完成
+    H->>AE: checkThresholds(snap)
+    AE->>S: ListAlertRules()
+    S-->>AE: 告警规则列表
+    loop 遍历每条规则
+        AE->>AE: 规则匹配+冷却检查
+        alt 超过阈值且不在冷却期
+            AE->>S: SaveAlert()
+            AE->>AE: setCooldown(key)
+            par 异步通知
+                AE->>N: 飞书Webhook
+            and
+                AE->>N: 钉钉Webhook
+            and
+                AE->>N: SMTP邮件
+            and
+                AE->>N: 自定义Webhook
+            end
+        end
+    end
+    H->>W: 推送Snapshot实时数据

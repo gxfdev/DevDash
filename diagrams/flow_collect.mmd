@@ -1,0 +1,28 @@
+flowchart TD
+    A([定时器触发采集]) --> B[创建30秒超时context]
+    B --> C[并发采集CPU/内存/磁盘/网络]
+    C --> D{采集成功?}
+    D -- 否 --> E[记录错误日志]
+    D -- 是 --> F[采集GPU/传感器/进程/TCP连接]
+    F --> G[组装Snapshot结构体]
+    G --> H[持久化到metrics表]
+    H --> I{存储成功?}
+    I -- 否 --> E
+    I -- 是 --> J[更新内存缓存cachedSnapshot]
+    J --> K[加载所有启用的告警规则]
+    K --> L{有规则?}
+    L -- 否 --> Z([流程结束])
+    L -- 是 --> M[遍历规则比较指标值与阈值]
+    M --> N{超过阈值?}
+    N -- 否 --> M2[下一条规则] --> L
+    N -- 是 --> O[检查告警冷却300秒]
+    O --> P{在冷却期?}
+    P -- 是 --> M2
+    P -- 否 --> Q[生成告警记录存入alerts表]
+    Q --> R[异步发送通知]
+    R --> Z
+
+    style A fill:#e1f5fe
+    style Z fill:#e8f5e9
+    style E fill:#ffebee
+    style R fill:#fff3e0

@@ -1,0 +1,30 @@
+flowchart TD
+    A([用户输入用户名密码]) --> B{用户名密码非空?}
+    B -- 否 --> C1[返回400错误]
+    B -- 是 --> C2[验证用户名格式]
+    C2 --> D{格式合法?}
+    D -- 否 --> C1
+    D -- 是 --> E[检查IP登录频率限制]
+    E --> F{超过限制?}
+    F -- 是 --> G[返回429错误]
+    F -- 否 --> H[查询数据库用户记录]
+    H --> I{用户存在?}
+    I -- 否 --> J[记录失败日志返回401]
+    I -- 是 --> K[bcrypt验证密码哈希]
+    K --> L{密码匹配?}
+    L -- 否 --> J
+    L -- 是 --> M[重置登录尝试计数]
+    M --> N[生成JWT令牌对]
+    N --> O{生成成功?}
+    O -- 否 --> P[返回500错误]
+    O -- 是 --> Q[设置CSRF和refresh_token Cookie]
+    Q --> R[返回access_token给前端]
+    R --> S([流程结束])
+
+    style A fill:#e1f5fe
+    style S fill:#e8f5e9
+    style C1 fill:#ffebee
+    style G fill:#ffebee
+    style J fill:#ffebee
+    style P fill:#ffebee
+    style R fill:#fff3e0

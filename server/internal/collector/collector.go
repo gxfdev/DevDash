@@ -41,11 +41,15 @@ type Collector struct {
 	lastNetTime   time.Time
 	lastRecv      uint64
 	lastSent      uint64
+	lastRecvRate  float64
+	lastSentRate  float64
 	prevCPUPer    float64
 	prevCPUTime   time.Time
 	lastDiskRead  uint64
 	lastDiskWrite uint64
 	lastDiskTime  time.Time
+	lastDiskReadRate  float64
+	lastDiskWriteRate float64
 	gpu           *GPUCollector
 }
 
@@ -118,7 +122,7 @@ func (c *Collector) Collect() (*model.Snapshot, error) {
 
 func (c *Collector) collectCPU(_ context.Context) model.CPUMetrics {
 	m := model.CPUMetrics{Cores: runtime.NumCPU()}
-	// 使用500ms延迟采集，避免首次调用返回0或不准确的值
+	// 先采集总体CPU使用率（500ms延迟采样）
 	if p, err := cpu.Percent(500*time.Millisecond, false); err == nil && len(p) > 0 {
 		c.mu.Lock()
 		c.prevCPUPer = p[0]
@@ -126,7 +130,8 @@ func (c *Collector) collectCPU(_ context.Context) model.CPUMetrics {
 		m.UsagePercent = round(p[0])
 		c.mu.Unlock()
 	}
-	if p, err := cpu.Percent(0, true); err == nil {
+	// 再采集每核心使用率（使用短延迟确保数据准确）
+	if p, err := cpu.Percent(200*time.Millisecond, true); err == nil {
 		for _, v := range p {
 			m.PerCoreUsage = append(m.PerCoreUsage, round(v))
 		}
@@ -206,19 +211,33 @@ func (c *Collector) collectNetwork(_ context.Context) model.NetworkMetrics {
 		c.lastNetTime = now
 		c.lastRecv = cur.BytesRecv
 		c.lastSent = cur.BytesSent
+		// 首次采集无法计算速率，返回0
 		return m
 	}
 	elapsed := now.Sub(c.lastNetTime).Seconds()
-	if elapsed > 0 {
+	if elapsed > 0.5 {
 		recvDiff := cur.BytesRecv - c.lastRecv
 		sentDiff := cur.BytesSent - c.lastSent
+		// 防止计数器重置导致负值
+		if recvDiff < 0 {
+			recvDiff = 0
+		}
+		if sentDiff < 0 {
+			sentDiff = 0
+		}
 		m.RecvRateMB = round4(float64(recvDiff) / elapsed / 1024 / 1024)
 		m.SentRateMB = round4(float64(sentDiff) / elapsed / 1024 / 1024)
+	} else if !c.lastNetTime.IsZero() {
+		// 间隔太短，使用上次的速率
+		m.RecvRateMB = c.lastRecvRate
+		m.SentRateMB = c.lastSentRate
 	}
 	c.lastNet = cur
 	c.lastNetTime = now
 	c.lastRecv = cur.BytesRecv
 	c.lastSent = cur.BytesSent
+	c.lastRecvRate = m.RecvRateMB
+	c.lastSentRate = m.SentRateMB
 	return m
 }
 
@@ -341,14 +360,29 @@ func (c *Collector) collectDiskIO(_ context.Context) *model.DiskIOMetrics {
 	now := time.Now()
 	if !c.lastDiskTime.IsZero() {
 		elapsed := now.Sub(c.lastDiskTime).Seconds()
-		if elapsed > 0 {
-			m.ReadRateMB = round4(float64(rB-c.lastDiskRead) / 1024 / 1024 / elapsed)
-			m.WriteRateMB = round4(float64(wB-c.lastDiskWrite) / 1024 / 1024 / elapsed)
+		if elapsed > 0.5 {
+			readDiff := rB - c.lastDiskRead
+			writeDiff := wB - c.lastDiskWrite
+			// 防止计数器重置导致负值
+			if readDiff < 0 {
+				readDiff = 0
+			}
+			if writeDiff < 0 {
+				writeDiff = 0
+			}
+			m.ReadRateMB = round4(float64(readDiff) / 1024 / 1024 / elapsed)
+			m.WriteRateMB = round4(float64(writeDiff) / 1024 / 1024 / elapsed)
+		} else {
+			// 间隔太短，使用上次的速率
+			m.ReadRateMB = c.lastDiskReadRate
+			m.WriteRateMB = c.lastDiskWriteRate
 		}
 	}
 	c.lastDiskRead = rB
 	c.lastDiskWrite = wB
 	c.lastDiskTime = now
+	c.lastDiskReadRate = m.ReadRateMB
+	c.lastDiskWriteRate = m.WriteRateMB
 	c.mu.Unlock()
 	return m
 }

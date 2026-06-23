@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant U as 用户浏览器
+    participant V as Vue前端
+    participant G as Gin后端
+    participant A as Auth模块
+    participant S as Store数据库
+
+    U->>V: 输入用户名密码点击登录
+    V->>G: POST /api/auth/login
+    G->>A: ValidateUsername()
+    A-->>G: 校验结果
+    G->>A: CheckLoginRateLimit(ip)
+    A-->>G: 限制检查结果
+    G->>S: GetUserByUsername()
+    S-->>G: 用户记录
+    G->>A: CheckPassword(hash, pwd)
+    A-->>G: bcrypt验证结果
+    alt 密码正确
+        G->>A: GenerateTokenPair()
+        A-->>G: JWT令牌对
+        G-->>V: SetCookie(refresh_token) + JSON响应
+        V->>V: 保存access_token到Pinia
+        V-->>U: 跳转至Dashboard页面
+    else 密码错误
+        G-->>V: 返回401错误
+        V-->>U: 显示错误提示
+    end

@@ -1,0 +1,26 @@
+flowchart TD
+    A([前端建立WebSocket连接]) --> B{连接成功?}
+    B -- 否 --> A2[重试连接] --> A
+    B -- 是 --> C[后端验证JWT令牌]
+    C --> D{令牌有效?}
+    D -- 否 --> E[关闭连接]
+    D -- 是 --> F[确定Shell类型bash/sh]
+    F --> G{容器模式?}
+    G -- 是 --> H[通过nsenter进入宿主机命名空间]
+    G -- 否 --> I[创建PTY/ConPty伪终端进程]
+    H --> I
+    I --> J{创建成功?}
+    J -- 否 --> E
+    J -- 是 --> K[启动读写goroutine]
+    K --> L{连接存活?}
+    L -- 否 --> N[清理终端资源关闭进程]
+    L -- 是 --> M[前端发送按键输入]
+    M --> O[写入伪终端主输入端]
+    O --> P[读取伪终端输出回传前端]
+    P --> L
+    N --> Z([流程结束])
+
+    style A fill:#e1f5fe
+    style Z fill:#e8f5e9
+    style E fill:#ffebee
+    style N fill:#fff3e0

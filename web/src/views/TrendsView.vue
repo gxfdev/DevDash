@@ -583,7 +583,7 @@ function pushData() {
     const ts = toTs(h.timestamp)
     const readRateMB = getVal(h, ['disk_io.read_rate_mb', 'read_rate_mb'])
     if (readMB === null) return [ts, null]
-    if (readRateMB !== null) return [ts, readRateMB]
+    if (readRateMB !== null && readRateMB > 0) return [ts, readRateMB]
     if (i === 0) return [ts, 0]
     const prevReadMB = getVal(historyData.value[i - 1], ['disk_io.read_mb', 'read_mb'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
@@ -597,7 +597,7 @@ function pushData() {
     const ts = toTs(h.timestamp)
     const writeRateMB = getVal(h, ['disk_io.write_rate_mb', 'write_rate_mb'])
     if (writeMB === null) return [ts, null]
-    if (writeRateMB !== null) return [ts, writeRateMB]
+    if (writeRateMB !== null && writeRateMB > 0) return [ts, writeRateMB]
     if (i === 0) return [ts, 0]
     const prevWriteMB = getVal(historyData.value[i - 1], ['disk_io.write_mb', 'write_mb'])
     const prevTs = toTs(historyData.value[i - 1].timestamp)
@@ -609,7 +609,7 @@ function pushData() {
   const netRecvSeries = historyData.value.map((h: any, i: number) => {
     const ts = toTs(h.timestamp)
     const recvRateMB = getVal(h, ['network.recv_rate_mb', 'recv_rate_mb'])
-    if (recvRateMB !== null) return [ts, recvRateMB]
+    if (recvRateMB !== null && recvRateMB > 0) return [ts, recvRateMB]
     if (i === 0) return [ts, 0]
     const recv = getVal(h, ['network.bytes_recv', 'bytes_recv'])
     const prevRecv = getVal(historyData.value[i - 1], ['network.bytes_recv', 'bytes_recv'])
@@ -623,7 +623,7 @@ function pushData() {
   const netSentSeries = historyData.value.map((h: any, i: number) => {
     const ts = toTs(h.timestamp)
     const sentRateMB = getVal(h, ['network.sent_rate_mb', 'sent_rate_mb'])
-    if (sentRateMB !== null) return [ts, sentRateMB]
+    if (sentRateMB !== null && sentRateMB > 0) return [ts, sentRateMB]
     if (i === 0) return [ts, 0]
     const sent = getVal(h, ['network.bytes_sent', 'bytes_sent'])
     const prevSent = getVal(historyData.value[i - 1], ['network.bytes_sent', 'bytes_sent'])

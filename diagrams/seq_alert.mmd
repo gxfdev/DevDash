@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    participant AE as Alert Engine
+    participant S as Store数据库
+    participant F as 飞书API
+    participant D as 钉钉API
+    participant M as SMTP服务器
+    participant W as 自定义Webhook
+    participant L as 日志系统
+
+    AE->>AE: 检测到指标超阈值
+    AE->>AE: isInCooldown(key)?
+    alt 在冷却期
+        AE->>L: 跳过告警(冷却中)
+    else 不在冷却期
+        AE->>AE: setCooldown(key)
+        AE->>S: SaveAlert()
+        S-->>AE: 保存成功
+        AE->>AE: GetConfig()
+        par 异步发送通知
+            AE->>F: POST Webhook(交互式卡片)
+            F-->>AE: HTTP 200
+            AE->>L: 记录飞书发送结果
+        and
+            AE->>D: POST Webhook(Markdown+HMAC签名)
+            D-->>AE: HTTP 200
+            AE->>L: 记录钉钉发送结果
+        and
+            AE->>M: SendMail(HTML邮件)
+            M-->>AE: 发送成功
+            AE->>L: 记录邮件发送结果
+        and
+            AE->>W: POST JSON Payload
+            W-->>AE: HTTP 200
+            AE->>L: 记录Webhook发送结果
+        end
+    end

@@ -1,0 +1,125 @@
+erDiagram
+    USERS ||--o{ AUDIT_LOGS : "产生"
+    CRON_JOBS ||--o{ CRON_JOB_LOGS : "执行记录"
+    ALERT_RULES ||--o{ ALERTS : "触发"
+    METRICS ||--o{ ALERTS : "关联节点"
+    USERS ||--o{ FILE_OPERATIONS : "操作"
+
+    USERS {
+        int id PK
+        string username UK
+        string password_hash
+        string role
+        int otp_enabled
+        int must_change_pwd
+    }
+
+    METRICS {
+        int id PK
+        string node_id
+        datetime timestamp
+        real cpu_usage
+        int cpu_cores
+        real mem_total_gb
+        real mem_used_gb
+        real mem_usage_percent
+        real disk_total_gb
+        real disk_used_gb
+        real disk_usage_percent
+        bigint net_bytes_recv
+        bigint net_bytes_sent
+        real load1
+        real load5
+        real load15
+    }
+
+    ALERTS {
+        int id PK
+        string node_id
+        string node_name
+        string metric
+        string message
+        string level
+        real value
+        real threshold
+        string status
+        datetime timestamp
+    }
+
+    ALERT_RULES {
+        int id PK
+        string name
+        string metric
+        string op
+        real threshold
+        string level
+        int enabled
+        string channels
+        datetime created_at
+        datetime updated_at
+    }
+
+    CRON_JOBS {
+        int id PK
+        string node_id
+        string name
+        string expression
+        string command
+        string type
+        int enabled
+        bigint last_run
+    }
+
+    AUDIT_LOGS {
+        int id PK
+        int user_id FK
+        string node_id
+        string action
+        string detail
+        string result
+        datetime time
+    }
+
+    FILE_OPERATIONS {
+        int id PK
+        string node_id
+        string operation
+        string path
+        string name
+        string ext
+        bigint size
+        int is_dir
+        datetime timestamp
+    }
+
+    SCRIPTS {
+        int id PK
+        string name
+        string interpreter
+        string description
+        text content
+        datetime created_at
+        datetime updated_at
+    }
+
+    COMMAND_HISTORY {
+        int id PK
+        string command
+        datetime timestamp
+    }
+
+    CRON_JOB_LOGS {
+        int id PK
+        int job_id FK
+        string command
+        string output
+        int exit_code
+        bigint duration_ms
+        datetime timestamp
+    }
+
+    KV_STORE {
+        string key PK
+        text value
+        datetime updated_at
+    }

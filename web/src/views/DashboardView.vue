@@ -1,679 +1,313 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import {
+  SpeedometerOutline, HardwareChipOutline, ServerOutline, LayersOutline,
+  CloudDownloadOutline, CubeOutline, SparklesOutline, WarningOutline,
+  CheckmarkCircleOutline, ArrowForwardOutline,
+} from '@vicons/ionicons5'
+import { systemApi, serviceApi } from '@/api'
+import { usePlatformStore } from '@/stores/platform'
+import { fmtGB, fmtPct, timeAgo, statusOf, fmtUptime } from '@/utils/format'
+import type { MetricPoint, Service } from '@/types'
+import StatCard from '@/components/StatCard.vue'
+import TrendChart from '@/components/TrendChart.vue'
+
+const platform = usePlatformStore()
+const router = useRouter()
+const points = ref<MetricPoint[]>([])
+const services = ref<Service[]>([])
+const range = ref('1h')
+const loading = ref(false)
+let timer: number | undefined
+
+const labels = computed(() =>
+  points.value.map((p) => {
+    const d = new Date(p.ts * 1000)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }),
+)
+const cpuSeries = computed(() => [{ name: 'CPU', values: points.value.map((p) => p.cpu), color: '#7c5cff' }])
+const memSeries = computed(() => [
+  { name: '内存', values: points.value.map((p) => p.memory), color: '#22d3ee' },
+  { name: '磁盘', values: points.value.map((p) => p.disk), color: '#f59e0b' },
+])
+const netSeries = computed(() => [
+  { name: '入站', values: points.value.map((p) => p.net_rx), color: '#34d399' },
+  { name: '出站', values: points.value.map((p) => p.net_tx), color: '#f472b6' },
+])
+
+const ov = computed(() => platform.overview)
+const metrics = computed(() => ov.value?.metrics)
+const gpu = computed(() => ov.value?.metrics?.gpu)
+const host = computed(() => ov.value?.host)
+const engine = computed(() => ov.value?.engine)
+const alerts = computed(() => ov.value?.alerts || [])
+const runningServices = computed(() =>
+  services.value.filter((s) => s.status === 'running').slice(0, 5),
+)
+const usageToday = computed(() => ov.value?.usage?.today)
+
+async function loadHistory() {
+  try {
+    const res = await systemApi.metrics(range.value)
+    points.value = res.points || []
+  } catch { /* ignore */ }
+}
+async function loadServices() {
+  try {
+    const res = await serviceApi.list()
+    services.value = res.services || []
+  } catch { /* ignore */ }
+}
+async function refreshAll() {
+  loading.value = true
+  await Promise.all([platform.refresh(), loadHistory(), loadServices()])
+  loading.value = false
+}
+
+onMounted(() => {
+  refreshAll()
+  timer = window.setInterval(() => {
+    platform.refresh()
+    loadHistory()
+    loadServices()
+  }, 10000)
+})
+onBeforeUnmount(() => {
+  if (timer) window.clearInterval(timer)
+})
+
+function setRange(r: string) {
+  range.value = r
+  loadHistory()
+}
+</script>
+
 <template>
-  <app-layout>
-    <div class="page">
-      <div class="page-header">
-        <h2>全局仪表板</h2>
-        <div style="display:flex;gap:8px;align-items:center">
-          <span v-if="snap.current" class="last-update">更新于 {{ formatTime(snap.current.timestamp) }}</span>
-          <n-button size="small" @click="refresh" :loading="snap.loading">
-            <template #icon><refresh-icon /></template>刷新
-          </n-button>
-        </div>
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">驾驶舱 <span class="live-dot" /></h1>
+        <p class="page-sub">
+          {{ ov?.edition || 'AIDash 单机 AI 操作系统' }} ·
+          {{ host?.hostname || '本机' }} · {{ host?.platform }} {{ host?.platform_version }} ·
+          已运行 {{ fmtUptime(ov?.uptime_seconds) }}
+        </p>
       </div>
-
-      <div class="summary-row">
-        <metric-card label="系统状态" value="运行中" :sub="uptimeLabel" color="#58a6ff" />
-        <metric-card label="CPU 使用率" :value="cpuLabel" :sub="coresLabel" color="#3fb950" />
-        <metric-card label="内存使用率" :value="memLabel" :sub="memSubLabel" color="#bc8cff" />
-        <metric-card label="磁盘使用率" :value="diskLabel" :sub="diskSubLabel" color="#f0883e" />
-        <metric-card label="网络收发" :value="netLabel" :sub="netSubLabel" color="#d29922" />
-        <metric-card v-if="!isWindows" label="负载(1m)" :value="loadLabel" :sub="loadSubLabel" color="#f85149" />
-        <metric-card v-else label="负载(1m)" value="--" sub="Windows 不支持此指标" color="#6e7681" />
+      <div class="row gap-8">
+        <n-button size="small" quaternary :loading="loading" @click="refreshAll">刷新</n-button>
+        <n-button size="small" type="primary" ghost @click="router.push('/models')">
+          <template #icon><n-icon :component="SparklesOutline" /></template>
+          部署模型
+        </n-button>
       </div>
+    </div>
 
-      <div class="monitor-grid">
-        <div class="monitor-panel">
-          <div class="panel-header">
-            <span class="panel-dot" style="background:#3fb950"></span>
-            <span class="panel-title">CPU 监控</span>
-            <span class="panel-value" style="color:#3fb950">{{ cpuLabel }}</span>
-          </div>
-          <div class="panel-sub">{{ coresLabel }}</div>
-          <div ref="cpuChartRef" class="panel-chart" />
-        </div>
-
-        <div class="monitor-panel">
-          <div class="panel-header">
-            <span class="panel-dot" style="background:#bc8cff"></span>
-            <span class="panel-title">内存使用</span>
-            <span class="panel-value" style="color:#bc8cff">{{ memLabel }}</span>
-          </div>
-          <div class="panel-sub">{{ memSubLabel }}</div>
-          <div ref="memChartRef" class="panel-chart" />
-        </div>
-
-        <div class="monitor-panel">
-          <div class="panel-header">
-            <span class="panel-dot" style="background:#f0883e"></span>
-            <span class="panel-title">磁盘状态</span>
-            <span class="panel-value" style="color:#f0883e">{{ diskLabel }}</span>
-          </div>
-          <div class="panel-sub">{{ diskSubLabel }}</div>
-          <div ref="diskChartRef" class="panel-chart" />
-        </div>
-
-        <div class="monitor-panel">
-          <div class="panel-header">
-            <span class="panel-dot" style="background:#d29922"></span>
-            <span class="panel-title">网络流量</span>
-            <span class="panel-value" style="color:#d29922">{{ netLabel }}</span>
-          </div>
-          <div class="panel-sub">{{ netSubLabel }}</div>
-          <div ref="netChartRef" class="panel-chart" />
-        </div>
-      </div>
-
-      <div v-if="snap.current" class="info-grid">
-        <div class="info-card">
-          <div class="info-title">系统信息</div>
-          <div class="info-row"><span>主机名</span><span>{{ snap.current.host?.hostname }}</span></div>
-          <div class="info-row"><span>操作系统</span><span>{{ snap.current.host?.platform }} {{ snap.current.host?.platform_version }}</span></div>
-          <div class="info-row"><span>运行时长</span><span>{{ uptimeLabel }}</span></div>
-          <div class="info-row"><span>CPU 核心</span><span>{{ snap.cpuCores }} 核</span></div>
-        </div>
-        <div class="info-card">
-          <div class="info-title">网络连接</div>
-          <div class="info-row"><span>TCP 已建立</span><span class="ok">{{ snap.current.tcp_conns?.established ?? 0 }}</span></div>
-          <div class="info-row"><span>LISTEN</span><span>{{ snap.current.tcp_conns?.listen ?? 0 }}</span></div>
-          <div class="info-row"><span>TIME_WAIT</span><span>{{ snap.current.tcp_conns?.time_wait ?? 0 }}</span></div>
-          <div class="info-row"><span>CLOSE_WAIT</span><span>{{ snap.current.tcp_conns?.close_wait ?? 0 }}</span></div>
-        </div>
-        <div class="info-card">
-          <div class="info-title">磁盘 IO</div>
-          <div class="info-row"><span>累计读取</span><span>{{ snap.current.disk_io?.read_mb ? (snap.current.disk_io.read_mb / 1024).toFixed(1) + ' GB' : '--' }}</span></div>
-          <div class="info-row"><span>累计写入</span><span>{{ snap.current.disk_io?.write_mb ? (snap.current.disk_io.write_mb / 1024).toFixed(1) + ' GB' : '--' }}</span></div>
-        </div>
-      </div>
-
-      <div v-if="alertItems.length" class="alert-section">
-        <div class="alert-title">⚠️ 触发告警</div>
-        <div class="alert-list">
-          <div v-for="a in alertItems" :key="a.id" class="alert-item">
-            <span class="alert-node">{{ a.node }}</span>
-            <span class="alert-reason">{{ a.msg }}</span>
-          </div>
+    <div v-if="alerts.length" class="alert-strip glass-soft">
+      <n-icon :component="WarningOutline" :size="18" style="color: #fbbf24" />
+      <div class="alert-items">
+        <div v-for="(a, i) in alerts" :key="i" class="alert-item" :class="a.level">
+          <b>{{ a.title }}</b><span>{{ a.detail }}</span>
         </div>
       </div>
     </div>
-  </app-layout>
+
+    <div class="kpis">
+      <StatCard label="CPU 使用率" :value="fmtPct(metrics?.cpu?.usage_percent)" :percent="metrics?.cpu?.usage_percent"
+        :hint="`${metrics?.cpu?.cores || 0} 核 · 负载 ${metrics?.load?.load1?.toFixed(2) || '-'}`" :icon="SpeedometerOutline" tone="#7c5cff" />
+      <StatCard label="内存使用" :value="fmtPct(metrics?.memory?.usage_percent)" :percent="metrics?.memory?.usage_percent"
+        :hint="`${metrics?.memory?.used_gb?.toFixed(1) || 0} / ${metrics?.memory?.total_gb?.toFixed(1) || 0} GB`" :icon="HardwareChipOutline" tone="#22d3ee" />
+      <StatCard label="磁盘占用" :value="fmtPct(metrics?.disk?.usage_percent)" :percent="metrics?.disk?.usage_percent"
+        :hint="`可用 ${fmtGB(metrics?.disk?.free_gb)} / 共 ${fmtGB(metrics?.disk?.total_gb)}`" :icon="ServerOutline" tone="#f59e0b" />
+      <StatCard label="运行中的 AI 服务" :value="`${ov?.services?.running || 0}`" :suffix="`/ ${ov?.services?.total || 0}`"
+        :percent="ov?.services?.total ? ((ov?.services?.running || 0) / ov.services.total) * 100 : 0"
+        :hint="`模型 ${ov?.services?.models_running || 0}/${ov?.services?.models || 0} · 宿主机权限 ${ov?.services?.host_access || 0}`" :icon="LayersOutline" tone="#34d399" />
+    </div>
+
+    <div v-if="gpu" class="gpu-strip glass">
+      <div class="gpu-main">
+        <div class="gpu-label"><n-icon :component="HardwareChipOutline" :size="16" /> GPU · {{ gpu.name }}</div>
+        <div class="gpu-metric"><span>{{ fmtPct(gpu.usage_percent) }}</span><small>利用率</small></div>
+        <div class="gpu-metric"><span>{{ gpu.mem_used_mb?.toFixed(0) || 0 }}</span><small>/ {{ gpu.mem_total_mb?.toFixed(0) }} MB 显存</small></div>
+        <div class="gpu-metric"><span>{{ gpu.temperature?.toFixed(0) }}°C</span><small>温度</small></div>
+      </div>
+      <div class="gpu-track"><i :style="{ width: Math.min(100, gpu.usage_percent) + '%' }" /></div>
+    </div>
+
+    <div class="split-2" style="margin-top: 16px">
+      <div class="glass panel">
+        <div class="panel-head">
+          <div class="section-title"><span class="dot" />资源趋势</div>
+          <div class="range-tabs">
+            <button v-for="r in ['1h', '6h', '24h', '7d']" :key="r" :class="{ on: range === r }" @click="setRange(r)">{{ r }}</button>
+          </div>
+        </div>
+        <TrendChart :labels="labels" :series="cpuSeries" height="180px" :y-max="100" :show-legend="false" />
+        <TrendChart :labels="labels" :series="memSeries" height="140px" :y-max="100" :show-legend="true" />
+        <TrendChart :labels="labels" :series="netSeries" height="120px" :show-legend="true" :digits="2" />
+        <div class="chart-foot">
+          <span>数据点 {{ points.length }} 个 · 采样间隔 5s</span>
+          <span class="row gap-8">
+            <span class="legend"><i style="background:#7c5cff" />CPU</span>
+            <span class="legend"><i style="background:#22d3ee" />内存</span>
+            <span class="legend"><i style="background:#f59e0b" />磁盘</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="glass panel">
+          <div class="section-title"><span class="dot" />主机与引擎</div>
+          <div class="kv"><span class="k">操作系统</span><span class="v">{{ host?.platform }} {{ host?.platform_version }}</span></div>
+          <div class="kv"><span class="k">内核 / 架构</span><span class="v">{{ host?.kernel_version }} · {{ host?.arch }}</span></div>
+          <div class="kv"><span class="k">运行时长</span><span class="v">{{ fmtUptime(host?.uptime_seconds) }}</span></div>
+          <div class="kv">
+            <span class="k">Docker 引擎</span>
+            <span class="v">
+              <span class="badge" :class="engine?.connected ? 'ok' : 'bad'">
+                {{ engine?.connected ? `已连接 v${engine.version}` : '未连接' }}
+              </span>
+            </span>
+          </div>
+          <div class="kv"><span class="k">容器 / 镜像</span><span class="v">{{ engine?.containers || 0 }} / {{ engine?.images || 0 }}</span></div>
+          <div class="kv"><span class="k">引擎资源配置</span><span class="v">{{ engine?.cpus || 0 }} 核 · {{ engine?.memory_gb || 0 }} GB</span></div>
+          <div v-if="!engine?.connected" class="tip bad-tip">{{ engine?.error }}</div>
+        </div>
+
+        <div class="glass panel">
+          <div class="section-title"><span class="dot" />今日 AI 用量</div>
+          <div class="usage-row">
+            <div><div class="u-val">{{ usageToday?.requests || 0 }}</div><div class="u-label">调用次数</div></div>
+            <div><div class="u-val">{{ (usageToday?.total_tokens || 0).toLocaleString() }}</div><div class="u-label">Token 总量</div></div>
+          </div>
+          <div class="usage-mini">
+            <span>输入 {{ (usageToday?.prompt_tokens || 0).toLocaleString() }}</span>
+            <span>输出 {{ (usageToday?.completion_tokens || 0).toLocaleString() }}</span>
+          </div>
+          <n-button size="small" tertiary block style="margin-top: 14px" @click="router.push('/gateway')">
+            查看 AI 网关
+            <template #icon><n-icon :component="ArrowForwardOutline" /></template>
+          </n-button>
+        </div>
+      </div>
+    </div>
+
+    <div class="split-2" style="margin-top: 16px">
+      <div class="glass panel">
+        <div class="panel-head">
+          <div class="section-title"><span class="dot" />AI 服务</div>
+          <n-button text size="small" @click="router.push('/services')">全部服务 →</n-button>
+        </div>
+        <div v-if="!runningServices.length" class="placeholder-panel">
+          <n-icon :component="CloudDownloadOutline" :size="30" style="color: #4b5a7a" />
+          <div>还没有运行中的 AI 服务</div>
+          <n-button size="small" type="primary" @click="router.push('/models')">去模型广场一键部署</n-button>
+        </div>
+        <div v-for="s in runningServices" :key="s.id" class="svc-row" @click="router.push('/services')">
+          <div class="icon-chip svc-chip">
+            <n-icon :component="s.kind === 'model' ? SparklesOutline : CubeOutline" :size="18" />
+          </div>
+          <div class="svc-main">
+            <div class="svc-name">{{ s.name }}
+              <span v-if="s.host_access" class="badge warn" style="margin-left: 8px">宿主机权限</span>
+            </div>
+            <div class="svc-sub">{{ s.image }} · {{ s.model_name || '应用' }}</div>
+          </div>
+          <div class="svc-right">
+            <span class="badge" :class="statusOf(s.status).badge">{{ statusOf(s.status).label }}</span>
+            <div class="svc-time">{{ timeAgo(s.started_at || s.created_at) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass panel">
+        <div class="panel-head">
+          <div class="section-title"><span class="dot" />快捷操作</div>
+        </div>
+        <div class="quick-grid">
+          <button class="quick" @click="router.push('/models')">
+            <n-icon :component="SparklesOutline" :size="20" /><span>部署模型</span><small>Qwen / DeepSeek / vLLM</small>
+          </button>
+          <button class="quick" @click="router.push('/apps')">
+            <n-icon :component="CubeOutline" :size="20" /><span>部署 AI 应用</span><small>Open WebUI / n8n</small>
+          </button>
+          <button class="quick" @click="router.push('/containers')">
+            <n-icon :component="LayersOutline" :size="20" /><span>容器管理</span><small>日志 / 启停 / 镜像</small>
+          </button>
+          <button class="quick" @click="router.push('/gateway')">
+            <n-icon :component="CheckmarkCircleOutline" :size="20" /><span>API Key</span><small>网关与用量</small>
+          </button>
+        </div>
+        <div class="tip">
+          提示：AI 服务默认发布到宿主机端口；如需容器内访问服务器权限，请在部署时打开「宿主机权限（运维模式）」。
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { NButton } from 'naive-ui'
-import { Refresh as RefreshIcon } from '@vicons/ionicons5'
-import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent } from 'echarts/components'
-import { UniversalTransition } from 'echarts/features'
-import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent, UniversalTransition, CanvasRenderer])
-import AppLayout from '@/components/AppLayout.vue'
-import MetricCard from '@/components/MetricCard.vue'
-import { useSnapshotStore } from '@/stores/snapshot'
-import client from '@/api/client'
-
-const snap = useSnapshotStore()
-
-const cpuChartRef = ref<HTMLDivElement>()
-const memChartRef = ref<HTMLDivElement>()
-const diskChartRef = ref<HTMLDivElement>()
-const netChartRef = ref<HTMLDivElement>()
-let cpuChart: echarts.ECharts | null = null
-let memChart: echarts.ECharts | null = null
-let diskChart: echarts.ECharts | null = null
-let netChart: echarts.ECharts | null = null
-let pollTimer: ReturnType<typeof setInterval>
-
-const MAX_POINTS = 120
-const cpuData: [number, number][] = []
-const memData: [number, number][] = []
-const diskData: [number, number][] = []
-const diskReadData: [number, number][] = []
-const diskWriteData: [number, number][] = []
-const netRecvData: [number, number][] = []
-const netSentData: [number, number][] = []
-
-const isWindows = computed(() => {
-  const platform = snap.current?.host?.platform || ''
-  return platform.toLowerCase().includes('windows')
-})
-
-const cpuLabel = computed(() => snap.cpuPercent.toFixed(1) + '%')
-const coresLabel = computed(() => `核心数 ${snap.cpuCores}`)
-const memLabel = computed(() => snap.memPercent.toFixed(1) + '%')
-const memSubLabel = computed(() => {
-  const m = snap.current?.memory
-  if (!m) return '--'
-  return `${m.used_gb.toFixed(1)} / ${m.total_gb.toFixed(1)} GB`
-})
-const diskLabel = computed(() => snap.diskPercent.toFixed(1) + '%')
-const diskSubLabel = computed(() => {
-  const d = snap.current?.disk
-  if (!d) return '--'
-  return `${d.used_gb.toFixed(1)} / ${d.total_gb.toFixed(1)} GB`
-})
-const netLabel = computed(() => {
-  const cur = snap.current
-  if (!cur?.network) return '-- MB/s'
-  const r = typeof cur.network.recv_rate_mb === 'number' ? cur.network.recv_rate_mb : 0
-  const s = typeof cur.network.sent_rate_mb === 'number' ? cur.network.sent_rate_mb : 0
-  return `${(r + s).toFixed(3)} MB/s`
-})
-const netSubLabel = computed(() => {
-  const cur = snap.current
-  if (!cur?.network) return '\u2193 0  \u2191 0 MB/s'
-  const r = typeof cur.network.recv_rate_mb === 'number' ? cur.network.recv_rate_mb : 0
-  const s = typeof cur.network.sent_rate_mb === 'number' ? cur.network.sent_rate_mb : 0
-  return `\u2193 ${r.toFixed(3)}  \u2191 ${s.toFixed(3)} MB/s`
-})
-const loadLabel = computed(() => snap.load1.toFixed(2))
-const loadSubLabel = computed(() => {
-  const l = snap.current?.load
-  if (!l) return '--'
-  return `5m ${l.load5.toFixed(2)} / 15m ${l.load15.toFixed(2)}`
-})
-const uptimeLabel = computed(() => {
-  const s = snap.uptimeSeconds
-  if (!s) return '--'
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  return d > 0 ? `${d} 天 ${h} 小时` : `${h} 小时`
-})
-
-const alertItems = computed(() => {
-  const cur = snap.current
-  if (!cur) return []
-  const items: { id: number; node: string; msg: string }[] = []
-  if (cur.cpu.usage_percent > 80) items.push({ id: 1, node: cur.host?.hostname || '本地', msg: `CPU ${cur.cpu.usage_percent.toFixed(1)}%` })
-  if (cur.memory.usage_percent > 85) items.push({ id: 2, node: cur.host?.hostname || '本地', msg: `内存 ${cur.memory.usage_percent.toFixed(1)}%` })
-  if (cur.disk.usage_percent > 90) items.push({ id: 3, node: cur.host?.hostname || '本地', msg: `磁盘 ${cur.disk.usage_percent.toFixed(1)}%` })
-  return items
-})
-
-function formatTime(ts: string) {
-  try { return new Date(ts).toLocaleTimeString('zh-CN', { hour12: false }) }
-  catch { return ts }
-}
-
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  const r = parseInt(h.substring(0, 2), 16)
-  const g = parseInt(h.substring(2, 4), 16)
-  const b = parseInt(h.substring(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
-}
-
-function createGradientColor(color: string, opacity: number = 0.15): any {
-  const topColor = color.startsWith('#') ? hexToRgba(color, opacity) : color.replace('rgb', 'rgba').replace(')', `, ${opacity})`)
-  const bottomColor = color.startsWith('#') ? hexToRgba(color, 0) : color.replace('rgb', 'rgba').replace(')', ', 0)')
-  return {
-    type: 'linear',
-    x: 0, y: 0, x2: 0, y2: 1,
-    colorStops: [
-      { offset: 0, color: topColor },
-      { offset: 1, color: bottomColor },
-    ]
-  }
-}
-
-function makeBaseOpt(): any {
-  return {
-    grid: { top: 30, right: 20, bottom: 30, left: 50 },
-    legend: { top: 5, right: 10, textStyle: { color: '#8b949e', fontSize: 11 }, itemWidth: 16, itemHeight: 3 },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#1f242c',
-      borderColor: '#30363d',
-      borderWidth: 1,
-      textStyle: { color: '#e6edf3', fontSize: 12 },
-      axisPointer: { type: 'cross', lineStyle: { color: '#484f58', width: 1 } },
-    },
-    animation: true,
-    animationDuration: 300,
-    animationEasing: 'cubicOut',
-    backgroundColor: 'transparent',
-  }
-}
-
-function makeTimeAxis(): any {
-  return {
-    type: 'time',
-    boundaryGap: false,
-    axisLine: { lineStyle: { color: '#30363d' } },
-    axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{HH}:{mm}' },
-    splitLine: { show: true, lineStyle: { color: '#21262d', type: 'dashed' } },
-  }
-}
-
-function makeLineSeries(name: string, color: string, areaOpacity: number, yAxisIndex = 0): any {
-  return {
-    name,
-    type: 'line',
-    smooth: 0.4,
-    showSymbol: false,
-    sampling: 'lttb',
-    yAxisIndex,
-    lineStyle: { width: 2.5, color, shadowBlur: 10, shadowColor: hexToRgba(color, 0.3) },
-    itemStyle: { color },
-    areaStyle: { color: createGradientColor(color, areaOpacity) },
-    data: [],
-    emphasis: { focus: 'series', lineStyle: { width: 3 } },
-    connectNulls: false,
-  }
-}
-
-function makePercentYAxis(): any {
-  return {
-    type: 'value',
-    min: 0,
-    max: 100,
-    axisLine: { lineStyle: { color: '#30363d' } },
-    axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
-    splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
-  }
-}
-
-function initCharts(): Promise<void> {
-  disposeCharts()
-  return new Promise(resolve => {
-    nextTick(() => {
-      if (cpuChartRef.value) {
-        cpuChart = echarts.init(cpuChartRef.value)
-        const opt = makeBaseOpt()
-        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
-        opt.xAxis = makeTimeAxis()
-        opt.yAxis = makePercentYAxis()
-        opt.series = [
-          makeLineSeries('CPU', '#3fb950', 0.2),
-        ]
-        opt.series[0].markLine = {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
-          data: [{ yAxis: 80, label: { formatter: '告警线 80%', color: '#f85149', fontSize: 10 } }],
-        }
-        cpuChart.setOption(opt)
-      }
-
-      if (memChartRef.value) {
-        memChart = echarts.init(memChartRef.value)
-        const opt = makeBaseOpt()
-        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
-        opt.xAxis = makeTimeAxis()
-        opt.yAxis = makePercentYAxis()
-        opt.series = [
-          makeLineSeries('内存', '#bc8cff', 0.2),
-        ]
-        opt.series[0].markLine = {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
-          data: [{ yAxis: 85, label: { formatter: '告警线 85%', color: '#f85149', fontSize: 10 } }],
-        }
-        memChart.setOption(opt)
-      }
-
-      if (diskChartRef.value) {
-        diskChart = echarts.init(diskChartRef.value)
-        const opt = makeBaseOpt()
-        opt.grid = { top: 40, right: 20, bottom: 30, left: 50 }
-        opt.xAxis = makeTimeAxis()
-        opt.yAxis = [
-          {
-            type: 'value',
-            min: 0,
-            max: 100,
-            position: 'left',
-            axisLine: { lineStyle: { color: '#30363d' } },
-            axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value}%' },
-            splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
-          },
-          {
-            type: 'value',
-            min: 0,
-            position: 'right',
-            axisLine: { show: false },
-            axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' },
-            splitLine: { show: false },
-          },
-        ]
-        opt.series = [
-          makeLineSeries('磁盘使用', '#f0883e', 0.15, 0),
-          makeLineSeries('读取速率', '#58a6ff', 0.08, 1),
-          makeLineSeries('写入速率', '#d29922', 0.08, 1),
-        ]
-        opt.series[0].markLine = {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { color: '#f8514966', type: 'dashed', width: 1 },
-          data: [{ yAxis: 90, label: { formatter: '告警线 90%', color: '#f85149', fontSize: 10 } }],
-        }
-        diskChart.setOption(opt)
-      }
-
-      if (netChartRef.value) {
-        netChart = echarts.init(netChartRef.value)
-        const opt = makeBaseOpt()
-        opt.grid = { top: 30, right: 20, bottom: 30, left: 50 }
-        opt.xAxis = makeTimeAxis()
-        opt.yAxis = {
-          type: 'value',
-          min: 0,
-          axisLine: { lineStyle: { color: '#30363d' } },
-          axisLabel: { color: '#6e7681', fontSize: 10, formatter: '{value} MB/s' },
-          splitLine: { lineStyle: { color: '#21262d', type: 'dashed' } },
-        }
-        opt.series = [
-          makeLineSeries('\u2193 入流量', '#58a6ff', 0.12),
-          makeLineSeries('\u2191 出流量', '#d29922', 0.12),
-        ]
-        netChart.setOption(opt)
-      }
-
-      resolve()
-    })
-  })
-}
-
-function disposeCharts() {
-  try { cpuChart?.dispose(); cpuChart = null } catch {}
-  try { memChart?.dispose(); memChart = null } catch {}
-  try { diskChart?.dispose(); diskChart = null } catch {}
-  try { netChart?.dispose(); netChart = null } catch {}
-}
-
-function pushData() {
-  const cur = snap.current
-  if (!cur) return
-
-  const now = cur.timestamp ? new Date(cur.timestamp).getTime() : Date.now()
-  if (cpuData.length > 0 && Math.abs(now - cpuData[cpuData.length - 1][0]) < 3000) return
-
-  const cpuVal = typeof cur.cpu?.usage_percent === 'number' ? cur.cpu.usage_percent : 0
-  const memVal = typeof cur.memory?.usage_percent === 'number' ? cur.memory.usage_percent : 0
-  const diskVal = typeof cur.disk?.usage_percent === 'number' ? cur.disk.usage_percent : 0
-
-  let diskReadRate = 0
-  let diskWriteRate = 0
-  if (typeof cur.disk_io?.read_rate_mb === 'number' && cur.disk_io.read_rate_mb > 0) {
-    diskReadRate = cur.disk_io.read_rate_mb
-    diskWriteRate = cur.disk_io.write_rate_mb ?? 0
-  } else {
-    diskReadRate = computeDiskRate(cur, 'read_mb')
-    diskWriteRate = computeDiskRate(cur, 'write_mb')
-  }
-
-  let netRecvRate = 0
-  let netSentRate = 0
-  if (typeof cur.network?.recv_rate_mb === 'number' && cur.network.recv_rate_mb > 0) {
-    netRecvRate = cur.network.recv_rate_mb
-    netSentRate = cur.network.sent_rate_mb ?? 0
-  } else {
-    netRecvRate = computeNetRate(cur, 'recv')
-    netSentRate = computeNetRate(cur, 'sent')
-  }
-
-  cpuData.push([now, cpuVal])
-  memData.push([now, memVal])
-  diskData.push([now, diskVal])
-  diskReadData.push([now, diskReadRate])
-  diskWriteData.push([now, diskWriteRate])
-  netRecvData.push([now, netRecvRate])
-  netSentData.push([now, netSentRate])
-
-  while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
-
-  updateCharts()
-}
-
-let prevDiskRead = 0
-let prevDiskWrite = 0
-let prevDiskTs = 0
-let prevNetRecv = 0
-let prevNetSent = 0
-let prevNetTs = 0
-
-function computeDiskRate(cur: any, field: string): number {
-  const val = cur.disk_io?.[field] ?? 0
-  const ts = Date.now()
-  if (prevDiskTs === 0) {
-    prevDiskRead = cur.disk_io?.read_mb ?? 0
-    prevDiskWrite = cur.disk_io?.write_mb ?? 0
-    prevDiskTs = ts
-    return 0
-  }
-  const dt = (ts - prevDiskTs) / 1000
-  if (dt <= 0) return 0
-  const prev = field === 'read_mb' ? prevDiskRead : prevDiskWrite
-  const rate = Math.max(0, (val - prev) / dt)
-  if (field === 'read_mb') { prevDiskRead = val; prevDiskWrite = cur.disk_io?.write_mb ?? prevDiskWrite }
-  else { prevDiskWrite = val; prevDiskRead = cur.disk_io?.read_mb ?? prevDiskRead }
-  prevDiskTs = ts
-  return parseFloat(rate.toFixed(2))
-}
-
-function computeNetRate(cur: any, field: string): number {
-  const bytesField = field === 'recv' ? 'bytes_recv' : 'bytes_sent'
-  const val = cur.network?.[bytesField] ?? 0
-  const ts = Date.now()
-  if (prevNetTs === 0) {
-    prevNetRecv = cur.network?.bytes_recv ?? 0
-    prevNetSent = cur.network?.bytes_sent ?? 0
-    prevNetTs = ts
-    return 0
-  }
-  const dt = (ts - prevNetTs) / 1000
-  if (dt <= 0) return 0
-  const prev = field === 'recv' ? prevNetRecv : prevNetSent
-  const rateMBps = Math.max(0, (val - prev) / 1024 / 1024 / dt)
-  if (field === 'recv') { prevNetRecv = val }
-  else { prevNetSent = val }
-  if (field === 'sent') {
-    prevNetRecv = cur.network?.bytes_recv ?? prevNetRecv
-    prevNetTs = ts
-  }
-  return parseFloat(rateMBps.toFixed(3))
-}
-
-function updateCharts() {
-  if (cpuChart) {
-    try { cpuChart.setOption({ series: [{ data: cpuData.map(d => [...d]) }] }) } catch {}
-  }
-  if (memChart) {
-    try { memChart.setOption({ series: [{ data: memData.map(d => [...d]) }] }) } catch {}
-  }
-  if (diskChart) {
-    try {
-      diskChart.setOption({
-        series: [
-          { data: diskData.map(d => [...d]) },
-          { data: diskReadData.map(d => [...d]) },
-          { data: diskWriteData.map(d => [...d]) },
-        ],
-      })
-    } catch {}
-  }
-  if (netChart) {
-    try {
-      netChart.setOption({
-        series: [
-          { data: netRecvData.map(d => [...d]) },
-          { data: netSentData.map(d => [...d]) },
-        ],
-      })
-    } catch {}
-  }
-}
-
-async function refresh() {
-  try {
-    await snap.fetchLatest()
-    pushData()
-  } catch (e: unknown) {
-    const status = (e as any)?.response?.status
-    if (status === 429) {
-      console.warn('[dashboard] rate limited, will retry next cycle')
-    } else {
-      console.warn('[dashboard] refresh error:', (e as Error)?.message || e)
-    }
-  }
-}
-
-function handleResize() {
-  try { cpuChart?.resize(); memChart?.resize(); diskChart?.resize(); netChart?.resize() } catch {}
-}
-
-const GAP_THRESHOLD_MS = 120000
-
-function pushHistoryPoint(h: any, t: number, prevH: any | null) {
-  cpuData.push([t, typeof h.cpu?.usage_percent === 'number' ? h.cpu.usage_percent : 0])
-  memData.push([t, typeof h.memory?.usage_percent === 'number' ? h.memory.usage_percent : 0])
-  diskData.push([t, typeof h.disk?.usage_percent === 'number' ? h.disk.usage_percent : 0])
-
-  // 磁盘IO速率：优先使用后端计算的速率，否则从累计值推算
-  let diskReadRate = typeof h.disk_io?.read_rate_mb === 'number' && h.disk_io.read_rate_mb > 0
-    ? h.disk_io.read_rate_mb : 0
-  let diskWriteRate = typeof h.disk_io?.write_rate_mb === 'number' && h.disk_io.write_rate_mb > 0
-    ? h.disk_io.write_rate_mb : 0
-  if (diskReadRate === 0 && diskWriteRate === 0 && prevH) {
-    const prevT = new Date(prevH.timestamp).getTime()
-    const dtSec = (t - prevT) / 1000
-    if (dtSec > 0) {
-      const prevReadMB = prevH.disk_io?.read_mb ?? 0
-      const prevWriteMB = prevH.disk_io?.write_mb ?? 0
-      const curReadMB = h.disk_io?.read_mb ?? 0
-      const curWriteMB = h.disk_io?.write_mb ?? 0
-      if (curReadMB > prevReadMB) diskReadRate = (curReadMB - prevReadMB) / dtSec
-      if (curWriteMB > prevWriteMB) diskWriteRate = (curWriteMB - prevWriteMB) / dtSec
-    }
-  }
-  diskReadData.push([t, parseFloat(diskReadRate.toFixed(4))])
-  diskWriteData.push([t, parseFloat(diskWriteRate.toFixed(4))])
-
-  // 网络速率：优先使用后端计算的速率，否则从累计值推算
-  let netRecvRate = typeof h.network?.recv_rate_mb === 'number' && h.network.recv_rate_mb > 0
-    ? h.network.recv_rate_mb : 0
-  let netSentRate = typeof h.network?.sent_rate_mb === 'number' && h.network.sent_rate_mb > 0
-    ? h.network.sent_rate_mb : 0
-  if (netRecvRate === 0 && netSentRate === 0 && prevH) {
-    const prevT = new Date(prevH.timestamp).getTime()
-    const dtSec = (t - prevT) / 1000
-    if (dtSec > 0) {
-      const prevRecv = prevH.network?.bytes_recv ?? 0
-      const prevSent = prevH.network?.bytes_sent ?? 0
-      const curRecv = h.network?.bytes_recv ?? 0
-      const curSent = h.network?.bytes_sent ?? 0
-      if (curRecv > prevRecv) netRecvRate = (curRecv - prevRecv) / 1024 / 1024 / dtSec
-      if (curSent > prevSent) netSentRate = (curSent - prevSent) / 1024 / 1024 / dtSec
-    }
-  }
-  netRecvData.push([t, parseFloat(netRecvRate.toFixed(4))])
-  netSentData.push([t, parseFloat(netSentRate.toFixed(4))])
-}
-
-function pushZeroPoint(ts: number) {
-  cpuData.push([ts, 0])
-  memData.push([ts, 0])
-  diskData.push([ts, 0])
-  diskReadData.push([ts, 0])
-  diskWriteData.push([ts, 0])
-  netRecvData.push([ts, 0])
-  netSentData.push([ts, 0])
-}
-
-onMounted(async () => {
-  window.addEventListener('resize', handleResize)
-  await initCharts()
-
-  try {
-    await snap.fetchHistory(200)
-    const hist = snap.history
-    if (hist && hist.length > 0) {
-      for (let i = 0; i < hist.length; i++) {
-        const h = hist[i]
-        const t = new Date(h.timestamp).getTime()
-        if (isNaN(t)) continue
-
-        if (i > 0) {
-          const prevT = new Date(hist[i - 1].timestamp).getTime()
-          const gapMs = t - prevT
-          if (gapMs > GAP_THRESHOLD_MS) {
-            pushZeroPoint(prevT + 60000)
-            pushZeroPoint(t - 60000)
-          }
-        }
-
-        pushHistoryPoint(h, t, i > 0 ? hist[i - 1] : null)
-      }
-      while (cpuData.length > MAX_POINTS) { cpuData.shift(); memData.shift(); diskData.shift(); diskReadData.shift(); diskWriteData.shift(); netRecvData.shift(); netSentData.shift() }
-      updateCharts()
-      prevDiskTs = 0
-      prevNetTs = 0
-    }
-  } catch (e) {
-    console.warn('[dashboard] load history failed:', e)
-  }
-
-  try {
-    await snap.fetchLatest()
-    pushData()
-  } catch (e) {
-    console.warn('[dashboard] fetchLatest failed:', (e as Error)?.message || e)
-  }
-  // Fetch collect interval from backend for polling sync
-  let intervalMs = 5000
-  try {
-    const { data } = await client.get('/settings/collect-interval')
-    if (data?.interval_seconds && data.interval_seconds >= 3) {
-      intervalMs = data.interval_seconds * 1000
-    }
-  } catch { /* use default */ }
-  pollTimer = setInterval(refresh, intervalMs)
-})
-
-onUnmounted(() => {
-  clearInterval(pollTimer)
-  window.removeEventListener('resize', handleResize)
-  disposeCharts()
-})
-</script>
-
 <style scoped>
-.page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
-h2 { font-size: 20px; font-weight: 600; margin: 0; }
-.last-update { font-size: 12px; color: #6e7681; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-left: 8px; box-shadow: 0 0 0 4px rgba(52,211,153,0.15); animation: pulse 2s infinite; }
+.alert-strip { display: flex; align-items: flex-start; gap: 12px; padding: 13px 16px; margin-bottom: 16px; border-color: rgba(251,191,36,0.25); background: rgba(251,191,36,0.07); }
+.alert-items { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.alert-item { font-size: 12.5px; color: #d7deee; display: flex; gap: 6px; }
+.alert-item b { color: #fcd34d; font-weight: 600; }
+.alert-item.critical b { color: #fda4af; }
 
-.summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 
-.monitor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-.monitor-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; overflow: hidden; }
-.panel-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.panel-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.panel-title { font-size: 13px; color: #8b949e; font-weight: 500; }
-.panel-value { font-size: 18px; font-weight: 700; margin-left: auto; }
-.panel-sub { font-size: 11px; color: #6e7681; margin-bottom: 8px; }
-.panel-chart { height: 200px; width: 100%; }
+.gpu-strip { margin-top: 16px; padding: 16px 20px; }
+.gpu-main { display: flex; align-items: center; gap: 34px; flex-wrap: wrap; }
+.gpu-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: #c4b5fd; }
+.gpu-metric { display: flex; align-items: baseline; gap: 6px; }
+.gpu-metric span { font-size: 20px; font-weight: 700; }
+.gpu-metric small { font-size: 11px; color: var(--muted); }
+.gpu-track { margin-top: 12px; height: 4px; border-radius: 99px; background: rgba(255,255,255,0.06); overflow: hidden; }
+.gpu-track i { display: block; height: 100%; background: linear-gradient(90deg, #7c5cff, #22d3ee); }
 
-.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.info-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; }
-.info-title { font-size: 13px; color: #8b949e; margin-bottom: 10px; font-weight: 600; }
-.info-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #21262d; }
-.info-row:last-child { border-bottom: none; }
-.info-row span:first-child { color: #6e7681; }
-.info-row span:last-child { color: #e6edf3; font-weight: 500; }
-.info-row .ok { color: #3fb950; }
+.panel { padding: 18px 20px 16px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.panel-head .section-title { margin: 0; }
+.range-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.range-tabs button { background: none; border: none; color: var(--muted); font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.range-tabs button.on { background: rgba(124,92,255,0.25); color: #ddd6fe; }
 
-.alert-section { background: #161b22; border: 1px solid #f8514966; border-radius: 8px; padding: 16px; margin-bottom: 0; }
-.alert-title { font-size: 13px; color: #f85149; margin-bottom: 12px; font-weight: 600; }
-.alert-list { display: flex; flex-direction: column; gap: 6px; }
-.alert-item { display: flex; justify-content: space-between; padding: 8px 12px; background: #f8514911; border-radius: 6px; }
-.alert-node { color: #e6edf3; font-weight: 500; font-size: 13px; }
-.alert-reason { color: #f85149; font-size: 13px; }
+.right-col { display: flex; flex-direction: column; gap: 16px; }
+.chart-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 10.5px; color: #5d6a89; }
+.legend { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 
-@media (max-width: 768px) {
-  .monitor-grid { grid-template-columns: 1fr; }
-  .summary-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.svc-row { display: flex; align-items: center; gap: 12px; padding: 11px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; border-radius: 8px; }
+.svc-row:hover { background: rgba(255,255,255,0.03); }
+.svc-chip { width: 38px; height: 38px; }
+.svc-main { flex: 1; min-width: 0; }
+.svc-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; }
+.svc-sub { font-size: 11px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-right { text-align: right; }
+.svc-time { font-size: 10.5px; color: #5d6a89; margin-top: 4px; }
+
+.usage-row { display: flex; gap: 40px; margin: 6px 0 10px; }
+.u-val { font-size: 26px; font-weight: 720; letter-spacing: -0.6px; }
+.u-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.usage-mini { display: flex; gap: 16px; font-size: 11px; color: #7d8bab; }
+
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.quick {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 14px;
+  border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03);
+  color: var(--text); cursor: pointer; font-family: inherit; text-align: left; transition: all 0.16s ease;
+}
+.quick:hover { border-color: rgba(124,92,255,0.4); background: rgba(124,92,255,0.09); transform: translateY(-1px); }
+.quick span { font-size: 13px; font-weight: 600; }
+.quick small { font-size: 10.5px; color: var(--muted); }
+.tip { margin-top: 12px; font-size: 11px; color: #5d6a89; line-height: 1.7; }
+.bad-tip { color: #fda4af; word-break: break-all; }
+
+@media (max-width: 1100px) {
+  .kpis { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .kpis { grid-template-columns: 1fr; }
 }
 </style>

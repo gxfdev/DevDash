@@ -1,0 +1,22 @@
+AIDash · 单机 AI 操作系统（Docker 版）
+=====================================
+
+本项目由 gxfdev/DevDash 改造而来：
+  https://github.com/gxfdev/DevDash
+  Copyright (c) DevDash contributors
+  MIT License
+
+架构参考：
+  DaoCloud d.run AI 操作系统文档
+  https://docs.daocloud.io/drun/
+  （仅参考模块划分与产品形态，不复用其代码；不依赖 Kubernetes）
+
+改造内容：
+  - 新增模型广场 / 模型服务 / AI 应用 / 容器引擎 / AI 网关 / 可观测 / 全局管理模块
+  - 新增基于 Docker Engine API 的单机部署引擎与生命周期管理
+  - 新增 OpenAI 兼容网关、API Key、Token 计量与配额
+  - 新增 AI 运维助手（工具调用 + 宿主机权限沙箱）
+  - 新增 RBAC、审计与全量前端界面（Vue 3）
+  - 保留主机指标采集、终端与鉴权的基础能力并重写
+
+License: MIT

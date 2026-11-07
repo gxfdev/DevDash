@@ -6,201 +6,213 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/gxfdev/DevDash/server/internal/alert"
-	"github.com/gxfdev/DevDash/server/internal/api"
-	"github.com/gxfdev/DevDash/server/internal/auth"
-	"github.com/gxfdev/DevDash/server/internal/collector"
-	"github.com/gxfdev/DevDash/server/internal/config"
-	"github.com/gxfdev/DevDash/server/internal/filemgr"
-	"github.com/gxfdev/DevDash/server/internal/logger"
-	"github.com/gxfdev/DevDash/server/internal/store"
-
 	"github.com/gin-gonic/gin"
+	"github.com/gxfdev/aidash/server/internal/api"
+	"github.com/gxfdev/aidash/server/internal/auth"
+	"github.com/gxfdev/aidash/server/internal/catalog"
+	"github.com/gxfdev/aidash/server/internal/collector"
+	"github.com/gxfdev/aidash/server/internal/config"
+	"github.com/gxfdev/aidash/server/internal/engine"
+	"github.com/gxfdev/aidash/server/internal/gateway"
+	"github.com/gxfdev/aidash/server/internal/model"
+	"github.com/gxfdev/aidash/server/internal/modelhub"
+	"github.com/gxfdev/aidash/server/internal/orchestrator"
+	"github.com/gxfdev/aidash/server/internal/store"
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	cfg := config.Load()
-	logger.Setup()
-
 	if os.Getenv("GIN_MODE") == "release" {
+		gin.SetMode(gin.ReleaseMode)
+	} else {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	if err := auth.InitSecret(cfg.JWTSecret); err != nil {
-		log.Fatalf("FATAL: %v", err)
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatalf("打开数据库失败: %v", err)
+	}
+	defer st.Close()
+	if err := st.EnsureAdmin(cfg.AdminUser, cfg.AdminPass); err != nil {
+		log.Fatalf("初始化管理员失败: %v", err)
 	}
 
-	s := store.NewStore(cfg)
-	defer s.Close()
+	cat, err := catalog.Load()
+	if err != nil {
+		log.Fatalf("加载应用目录失败: %v", err)
+	}
 
-	filemgr.SetOpCallback(func(op, path, name, ext string, size int64, isDir bool) {
-		s.RecordFileOp(map[string]any{
-			"operation": op,
-			"path":      path,
-			"name":      name,
-			"ext":       ext,
-			"size":      size,
-			"is_dir":    isDir,
-		})
-	})
+	docker, err := engine.New(cfg.DockerHost)
+	if err != nil {
+		log.Fatalf("初始化 Docker 客户端失败: %v", err)
+	}
 
-	c := collector.NewCollector()
-	alertEngine := alert.NewEngine(s)
+	orch := orchestrator.New(st, docker, cat)
+	hub := modelhub.New(st, docker)
+	gw := gateway.New(st, orch)
 
-	go startMetricsCleanup(s)
+	col := collector.New()
+	snapCache := &snapshotCache{}
 
-	r := gin.Default()
+	mgr := auth.NewManager(cfg.JWTSecret)
+	handler := api.NewHandler(cfg, st, orch, mgr, cat, gw,
+		gateway.NewCopilot(st, orch, gw, snapCache.get), hub)
 
-	r.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, err any) {
-		log.Printf("[panic] recovered: %v", err)
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})
-	}))
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{"/api/health"}}))
 	r.Use(corsMiddleware())
-	r.Use(auth.SecureHeadersMiddleware())
-	r.Use(auth.AuditLogMiddleware())
-	r.Use(logger.Middleware())
+	r.Use(auth.SecureHeaders())
+	handler.Register(r)
+	registerStatic(r, cfg.StaticDir)
 
-	auditFile, auditErr := os.OpenFile("audit.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if auditErr == nil {
-		auth.InitAuditLog(auditFile)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	handler := api.NewHandler(c, s, cfg)
-	handler.SetAlertEngine(alertEngine)
-	handler.RegisterRoutes(r)
-
-	go startCollection(c, s, cfg, alertEngine, handler)
-
-	staticDir := os.Getenv("STATIC_DIR")
-	if staticDir == "" {
-		staticDir = "../web/dist"
-	}
-	r.Static("/assets", staticDir+"/assets")
-	r.NoRoute(func(c *gin.Context) {
-		p := c.Request.URL.Path
-		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/ws") {
-			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
-			return
-		}
-		c.File(staticDir + "/index.html")
-	})
-
-	addr := ":" + cfg.ServerPort
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: r,
-	}
-
+	// Host metrics pipeline.
 	go func() {
-		log.Printf("DevDash 启动，监听 %s", addr)
+		collectOnce := func() {
+			snap, err := col.Collect()
+			if err != nil {
+				log.Printf("[collect] %v", err)
+				return
+			}
+			snap.Containers = orch.ContainerCounts(ctx)
+			snapCache.set(snap)
+			handler.SetSnapshot(snap)
+			point := model.MetricPoint{
+				TS:     snap.Timestamp.Unix(),
+				CPU:    snap.CPU.UsagePercent,
+				Memory: snap.Memory.UsagePercent,
+				Disk:   snap.Disk.UsagePercent,
+				NetRX:  snap.Network.RecvRateMB,
+				NetTX:  snap.Network.SentRateMB,
+			}
+			if snap.GPU != nil {
+				point.GPU = snap.GPU.UsagePercent
+				if snap.GPU.MemTotalMB > 0 {
+					point.GPUMem = snap.GPU.MemUsedMB / snap.GPU.MemTotalMB * 100
+				}
+			}
+			st.InsertMetric(point)
+		}
+		collectOnce()
+		ticker := time.NewTicker(cfg.CollectEvery)
+		defer ticker.Stop()
+		lastPersist := time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				collectOnce()
+				if time.Since(lastPersist) > 4*time.Hour {
+					lastPersist = time.Now()
+					_ = st.CleanupMetrics(time.Now().AddDate(0, 0, -30))
+				}
+			}
+		}
+	}()
+
+	// Docker state reconciliation.
+	go orch.Monitor(ctx, 10*time.Second)
+	go hub.Recover()
+
+	// Boot summary + auto-start of managed workloads.
+	go func() {
+		time.Sleep(2 * time.Second)
+		engineSnap := orch.EngineSnapshot(ctx)
+		if engineSnap.Connected {
+			log.Printf("[engine] Docker 已连接: %s (v%s)", engineSnap.Host, engineSnap.Version)
+		} else {
+			log.Printf("[engine] Docker 不可用: %s", engineSnap.Error)
+		}
+		services, _ := st.ListServices()
+		log.Printf("[boot] 已加载 %d 个 AI 服务", len(services))
+		_ = os.MkdirAll(filepath.Join(cfg.DataDir, "logs"), 0o755)
+	}()
+
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
+	go func() {
+		log.Printf("%s v%s 启动，监听 :%s（Docker: %s）", cfg.Edition, cfg.Version, cfg.Port, cfg.DockerHost)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+			log.Fatalf("监听失败: %v", err)
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("正在关闭服务器...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("服务器强制关闭: %v", err)
-	}
-
-	log.Println("服务器已优雅关闭")
+	log.Println("正在关闭…")
+	cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer shutdownCancel()
+	_ = srv.Shutdown(shutdownCtx)
+	log.Println("已退出")
 }
 
-func startMetricsCleanup(s *store.Store) {
-	retentionDays := 30
-	ticker := time.NewTicker(6 * time.Hour)
-	defer ticker.Stop()
-	for range ticker.C {
-		if err := s.CleanupOldMetrics(retentionDays); err != nil {
-			log.Printf("[cleanup] metrics cleanup failed: %v", err)
-		} else {
-			log.Printf("[cleanup] cleaned up metrics older than %d days", retentionDays)
-		}
-	}
+type snapshotCache struct {
+	snap *model.HostSnapshot
 }
 
-func startCollection(c *collector.Collector, s *store.Store, cfg *config.Config, alertEngine *alert.Engine, h *api.Handler) {
-	collectOnce := func() {
-		snap, err := c.Collect()
-		if err != nil {
-			log.Printf("采集失败: %v", err)
-			return
-		}
-		snap.NodeID = "self"
-		if err := s.SaveSnapshot("self", snap); err != nil {
-			log.Printf("[store] save snapshot failed: %v", err)
-		}
-		h.UpdateCache(snap)
-		alertEngine.Evaluate(snap)
-	}
-
-	collectOnce()
-	log.Println("首次采集完成")
-
-	// Dynamic interval: check config every second and reset ticker on change
-	var currentInterval int
-	getInterval := func() time.Duration {
-		cfgVal := cfg.CollectInterval
-		if cfgVal < 3 {
-			cfgVal = 5
-		}
-		d := time.Duration(cfgVal) * time.Second
-		if d < 3*time.Second {
-			d = 5 * time.Second
-		}
-		return d
-	}
-	currentInterval = cfg.CollectInterval
-
-	ticker := time.NewTicker(getInterval())
-	defer ticker.Stop()
-
-	for range ticker.C {
-		collectOnce()
-		// Check if interval changed
-		if cfg.CollectInterval != currentInterval {
-			currentInterval = cfg.CollectInterval
-			ticker.Reset(getInterval())
-			log.Printf("[collect] interval updated to %ds", currentInterval)
-		}
-	}
-}
+func (s *snapshotCache) set(v *model.HostSnapshot) { s.snap = v }
+func (s *snapshotCache) get() *model.HostSnapshot  { return s.snap }
 
 func corsMiddleware() gin.HandlerFunc {
-	allowedOrigins := os.Getenv("CORS_ORIGINS")
-	allowedMap := make(map[string]bool)
-	if allowedOrigins != "" {
-		for o := range strings.SplitSeq(allowedOrigins, ",") {
-			allowedMap[strings.TrimSpace(o)] = true
-		}
-	} else {
-		for _, o := range []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"} {
-			allowedMap[o] = true
+	origins := map[string]bool{
+		"http://localhost:5173": true,
+		"http://127.0.0.1:5173": true,
+		"http://localhost:9495": true,
+		"http://127.0.0.1:9495": true,
+	}
+	if extra := os.Getenv("CORS_ORIGINS"); extra != "" {
+		for _, o := range strings.Split(extra, ",") {
+			origins[strings.TrimSpace(o)] = true
 		}
 	}
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		if origin != "" && allowedMap[origin] {
+		if origin != "" && origins[origin] {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Access-Control-Allow-Credentials", "true")
 		}
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 		c.Header("Access-Control-Max-Age", "86400")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 		c.Next()
 	}
+}
+
+func registerStatic(r *gin.Engine, dir string) {
+	if dir == "" {
+		return
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	assets := filepath.Join(dir, "assets")
+	r.Static("/assets", assets)
+	r.StaticFile("/favicon.svg", filepath.Join(dir, "favicon.svg"))
+	r.NoRoute(func(c *gin.Context) {
+		p := c.Request.URL.Path
+		if strings.HasPrefix(p, "/api") || strings.HasPrefix(p, "/v1") || strings.HasPrefix(p, "/ws") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+			c.String(http.StatusOK, "AIDash backend is running. Frontend build not found at %s", dir)
+			return
+		}
+		c.File(filepath.Join(dir, "index.html"))
+	})
 }

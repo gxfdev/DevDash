@@ -1,108 +1,51 @@
-.PHONY: all build build-linux build-windows run test test-unit test-integration clean \
-       docker-build docker-up docker-down docker-logs \
-       docker-dev-up docker-dev-down \
-       dev-start dev-stop dev-status dev-logs \
-       deploy deploy-check deploy-rollback deploy-status \
-       lint lint-server lint-web \
-       security-scan \
-       web-install web-dev web-build \
-       install-deps release
+.PHONY: help build web server test demo fmt vet docker up down logs screenshots e2e
 
-all: build
+help:
+	@echo "AIDash 常用命令："
+	@echo "  make web         构建前端"
+	@echo "  make server      构建后端"
+	@echo "  make build       构建前后端"
+	@echo "  make test        Go 测试（含 mock Docker 引擎集成测试）"
+	@echo "  make demo        无 Docker 的演示模式（内存 Docker 引擎 + 演示数据）"
+	@echo "  make docker      构建镜像"
+	@echo "  make up          启动 docker compose"
+	@echo "  make down        停止"
+	@echo "  make e2e         Playwright UI 端到端验证"
 
-build:
-	cd server && go build -ldflags="-s -w" -trimpath -o devdash ./cmd/server
+build: web server
 
-build-linux:
-	@mkdir -p dist
-	cd server && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o ../dist/devdash-linux-amd64 ./cmd/server
+web:
+	cd web && npm install --no-audit --no-fund && npm run build
 
-build-windows:
-	@mkdir -p dist
-	cd server && CGO_ENABLED=1 go build -ldflags="-s -w" -trimpath -o ../dist/devdash-windows-amd64.exe ./cmd/server
-
-run:
-	cd server && go run ./cmd/server
+server:
+	cd server && go build ./...
 
 test:
-	cd server && go test ./... -v -race -timeout 120s
+	cd server && go test ./...
 
-test-unit:
-	cd server && go test ./internal/... -v -race -timeout 120s -coverprofile=coverage.out
+fmt:
+	cd server && gofmt -w .
 
-test-integration:
-	cd server && go test ./tests/... -v -timeout 120s
-
-clean:
-	$(RM) -r server/devdash server/agent dist/ .pids/ .logs/ 2>/dev/null || true
-
-lint: lint-server lint-web
-
-lint-server:
+vet:
 	cd server && go vet ./...
-	@output=$$(gofmt -l .); if [ -n "$$output" ]; then echo "Unformatted files:"; echo "$$output"; exit 1; fi
 
-lint-web:
-	cd web && npx vue-tsc --noEmit
+demo:
+	cd server && go run ./cmd/demo
 
-security-scan:
-	@which govulncheck > /dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest
-	cd server && govulncheck ./...
+docker:
+	docker build -t aidash:latest .
 
-docker-build:
-	docker build -f docker/Dockerfile.server -t devdash:latest .
+up:
+	docker compose up -d --build
 
-docker-up:
-	docker compose up -d
-
-docker-down:
+down:
 	docker compose down
 
-docker-logs:
-	docker compose logs -f
+logs:
+	docker compose logs -f aidash
 
-docker-dev-up:
-	docker compose -f docker-compose.dev.yml up -d --build
+screenshots:
+	cd web && node scripts/shots.mjs
 
-docker-dev-down:
-	docker compose -f docker-compose.dev.yml down
-
-dev-start:
-	bash dev.sh start
-
-dev-stop:
-	bash dev.sh stop
-
-dev-status:
-	bash dev.sh status
-
-dev-logs:
-	bash dev.sh logs
-
-deploy:
-	bash deploy/deploy.sh
-
-deploy-check:
-	bash deploy/deploy.sh --check
-
-deploy-rollback:
-	bash deploy/backup.sh restore
-
-deploy-status:
-	systemctl status devdash 2>/dev/null || echo "Service not installed"
-
-web-install:
-	cd web && npm install
-
-web-dev:
-	cd web && npm run dev
-
-web-build:
-	cd web && npm run build
-
-install-deps:
-	cd server && go mod download
-	cd web && npm ci
-
-release:
-	bash scripts/build.sh
+e2e:
+	cd web && node scripts/e2e.mjs

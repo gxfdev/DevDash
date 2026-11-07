@@ -1,48 +1,31 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import path from 'path'
-
-const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:9090'
+import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
   plugins: [vue()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') },
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
     port: 5173,
     host: '0.0.0.0',
     proxy: {
-      '/api': {
-        target: backendUrl,
-        changeOrigin: true,
-        timeout: 30000,
-        configure: (proxy) => {
-          proxy.on('error', (err) => {
-            console.log('[proxy] backend not reachable:', err.message)
-          })
-        },
-      },
-      '/ws': {
-        target: backendUrl,
-        ws: true,
-        changeOrigin: true,
-      },
+      '/api': { target: 'http://127.0.0.1:9090', changeOrigin: true },
+      '/v1': { target: 'http://127.0.0.1:9090', changeOrigin: true },
+      '/ws': { target: 'ws://127.0.0.1:9090', ws: true },
     },
   },
   build: {
-    outDir: 'dist',
-    sourcemap: false,
-    minify: true,
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['vue', 'vue-router', 'pinia', 'axios'],
-          ui: ['naive-ui'],
-          charts: ['echarts', 'vue-echarts'],
+          vue: ['vue', 'vue-router', 'pinia'],
+          naive: ['naive-ui'],
+          charts: ['echarts'],
         },
       },
     },
-    chunkSizeWarningLimit: 500,
   },
 })

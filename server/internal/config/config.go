@@ -1,122 +1,102 @@
 package config
 
 import (
-	"log"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 )
 
-type DBType string
-
-const (
-	DBSQLite     DBType = "sqlite"
-	DBPostgreSQL DBType = "postgres"
-)
-
+// Config is the single-host AI-OS runtime configuration.
 type Config struct {
-	ServerPort      string
-	CollectInterval int
-	DBType          DBType
-	DBPath          string
-	DBHost          string
-	DBPort          int
-	DBUser          string
-	DBPassword      string
-	DBName          string
-	DBSSLMode       string
-	JWTSecret       string
-	AgentToken      string
+	Port         string
+	JWTSecret    string
+	DataDir      string
+	DBPath       string
+	StaticDir    string
+	DockerHost   string
+	HostRoot     string
+	HostProc     string
+	HostSys      string
+	HostDev      string
+	CollectEvery time.Duration
+	AdminUser    string
+	AdminPass    string
+	Edition      string
+	Version      string
+	PublicURL    string
 }
 
-type AgentConfig struct {
-	NodeID          string
-	NodeToken       string
-	ServerURL       string
-	CollectInterval int
+func env(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
 }
 
 func Load() *Config {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "9090"
-	}
+	dataDir := env("AIDASH_DATA_DIR", "./data")
+	_ = os.MkdirAll(dataDir, 0o755)
+
+	dockerHost := env("DOCKER_HOST", defaultDockerHost())
 	interval := 5
-	if i := os.Getenv("INTERVAL"); i != "" {
-		if v, err := strconv.Atoi(i); err == nil {
-			interval = v
-		}
+	if v, err := strconv.Atoi(env("COLLECT_INTERVAL", "5")); err == nil && v >= 2 {
+		interval = v
 	}
 
-	dbType := DBType(os.Getenv("DB_TYPE"))
-	if dbType == "" {
-		dbType = DBSQLite
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		secret = readOrCreateSecret(filepath.Join(dataDir, ".jwt_secret"))
 	}
-
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "./devdash.db"
+	if len(secret) < 16 {
+		secret = secret + "-aidash-" + hex.EncodeToString(randomBytes(8))
 	}
-
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := 5432
-	if p := os.Getenv("DB_PORT"); p != "" {
-		if v, err := strconv.Atoi(p); err == nil {
-			dbPort = v
-		}
-	}
-	dbUser := os.Getenv("DB_USER")
-	if dbUser == "" && dbType == DBPostgreSQL {
-		dbUser = "devdash"
-	}
-	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		if dbType == DBPostgreSQL {
-			dbName = "devdash"
-		}
-	}
-
-	dbSSLMode := os.Getenv("DB_SSLMODE")
-	if dbSSLMode == "" {
-		if dbType == DBPostgreSQL {
-			dbSSLMode = "disable"
-		}
-	}
-
-	secret := os.Getenv("JWT_SECRET")
-	if secret != "" && len(secret) < 32 {
-		log.Printf("[config] WARNING: JWT_SECRET should be at least 32 characters (current: %d)", len(secret))
-	}
-
-	agentToken := os.Getenv("AGENT_TOKEN")
 
 	return &Config{
-		ServerPort:      port,
-		CollectInterval: interval,
-		DBType:          dbType,
-		DBPath:          dbPath,
-		DBHost:          dbHost,
-		DBPort:          dbPort,
-		DBUser:          dbUser,
-		DBPassword:      dbPassword,
-		DBName:          dbName,
-		DBSSLMode:       dbSSLMode,
-		JWTSecret:       secret,
-		AgentToken:      agentToken,
+		Port:         env("PORT", "9090"),
+		JWTSecret:    secret,
+		DataDir:      dataDir,
+		DBPath:       env("DB_PATH", filepath.Join(dataDir, "aidash.db")),
+		StaticDir:    env("STATIC_DIR", "../web/dist"),
+		DockerHost:   dockerHost,
+		HostRoot:     env("HOST_ROOT", ""),
+		HostProc:     env("HOST_PROC", ""),
+		HostSys:      env("HOST_SYS", ""),
+		HostDev:      env("HOST_DEV", ""),
+		CollectEvery: time.Duration(interval) * time.Second,
+		AdminUser:    env("ADMIN_USER", "admin"),
+		AdminPass:    env("ADMIN_PASS", "admin123"),
+		Edition:      "AIDash 单机 AI 操作系统",
+		Version:      "2.0.0",
+		PublicURL:    env("PUBLIC_URL", ""),
 	}
 }
 
-func LoadAgent() *AgentConfig {
-	interval := 30
-	if i := os.Getenv("INTERVAL"); i != "" {
-		if v, err := strconv.Atoi(i); err == nil {
-			interval = v
+func defaultDockerHost() string {
+	if os.PathSeparator == '\\' {
+		return "npipe:////./pipe/docker_engine"
+	}
+	return "unix:///var/run/docker.sock"
+}
+
+func randomBytes(n int) []byte {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		for i := range b {
+			b[i] = byte(i * 37)
 		}
 	}
-	return &AgentConfig{
-		NodeID:          os.Getenv("NODE_ID"),
-		NodeToken:       os.Getenv("NODE_TOKEN"),
-		ServerURL:       os.Getenv("SERVER_URL"),
-		CollectInterval: interval,
+	return b
+}
+
+func readOrCreateSecret(path string) string {
+	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) >= 16 {
+		return strings.TrimSpace(string(b))
 	}
+	s := hex.EncodeToString(randomBytes(32))
+	_ = os.WriteFile(path, []byte(s), 0o600)
+	return s
 }

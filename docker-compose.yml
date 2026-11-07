@@ -1,148 +1,53 @@
+# AIDash · 单机 AI 操作系统（Docker 版）
+#
+# 默认以「运维模式」运行：容器保持隔离，但拥有管理宿主机 Docker、
+# 读取宿主机文件与系统的能力，以便在面板内一键部署 AI 并管理其容器。
 services:
-  devdash:
+  aidash:
     build:
       context: .
-      dockerfile: docker/Dockerfile.server
-    container_name: devdash
-    expose:
-      - "9090"
+      dockerfile: Dockerfile
+    image: aidash:latest
+    container_name: aidash
+    restart: unless-stopped
+    # 运维模式：面板自身需要 root 级能力来管理容器与宿主机
+    privileged: true
+    pid: host
+    ports:
+      - "${AIDASH_PORT:-9090}:9090"
     volumes:
-      - devdash-data:/data
+      - aidash-data:/data
+      - aidash-models:/models
+      # 管理宿主机 Docker（部署 / 启停 / 日志 / exec）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主机根目录（运维助手 / 宿主机权限容器）
+      - /:/host:rw
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /dev:/host/dev:ro
-      - /etc/hostname:/etc/hostname:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /:/host:rw
     environment:
       - PORT=9090
-      - INTERVAL=5
-      - DB_PATH=/data/devdash.db
-      - "JWT_SECRET=${JWT_SECRET:?ERROR: JWT_SECRET required. Generate with: openssl rand -hex 32}"
-      - AGENT_TOKEN=${AGENT_TOKEN:-}
-      - STATIC_DIR=/srv/www
-      - TZ=Asia/Shanghai
-      - LANG=C.UTF-8
-      - GIN_MODE=${GIN_MODE:-release}
-      - CORS_ORIGINS=http://localhost,http://localhost:80,http://localhost:9090
+      - TZ=${TZ:-Asia/Shanghai}
+      - GIN_MODE=release
+      - JWT_SECRET=${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（openssl rand -hex 32）}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-admin123}
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      - HOST_ROOT=/host
       - HOST_PROC=/host/proc
       - HOST_SYS=/host/sys
       - HOST_DEV=/host/dev
-      - HOST_ETC=/host/etc
-      - HOST_ROOT=/host
-    restart: unless-stopped
-    restart_delay: 5s
-    mem_limit: 512m
-    cpus: "2.0"
-    pids_limit: 256
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - SYS_PTRACE
-      - SYS_ADMIN
-      - SYS_CHROOT
+      - AIDASH_TARGET_OS=linux
+      - AIDASH_HOST_NS=1
+      # 国内服务器可启用 ghcr 镜像加速（也可先在宿主机 docker pull 再部署）
+      # - AIDASH_IMAGE_MIRROR=ghcr.m.daocloud.io
+      # 模型下载走清华 PyPI 源
+      - PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
     security_opt:
-      - no-new-privileges:true
-    stop_grace_period: 15s
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9090/api/v1/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - devdash-net
-
-  nginx:
-    image: nginx:alpine
-    container_name: devdash-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - nginx-logs:/var/log/nginx
-    depends_on:
-      devdash:
-        condition: service_healthy
-    restart: unless-stopped
-    mem_limit: 128m
-    cpus: "1.0"
-    pids_limit: 64
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-      - /var/cache/nginx:size=32m,mode=1777
-      - /var/run:size=8m,mode=1733
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-      - CHOWN
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "http://localhost:80/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - devdash-net
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: devdash-postgres
-    environment:
-      POSTGRES_DB: devdash
-      POSTGRES_USER: devdash
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-devdash_secure_2024}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    mem_limit: 256m
-    cpus: "1.0"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U devdash"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    profiles:
-      - postgres
-    networks:
-      - devdash-net
-
-networks:
-  devdash-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.29.0.0/16
+      - seccomp:unconfined
+      - apparmor=unconfined
 
 volumes:
-  devdash-data:
-    driver: local
-  postgres-data:
-    driver: local
-  nginx-logs:
-    driver: local
+  aidash-data:
+  aidash-models:

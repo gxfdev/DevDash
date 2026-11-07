@@ -1,43 +1,10 @@
-# Version control
-.git
-.gitignore
-.github
-
-# IDE
-.vscode
-.idea
-*.swp
-*.swo
-
-# Documentation
-docs
-*.md
-LICENSE
-
-# Test files
-**/*_test.go
-**/testdata
-server/coverage
-web/coverage
-
-# Build artifacts
-server/devdash
-server/devdash.exe
+node_modules
 web/dist
-web/node_modules
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Database
+web/shots
+.git
+data
 *.db
-*.db-journal
-*.sqlite
-
-# Logs
+*.db-shm
+*.db-wal
 *.log
-
-# Docker
-docker-compose*.yml
-Dockerfile*
+shots

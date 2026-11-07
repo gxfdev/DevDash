@@ -6,10 +6,6 @@ AIDash · 单机 AI 操作系统（Docker 版）
   Copyright (c) DevDash contributors
   MIT License
 
-架构参考：
-  DaoCloud d.run AI 操作系统文档
-  https://docs.daocloud.io/drun/
-  （仅参考模块划分与产品形态，不复用其代码；不依赖 Kubernetes）
 
 改造内容：
   - 新增模型广场 / 模型服务 / AI 应用 / 容器引擎 / AI 网关 / 可观测 / 全局管理模块

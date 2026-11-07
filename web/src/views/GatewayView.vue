@@ -30,10 +30,10 @@ const labels = computed(() => (info.value?.series || []).map((p: any) => {
   return `${String(d.getHours()).padStart(2, '0')}:00`
 }))
 const tokenSeries = computed(() => [
-  { name: 'Token', values: (info.value?.series || []).map((p: any) => p.tokens), color: '#7c5cff' },
+  { name: 'Token', values: (info.value?.series || []).map((p: any) => p.tokens), color: '#3b82f6' },
 ])
 const requestSeries = computed(() => [
-  { name: '请求数', values: (info.value?.series || []).map((p: any) => p.requests), color: '#22d3ee' },
+  { name: '请求数', values: (info.value?.series || []).map((p: any) => p.requests), color: '#14b8a6' },
 ])
 const baseURL = computed(() => info.value?.base_url || `${window.location.origin}/v1`)
 
@@ -271,7 +271,6 @@ onMounted(load)
 
 <style scoped>
 .hero { display: flex; gap: 24px; align-items: center; padding: 24px 26px; position: relative; overflow: hidden; }
-.hero::before { content: ''; position: absolute; inset: 0; background: radial-gradient(500px 220px at 0% 0%, rgba(34,211,238,0.12), transparent 60%); }
 .hero-left { flex: 1; position: relative; }
 .hero-label { font-size: 10px; color: var(--muted); letter-spacing: 1.4px; margin-bottom: 8px; }
 .hero-url { font-size: 20px; color: #a5f3fc; letter-spacing: -0.2px; }
@@ -286,19 +285,19 @@ onMounted(load)
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .routing { display: flex; flex-direction: column; gap: 8px; }
 .route-row { display: flex; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.025); }
-.route-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #a5b4fc; background: rgba(124,92,255,0.12); }
+.route-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #a5b4fc; background: rgba(59,130,246,0.12); }
 .route-main { flex: 1; min-width: 0; }
 .route-name { font-size: 12px; font-weight: 600; }
 .snippet-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
 .snippet-tabs button { background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--muted); font-size: 11px; padding: 4px 11px; border-radius: 7px; cursor: pointer; font-family: inherit; }
-.snippet-tabs button.on { color: #ddd6fe; background: rgba(124,92,255,0.2); border-color: rgba(124,92,255,0.4); }
+.snippet-tabs button.on { color: #ddd6fe; background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.4); }
 .tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .tbl th { text-align: left; font-size: 10px; color: #7d8bab; padding: 9px 10px; border-bottom: 1px solid var(--line); font-weight: 600; white-space: nowrap; }
 .tbl td { padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.04); color: #c3cee6; }
 .model-usage { display: flex; flex-direction: column; gap: 9px; }
 .mu-row { display: grid; grid-template-columns: 170px 1fr 190px; align-items: center; gap: 12px; font-size: 11.5px; }
 .mu-bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,0.05); overflow: hidden; }
-.mu-bar i { display: block; height: 100%; background: linear-gradient(90deg, #7c5cff, #22d3ee); border-radius: 99px; }
+.mu-bar i { display: block; height: 100%; background: #3b82f6; border-radius: 99px; }
 .warn-box { font-size: 11.5px; color: #fcd34d; background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.25); border-radius: 9px; padding: 9px 12px; margin-bottom: 12px; }
 .secret { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #05080f; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 12px; color: #a5f3fc; word-break: break-all; }
 </style>

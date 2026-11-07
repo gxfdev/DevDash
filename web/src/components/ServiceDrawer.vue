@@ -258,12 +258,12 @@ async function copy(v: string) {
                 <div class="card-title">实时资源</div>
                 <div class="stat-line">
                   <span>CPU</span>
-                  <div class="bar"><i :style="{ width: Math.min(100, stats?.cpu_percent || 0) + '%', background: 'linear-gradient(90deg,#7c5cff,#a78bfa)' }" /></div>
+                  <div class="bar"><i :style="{ width: Math.min(100, stats?.cpu_percent || 0) + '%', background: '#3b82f6' }" /></div>
                   <b>{{ fmtPct(stats?.cpu_percent) }}</b>
                 </div>
                 <div class="stat-line">
                   <span>内存</span>
-                  <div class="bar"><i :style="{ width: Math.min(100, stats?.memory_percent || 0) + '%', background: 'linear-gradient(90deg,#22d3ee,#34d399)' }" /></div>
+                  <div class="bar"><i :style="{ width: Math.min(100, stats?.memory_percent || 0) + '%', background: '#14b8a6' }" /></div>
                   <b>{{ fmtMB(stats?.memory_mb) }} / {{ fmtMB(stats?.memory_limit_mb) }}</b>
                 </div>
                 <div class="mini-grid">
@@ -431,6 +431,6 @@ async function copy(v: string) {
 .chat-msg { display: flex; }
 .chat-msg.user { justify-content: flex-end; }
 .bubble { max-width: 82%; padding: 10px 13px; border-radius: 12px; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; }
-.chat-msg.user .bubble { background: linear-gradient(135deg, rgba(124,92,255,0.9), rgba(91,111,240,0.85)); color: #fff; }
+.chat-msg.user .bubble { background: #2563eb; color: #fff; }
 .chat-msg.assistant .bubble { background: rgba(255,255,255,0.045); border: 1px solid var(--line); }
 </style>

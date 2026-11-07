@@ -7,6 +7,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        ALPINE_MIRROR: ${ALPINE_MIRROR:-}
     image: aidash:latest
     container_name: aidash
     restart: unless-stopped
@@ -47,7 +51,18 @@ services:
     security_opt:
       - seccomp:unconfined
       - apparmor=unconfined
+    networks:
+      - aidash-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   aidash-data:
   aidash-models:
+    # 代码中以字面量 aidash-models 引用该卷，必须固定卷名
+    name: aidash-models
+
+networks:
+  aidash-net:
+    name: aidash-net
+    driver: bridge

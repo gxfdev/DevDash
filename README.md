@@ -7,9 +7,8 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
 </p>
 
-> 把一台 Linux 服务器变成「AI 操作系统」：模型广场、模型服务、AI 应用、容器引擎、可观测、AI 网关与权限体系，
-> 全部收敛到一个面板里。**架构对标 [d.run AI 操作系统](https://docs.daocloud.io/drun/)，但去掉 Kubernetes 依赖，
-> 完全基于 Docker Engine API 实现单机编排。**
+> 把一台 Linux 服务器变成「AI 操作系统」：模型广场、模型仓库、模型服务、AI 应用、容器引擎、可观测、AI 网关与权限体系，
+> 全部收敛到一个面板里。**不需要 Kubernetes，完全基于 Docker Engine API 实现单机编排。**
 >
 > 本项目由 [gxfdev/DevDash](https://github.com/gxfdev/DevDash) 运维面板改造而来，保留其主机采集、终端与鉴权能力，
 > 重新设计了模块边界、部署引擎、AI 网关和全部前端界面。
@@ -64,15 +63,14 @@ AI 网关 /v1/chat/completions → 真实模型输出 + Token 计量
 - Docker Hub 镜像可配置 `registry-mirrors`（如 `docker.1ms.run`、`docker.m.daocloud.io`）；
 - 模型文件存放在 Docker 卷 `aidash-models`，删除服务不会删除权重；`docker volume inspect aidash-models` 可查看宿主机路径。
 
-> 你手上的 d.run 离线包（`offline-v0.45.0-amd64.tar`、`os-pkgs-*.tar.gz`）是 Kubernetes 版安装介质，
-> 与本项目「单机 Docker」架构无关，不需要导入。若需要在内网分发镜像，可用 `docker load -i` 导入任意镜像。
+> 内网离线部署：镜像可用 `docker save/load` 分发；模型可用「服务器本地目录」或「直链 / 离线包」导入。
 
 ---
 
 ## 目录
 
 - [它解决什么问题](#它解决什么问题)
-- [与 d.run 的架构对照](#与-drun-的架构对照)
+- [模块划分](#模块划分)
 - [核心能力](#核心能力)
 - [架构](#架构)
 - [一键部署](#一键部署)
@@ -104,23 +102,24 @@ AIDash 把这些步骤做成一个 **单机 AI 操作系统**：模型广场里�
 
 同时，它保留了「平台级运维」能力：面板自身运行在容器里，通过 Docker Socket 管理宿主机，
 并且可以为指定的 AI 工作负载开启 **运维模式**（特权容器 + 宿主机根目录 + host PID + Docker Socket），
-让容器化的 AI 应用在保持隔离边界的同时，拥有与 d.run 平台组件等价的服务器访问权限。
+让容器化的 AI 应用在保持隔离边界的同时，获得受控的服务器访问权限。
 
 ---
 
-## 与 d.run 的架构对照
+## 模块划分
 
-| d.run（Kubernetes） | AIDash（单机 Docker） | 说明 |
+| 模块 | 职责 | 关键能力 |
 | --- | --- | --- |
-| 大模型服务平台 Hydra | **模型广场 + 模型服务** | Ollama / vLLM 运行时，一键部署、OpenAI 兼容、自动网关注册 |
-| AI Lab / 训推平台 | **模型体验 + 容器沙箱** | 在线对话验证、容器内执行命令、GPU 透传 |
-| ClawOS 智能体 | **AI 应用 + AI 运维助手（Copilot）** | Open WebUI / LobeChat / n8n 等一键部署；助手可读指标、查日志、在沙箱执行命令 |
-| 容器管理 Kpanda | **容器引擎** | 容器、镜像、网络、数据卷；无 K8s，直接 Docker Engine API |
-| 可观测 Insight | **可观测** | 主机指标趋势、GPU、服务健康、Docker 存储占用 |
-| 运营驾驶舱 Crane | **驾驶舱** | 资源、服务、Token 用量、告警、快捷操作 |
-| 全局管理 Ghippo | **全局管理** | 用户 / 角色 / RBAC、审计日志、平台设置 |
-| 网关 / API Key / Token 计量 | **AI 网关** | OpenAI 兼容路由、Key、配额、按模型统计 |
-| 集群 + Pod 调度 | **单机 Docker 容器** | 端口自动分配、命名卷、重启策略、资源限制、GPU DeviceRequest |
+| 驾驶舱 | 平台总览 | 资源趋势、服务状态、Token 用量、告警、快捷操作 |
+| 模型广场 | 模型目录 | 一键部署 Ollama / vLLM 模型，资源、端口、环境变量可调 |
+| 模型仓库 | 模型文件管理 | 魔搭 / HuggingFace / Ollama 仓库 / 本地目录 / 直链下载真实权重 |
+| 模型服务 | 生命周期 | 启动、停止、升级、日志、事件、命令控制台、容器终端、在线体验 |
+| AI 应用 | 应用模板 | Open WebUI、LobeChat、n8n、向量库、数据工具、运维沙箱 |
+| 容器引擎 | Docker 管理 | 容器、镜像、网络、数据卷，直接调用 Docker Engine API |
+| 可观测 | 监控 | 主机指标、GPU、服务健康、Docker 存储占用 |
+| AI 网关 | OpenAI 兼容入口 | 模型路由、API Key、Token 计量、配额 |
+| 全局管理 | 平台治理 | 用户、角色、审计日志、平台设置 |
+| 运维助手 | 智能排障 | 读取指标 / 日志 / 服务状态，在授权沙箱内执行命令 |
 
 ---
 
@@ -544,6 +543,67 @@ AIDash/
 
 ---
 
+## 部署检查与常见问题
+
+### 部署前检查
+
+`install.sh` 会自动检查 Docker、内存、磁盘和端口。也可以手动执行：
+
+```bash
+docker version --format '{{.Server.Version}}'
+docker compose version
+free -h
+df -h /var/lib/docker
+ss -ltn | grep -E '9090|20000'
+```
+
+### 常见问题
+
+**1. 拉取镜像超时 / TLS 错误**
+国内网络访问 `ghcr.io`、Docker Hub 可能失败。任选其一：
+```bash
+# 宿主机预先拉取并重命名（面板会自动跳过拉取）
+docker pull ghcr.m.daocloud.io/ggml-org/llama.cpp:server
+docker tag ghcr.m.daocloud.io/ggml-org/llama.cpp:server ghcr.io/ggml-org/llama.cpp:server
+
+# 或给面板配置 ghcr 镜像
+AIDASH_IMAGE_MIRROR=ghcr.m.daocloud.io docker compose up -d
+
+# Docker Hub 镜像加速：/etc/docker/daemon.json
+{ "registry-mirrors": ["https://docker.1ms.run"] }
+```
+拉取超过 25 分钟会超时并写入服务事件，不会无限挂起。
+
+**2. 端口冲突 / 容器创建报 port is already allocated**
+AIDash 会自动避开已发布端口并从 20000-29999 分配；若外部进程占用了宿主机端口，请在部署面板中修改宿主机端口。
+
+**3. 网关调用模型失败（502/连接超时）**
+- 确认面板与模型容器在同一网络：`docker network ls | grep aidash-net`；
+- 使用 compose 部署时不要在面板上覆盖 `network_mode`；
+- 检查模型容器：`docker logs aidash-<服务名>`，以及 `/v1/models` 是否可访问。
+
+**4. 模型下载失败**
+- 魔搭：确认仓库 ID 与文件名（可在 modelscope.cn 页面复制），下载需要出站 HTTPS；
+- HuggingFace：设置镜像 `https://hf-mirror.com`，私有仓库填 Token；
+- 磁盘不足或权限问题会在下载日志中显示；可删除失败任务后重试。
+
+**5. WebSocket 终端不可用**
+反向代理需支持 WebSocket：
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:9090;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host;
+}
+```
+
+**6. SELinux（CentOS / Rocky）**
+挂载宿主机目录时追加 `:z`，或在 `docker-compose.yml` 中给 bind 增加标签；也可临时 `setenforce 0` 验证（生产不建议关闭）。
+
+**7. GPU**
+宿主机需安装 NVIDIA 驱动与 `nvidia-container-toolkit`，`nvidia-smi` 正常后再部署 vLLM；CPU 场景用 llama.cpp + GGUF 即可。
 ## 安全建议
 
 1. **改默认密码**：首次登录修改 `admin` 密码；为每位成员创建独立账号，按最小权限分配角色。
@@ -584,6 +644,5 @@ A：当前镜像约 40 MB（alpine + 静态 Go 二进制 + 前端产物）。前
 ## 来源与许可
 
 - 源自 [gxfdev/DevDash](https://github.com/gxfdev/DevDash)（MIT），重构为单机 AI 操作系统。
-- 架构参考 [DaoCloud d.run AI 操作系统](https://docs.daocloud.io/drun/) 的模块划分，但**不使用 Kubernetes**，
-  全部通过 Docker Engine API 实现。
+- 单机 Docker 架构，不依赖 Kubernetes。
 - 本项目以 MIT 许可证发布，详见 [NOTICE](NOTICE)。

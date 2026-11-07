@@ -171,7 +171,7 @@ async function send() {
 .cp-head { display: flex; align-items: center; gap: 12px; padding: 20px 20px 14px; border-bottom: 1px solid var(--line); }
 .cp-avatar {
   width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff;
-  background: linear-gradient(135deg, #7c5cff, #22d3ee); box-shadow: 0 8px 20px rgba(124,92,255,0.35);
+  background: #2563eb; box-shadow: 0 8px 20px rgba(59,130,246,0.35);
 }
 .cp-title { font-weight: 700; font-size: 15px; }
 .cp-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
@@ -182,7 +182,7 @@ async function send() {
 .cp-msg { display: flex; }
 .cp-msg.user { justify-content: flex-end; }
 .bubble { max-width: 92%; border-radius: 14px; padding: 11px 14px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
-.cp-msg.user .bubble { background: linear-gradient(135deg, rgba(124,92,255,0.9), rgba(91,111,240,0.85)); color: #fff; border-bottom-right-radius: 4px; }
+.cp-msg.user .bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
 .cp-msg.assistant .bubble { background: rgba(255,255,255,0.045); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
 .steps { margin-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; }
 .steps-title { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }

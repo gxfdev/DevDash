@@ -5,11 +5,34 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 info()  { printf '\033[1;36m[aidash]\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m[aidash]\033[0m %s\n' "$*"; }
 fail()  { printf '\033[1;31m[aidash]\033[0m %s\n' "$*" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || fail "未找到 docker，请先安装 Docker Engine 20.10+"
+
+# ---------- 部署前检查 ----------
+mem_gb=$(awk '/MemTotal/{printf "%d", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${mem_gb:-0}" -lt 8 ]; then
+  warn "内存约 ${mem_gb}GB，建议 8GB 以上；7B q4 模型建议 16GB"
+fi
+disk_gb=$(df -Pk /var/lib/docker 2>/dev/null | awk 'NR==2{printf "%d", $4/1024/1024}')
+if [ -n "${disk_gb:-}" ] && [ "$disk_gb" -lt 30 ]; then
+  warn "Docker 数据盘可用约 ${disk_gb}GB，建议 30GB 以上（模型 + 镜像）"
+fi
+if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":${AIDASH_PORT:-9090} "; then
+  warn "端口 ${AIDASH_PORT:-9090} 已被占用，请先在 .env 中修改 AIDASH_PORT"
+fi
+if ! docker info >/dev/null 2>&1; then
+  fail "无法连接 Docker daemon（确认 docker 服务已启动，当前用户有权限）"
+fi
 
 if docker compose version >/dev/null 2>&1; then
   COMPOSE="docker compose"

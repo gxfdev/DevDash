@@ -27,9 +27,9 @@ const labels = computed(() =>
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }),
 )
-const cpuSeries = computed(() => [{ name: 'CPU', values: points.value.map((p) => p.cpu), color: '#7c5cff' }])
+const cpuSeries = computed(() => [{ name: 'CPU', values: points.value.map((p) => p.cpu), color: '#3b82f6' }])
 const memSeries = computed(() => [
-  { name: '内存', values: points.value.map((p) => p.memory), color: '#22d3ee' },
+  { name: '内存', values: points.value.map((p) => p.memory), color: '#14b8a6' },
   { name: '磁盘', values: points.value.map((p) => p.disk), color: '#f59e0b' },
 ])
 const netSeries = computed(() => [
@@ -115,9 +115,9 @@ function setRange(r: string) {
 
     <div class="kpis">
       <StatCard label="CPU 使用率" :value="fmtPct(metrics?.cpu?.usage_percent)" :percent="metrics?.cpu?.usage_percent"
-        :hint="`${metrics?.cpu?.cores || 0} 核 · 负载 ${metrics?.load?.load1?.toFixed(2) || '-'}`" :icon="SpeedometerOutline" tone="#7c5cff" />
+        :hint="`${metrics?.cpu?.cores || 0} 核 · 负载 ${metrics?.load?.load1?.toFixed(2) || '-'}`" :icon="SpeedometerOutline" tone="#3b82f6" />
       <StatCard label="内存使用" :value="fmtPct(metrics?.memory?.usage_percent)" :percent="metrics?.memory?.usage_percent"
-        :hint="`${metrics?.memory?.used_gb?.toFixed(1) || 0} / ${metrics?.memory?.total_gb?.toFixed(1) || 0} GB`" :icon="HardwareChipOutline" tone="#22d3ee" />
+        :hint="`${metrics?.memory?.used_gb?.toFixed(1) || 0} / ${metrics?.memory?.total_gb?.toFixed(1) || 0} GB`" :icon="HardwareChipOutline" tone="#14b8a6" />
       <StatCard label="磁盘占用" :value="fmtPct(metrics?.disk?.usage_percent)" :percent="metrics?.disk?.usage_percent"
         :hint="`可用 ${fmtGB(metrics?.disk?.free_gb)} / 共 ${fmtGB(metrics?.disk?.total_gb)}`" :icon="ServerOutline" tone="#f59e0b" />
       <StatCard label="运行中的 AI 服务" :value="`${ov?.services?.running || 0}`" :suffix="`/ ${ov?.services?.total || 0}`"
@@ -149,8 +149,8 @@ function setRange(r: string) {
         <div class="chart-foot">
           <span>数据点 {{ points.length }} 个 · 采样间隔 5s</span>
           <span class="row gap-8">
-            <span class="legend"><i style="background:#7c5cff" />CPU</span>
-            <span class="legend"><i style="background:#22d3ee" />内存</span>
+            <span class="legend"><i style="background:#3b82f6" />CPU</span>
+            <span class="legend"><i style="background:#14b8a6" />内存</span>
             <span class="legend"><i style="background:#f59e0b" />磁盘</span>
           </span>
         </div>
@@ -248,7 +248,7 @@ function setRange(r: string) {
 </template>
 
 <style scoped>
-.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-left: 8px; box-shadow: 0 0 0 4px rgba(52,211,153,0.15); animation: pulse 2s infinite; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #34d399; margin-left: 8px; box-shadow: 0 0 0 4px rgba(52,211,153,0.15); }
 .alert-strip { display: flex; align-items: flex-start; gap: 12px; padding: 13px 16px; margin-bottom: 16px; border-color: rgba(251,191,36,0.25); background: rgba(251,191,36,0.07); }
 .alert-items { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 .alert-item { font-size: 12.5px; color: #d7deee; display: flex; gap: 6px; }
@@ -264,14 +264,14 @@ function setRange(r: string) {
 .gpu-metric span { font-size: 20px; font-weight: 700; }
 .gpu-metric small { font-size: 11px; color: var(--muted); }
 .gpu-track { margin-top: 12px; height: 4px; border-radius: 99px; background: rgba(255,255,255,0.06); overflow: hidden; }
-.gpu-track i { display: block; height: 100%; background: linear-gradient(90deg, #7c5cff, #22d3ee); }
+.gpu-track i { display: block; height: 100%; background: #3b82f6; }
 
 .panel { padding: 18px 20px 16px; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .panel-head .section-title { margin: 0; }
 .range-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
 .range-tabs button { background: none; border: none; color: var(--muted); font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
-.range-tabs button.on { background: rgba(124,92,255,0.25); color: #ddd6fe; }
+.range-tabs button.on { background: rgba(59,130,246,0.25); color: #ddd6fe; }
 
 .right-col { display: flex; flex-direction: column; gap: 16px; }
 .chart-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 10.5px; color: #5d6a89; }
@@ -298,7 +298,7 @@ function setRange(r: string) {
   border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,0.03);
   color: var(--text); cursor: pointer; font-family: inherit; text-align: left; transition: all 0.16s ease;
 }
-.quick:hover { border-color: rgba(124,92,255,0.4); background: rgba(124,92,255,0.09); transform: translateY(-1px); }
+.quick:hover { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.09); transform: translateY(-1px); }
 .quick span { font-size: 13px; font-weight: 600; }
 .quick small { font-size: 10.5px; color: var(--muted); }
 .tip { margin-top: 12px; font-size: 11px; color: #5d6a89; line-height: 1.7; }

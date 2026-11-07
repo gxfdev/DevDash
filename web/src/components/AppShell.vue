@@ -120,8 +120,8 @@ watch(() => route.path, () => {
           <svg viewBox="0 0 64 64" aria-hidden="true">
             <defs>
               <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#8b6dff" />
-                <stop offset="1" stop-color="#22d3ee" />
+                <stop offset="0" stop-color="#2563eb" />
+                <stop offset="1" stop-color="#14b8a6" />
               </linearGradient>
             </defs>
             <path d="M18 46 L32 16 L46 46" fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
@@ -168,11 +168,11 @@ watch(() => route.path, () => {
         </div>
         <div class="meter">
           <div class="meter-row"><span>CPU</span><b>{{ fmtPct(cpu) }}</b></div>
-          <div class="meter-track"><i :style="{ width: Math.min(100, cpu) + '%', background: 'linear-gradient(90deg,#7c5cff,#a78bfa)' }" /></div>
+          <div class="meter-track"><i :style="{ width: Math.min(100, cpu) + '%', background: '#3b82f6' }" /></div>
         </div>
         <div class="meter">
           <div class="meter-row"><span>内存</span><b>{{ fmtPct(mem) }}</b></div>
-          <div class="meter-track"><i :style="{ width: Math.min(100, mem) + '%', background: 'linear-gradient(90deg,#22d3ee,#34d399)' }" /></div>
+          <div class="meter-track"><i :style="{ width: Math.min(100, mem) + '%', background: '#14b8a6' }" /></div>
         </div>
         <div class="host-foot">
           <span>运行 {{ uptime }}</span>
@@ -241,7 +241,7 @@ watch(() => route.path, () => {
 .sidebar {
   width: 242px; flex: none; display: flex; flex-direction: column;
   padding: 20px 14px 16px; gap: 18px;
-  background: linear-gradient(180deg, rgba(14, 19, 36, 0.92), rgba(8, 11, 22, 0.96));
+  background: #0d121b;
   border-right: 1px solid var(--line);
   backdrop-filter: blur(20px);
 }
@@ -249,9 +249,9 @@ watch(() => route.path, () => {
 .brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 0; }
 .logo {
   width: 42px; height: 42px; border-radius: 13px; display: grid; place-items: center;
-  background: radial-gradient(120% 120% at 0% 0%, rgba(124,92,255,0.35), rgba(15,21,38,0.9));
-  border: 1px solid rgba(124,92,255,0.35);
-  box-shadow: 0 8px 24px rgba(124,92,255,0.25);
+  background: rgba(59,130,246,0.1);
+  border: 1px solid rgba(59,130,246,0.35);
+  
 }
 .logo svg { width: 26px; height: 26px; }
 .brand-name { font-size: 17px; font-weight: 750; letter-spacing: 0.2px; }
@@ -267,12 +267,12 @@ watch(() => route.path, () => {
 .nav-item:hover { color: #e9eefc; background: rgba(255,255,255,0.045); }
 .nav-item.active {
   color: #fff;
-  background: linear-gradient(90deg, rgba(124,92,255,0.24), rgba(124,92,255,0.06));
-  box-shadow: inset 0 0 0 1px rgba(124,92,255,0.22);
+  background: rgba(59,130,246,0.12);
+  box-shadow: inset 0 0 0 1px rgba(59,130,246,0.25);
 }
 .nav-item.active::before {
   content: ''; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px;
-  background: linear-gradient(180deg, #a78bfa, #22d3ee);
+  background: #60a5fa;
 }
 .nav-badge {
   margin-left: auto; background: rgba(251,113,133,0.16); color: #fda4af; font-size: 10.5px;
@@ -281,7 +281,7 @@ watch(() => route.path, () => {
 
 .host-card {
   border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 11px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015));
+  background: rgba(255,255,255,0.02);
 }
 .host-name { font-size: 12.5px; color: var(--text-dim); font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; }
@@ -298,7 +298,7 @@ watch(() => route.path, () => {
 .topbar {
   height: 62px; flex: none; display: flex; align-items: center; gap: 12px;
   padding: 0 26px; border-bottom: 1px solid var(--line);
-  background: rgba(8, 12, 22, 0.55); backdrop-filter: blur(16px);
+  background: rgba(11, 15, 22, 0.92);
 }
 .crumb { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .crumb-root { color: var(--muted); }
@@ -313,12 +313,12 @@ watch(() => route.path, () => {
   font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit;
   border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--text); transition: all 0.16s ease;
 }
-.copilot-btn:hover { border-color: rgba(124,92,255,0.45); background: rgba(124,92,255,0.12); }
-.deploy-btn { border: none; color: #fff; background: linear-gradient(135deg, #7c5cff, #5b6ff0 55%, #22b8d4); box-shadow: 0 8px 22px rgba(92,111,240,0.32); }
+.copilot-btn:hover { border-color: rgba(59,130,246,0.45); background: rgba(59,130,246,0.12); }
+.deploy-btn { border: none; color: #fff; background: #2563eb; }
 .deploy-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .avatar {
   width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; cursor: pointer;
-  color: #c4b5fd; border: 1px solid var(--line); background: rgba(124,92,255,0.1);
+  color: #c4b5fd; border: 1px solid var(--line); background: rgba(59,130,246,0.1);
 }
 .content-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
 

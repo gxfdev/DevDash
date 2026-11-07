@@ -27,15 +27,15 @@ const ov = computed(() => platform.overview)
 const metrics = computed(() => ov.value?.metrics)
 const gpu = computed(() => ov.value?.metrics?.gpu)
 
-const cpuSeries = computed(() => [{ name: 'CPU', values: points.value.map((p) => p.cpu), color: '#7c5cff' }])
-const memSeries = computed(() => [{ name: '内存', values: points.value.map((p) => p.memory), color: '#22d3ee' }])
+const cpuSeries = computed(() => [{ name: 'CPU', values: points.value.map((p) => p.cpu), color: '#3b82f6' }])
+const memSeries = computed(() => [{ name: '内存', values: points.value.map((p) => p.memory), color: '#14b8a6' }])
 const diskSeries = computed(() => [{ name: '磁盘', values: points.value.map((p) => p.disk), color: '#f59e0b' }])
 const netSeries = computed(() => [
   { name: '入站', values: points.value.map((p) => p.net_rx), color: '#34d399' },
   { name: '出站', values: points.value.map((p) => p.net_tx), color: '#f472b6' },
 ])
 const gpuSeries = computed(() => [
-  { name: 'GPU 利用率', values: points.value.map((p) => p.gpu), color: '#a78bfa' },
+  { name: 'GPU 利用率', values: points.value.map((p) => p.gpu), color: '#60a5fa' },
   { name: '显存利用率', values: points.value.map((p) => p.gpu_mem), color: '#f472b6' },
 ])
 
@@ -172,13 +172,13 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
 <style scoped>
 .range-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
 .range-tabs button { background: none; border: none; color: var(--muted); font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-family: inherit; }
-.range-tabs button.on { background: rgba(124,92,255,0.25); color: #ddd6fe; }
+.range-tabs button.on { background: rgba(59,130,246,0.25); color: #ddd6fe; }
 
 .mini-kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
 .mk { display: flex; align-items: center; gap: 11px; padding: 13px 15px; }
 .mk .ic { padding: 8px; border-radius: 9px; box-sizing: content-box; }
-.ic.cpu { color: #a78bfa; background: rgba(124,92,255,0.12); }
-.ic.mem { color: #67e8f9; background: rgba(34,211,238,0.12); }
+.ic.cpu { color: #60a5fa; background: rgba(59,130,246,0.12); }
+.ic.mem { color: #67e8f9; background: rgba(20,184,166,0.12); }
 .ic.disk { color: #fcd34d; background: rgba(251,191,36,0.12); }
 .ic.svc { color: #6ee7b7; background: rgba(52,211,153,0.12); }
 .ic.bad { color: #fda4af; background: rgba(251,113,133,0.12); }

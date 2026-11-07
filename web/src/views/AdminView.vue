@@ -258,12 +258,12 @@ onMounted(loadAll)
         <div class="about-grid">
           <div class="glass panel">
             <div class="about-logo">
-              <svg viewBox="0 0 64 64"><path d="M18 46 L32 16 L46 46" fill="none" stroke="url(#ag)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" /><defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6dff" /><stop offset="1" stop-color="#22d3ee" /></linearGradient></defs><circle cx="32" cy="40" r="3.6" fill="#8b6dff" /></svg>
+              <svg viewBox="0 0 64 64"><path d="M18 46 L32 16 L46 46" fill="none" stroke="url(#ag)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" /><defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb" /><stop offset="1" stop-color="#14b8a6" /></linearGradient></defs><circle cx="32" cy="40" r="3.6" fill="#2563eb" /></svg>
             </div>
             <h2>AIDash · 单机 AI 操作系统</h2>
             <p>
-              基于 DevDash 运维面板改造的 AI 操作系统。对标 d.run 的模块化架构（模型服务 / AI 应用 / 容器底座 /
-              可观测 / 全局管理），但放弃 Kubernetes 依赖，直接用 Docker Engine API 实现单机编排。
+              基于 DevDash 运维面板改造的 AI 操作系统。采用模块化架构（模型服务 / AI 应用 / 容器底座 /
+              可观测 / 全局管理），不依赖 Kubernetes，直接用 Docker Engine API 实现单机编排。
             </p>
             <div class="arch">
               <div class="arch-row"><b>驾驶舱</b><span>资源趋势、服务状态、告警与用量</span></div>
@@ -332,17 +332,17 @@ onMounted(loadAll)
 .tbl th { text-align: left; font-size: 10px; color: #7d8bab; padding: 11px 14px; border-bottom: 1px solid var(--line); font-weight: 600; white-space: nowrap; }
 .tbl td { padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); color: #c3cee6; }
 .detail { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.avatar-sm { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #c4b5fd; background: rgba(124,92,255,0.15); border: 1px solid rgba(124,92,255,0.25); }
+.avatar-sm { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #c4b5fd; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.25); }
 .tip-box { margin-top: 12px; font-size: 11.5px; color: var(--muted); }
 
 .settings-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
 .panel { padding: 18px 20px; }
 .right-col { display: flex; flex-direction: column; gap: 16px; }
 .tips { margin: 0; padding-left: 18px; font-size: 11.5px; color: #8b98b8; line-height: 2; }
-.tips li::marker { color: #7c5cff; }
+.tips li::marker { color: #3b82f6; }
 
 .about-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
-.about-logo { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: radial-gradient(120% 120% at 0% 0%, rgba(124,92,255,0.35), rgba(15,21,38,0.9)); border: 1px solid rgba(124,92,255,0.35); margin-bottom: 14px; }
+.about-logo { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.35); margin-bottom: 14px; }
 .about-logo svg { width: 34px; height: 34px; }
 .about-grid h2 { font-size: 19px; margin: 0 0 10px; letter-spacing: -0.4px; }
 .about-grid p { font-size: 12px; color: #8b98b8; line-height: 1.9; margin: 0 0 16px; }

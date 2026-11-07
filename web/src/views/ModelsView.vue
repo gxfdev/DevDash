@@ -142,13 +142,12 @@ onMounted(load)
 .hero { position: relative; display: flex; gap: 30px; padding: 30px 32px; overflow: hidden; margin-bottom: 22px; }
 .hero::before {
   content: ''; position: absolute; inset: 0;
-  background: radial-gradient(650px 260px at 12% 0%, rgba(124,92,255,0.24), transparent 65%),
-    radial-gradient(500px 220px at 90% 100%, rgba(34,211,238,0.14), transparent 65%);
+  background: rgba(59,130,246,0.05);
 }
 .hero-left { flex: 1.4; position: relative; }
 .hero-chip {
   display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #c4b5fd;
-  border: 1px solid rgba(124,92,255,0.32); background: rgba(124,92,255,0.12);
+  border: 1px solid rgba(59,130,246,0.32); background: rgba(59,130,246,0.12);
   padding: 4px 10px; border-radius: 999px; margin-bottom: 14px;
 }
 .hero h1 { font-size: 30px; margin: 0 0 12px; letter-spacing: -0.8px; font-weight: 740; }
@@ -162,13 +161,7 @@ onMounted(load)
 .hc-row { display: flex; justify-content: space-between; font-size: 12px; padding: 7px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
 .hc-row span { color: var(--muted); }
 .hc-row b { font-weight: 620; }
-.float-badge {
-  position: absolute; display: flex; align-items: center; gap: 5px; font-size: 10.5px;
-  border-radius: 999px; padding: 5px 10px; border: 1px solid var(--line);
-  background: rgba(15,21,38,0.92); color: #c3cee6; z-index: 3; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-}
-.b1 { right: -6px; top: -14px; color: #6ee7b7; border-color: rgba(52,211,153,0.3); }
-.b2 { right: 14px; bottom: -14px; color: #a5b4fc; border-color: rgba(124,92,255,0.3); }
+.float-badge { display: none; }
 
 .toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -177,7 +170,7 @@ onMounted(load)
   background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--muted); transition: all 0.15s;
 }
 .chip:hover { color: var(--text); border-color: var(--line-strong); }
-.chip.on { color: #ede9fe; background: rgba(124,92,255,0.2); border-color: rgba(124,92,255,0.45); }
+.chip.on { color: #ede9fe; background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.45); }
 
 @media (max-width: 900px) {
   .hero { flex-direction: column; }

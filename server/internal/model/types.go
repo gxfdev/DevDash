@@ -54,8 +54,8 @@ type ResourceSpec struct {
 
 // HostAccess describes the "运维模式": the workload keeps running in a
 // container but is granted host-level reach (host pid, docker socket,
-// host root mount). This mirrors what d.run / DCE does for platform
-// components, implemented with plain Docker instead of Kubernetes.
+// host root mount). It is implemented with plain Docker, so the same
+// capability works on a single host without an orchestrator.
 type HostAccess struct {
 	Enabled           bool          `json:"enabled"`
 	Privileged        bool          `json:"privileged"`

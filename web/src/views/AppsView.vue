@@ -76,7 +76,7 @@ onMounted(load)
         <div class="banner-title">容器化，但拥有服务器权限</div>
         <p>
           AIDash 的「运维模式」在保持容器隔离的同时，按需授予特权模式、宿主机根目录挂载、host PID 与 Docker Socket。
-          AI 应用仍以容器交付，却能读取系统日志、执行命令、管理容器——与 d.run 平台组件在 K8s 上获得的权限等价，但不需要 Kubernetes。
+          AI 应用仍以容器交付，却能读取系统日志、执行命令、管理容器，无需 Kubernetes。
         </p>
       </div>
       <div class="banner-stats">
@@ -131,7 +131,7 @@ onMounted(load)
 
 <style scoped>
 .banner { display: flex; align-items: center; gap: 18px; padding: 22px 26px; margin-bottom: 20px; position: relative; overflow: hidden; }
-.banner::before { content: ''; position: absolute; inset: 0; background: radial-gradient(500px 200px at 0% 0%, rgba(251,191,36,0.12), transparent 60%); }
+
 .banner-icon { width: 50px; height: 50px; border-radius: 14px; display: grid; place-items: center; color: #fcd34d; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.28); flex: none; }
 .banner-body { flex: 1; min-width: 0; position: relative; }
 .banner-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
@@ -144,7 +144,7 @@ onMounted(load)
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { font-size: 11.5px; padding: 5px 12px; border-radius: 999px; cursor: pointer; font-family: inherit; background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--muted); }
-.chip.on { color: #ede9fe; background: rgba(124,92,255,0.2); border-color: rgba(124,92,255,0.45); }
+.chip.on { color: #ede9fe; background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.45); }
 
 .hint-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
 .hint { display: flex; gap: 10px; padding: 13px 15px; align-items: flex-start; color: #a5b4fc; }

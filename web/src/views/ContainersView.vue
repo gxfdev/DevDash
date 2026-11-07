@@ -307,7 +307,7 @@ onMounted(load)
   display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 7px 13px; border-radius: 9px;
   border: 1px solid var(--line); background: rgba(255,255,255,0.03); color: var(--muted); cursor: pointer; font-family: inherit;
 }
-.tl.on { color: #ede9fe; background: rgba(124,92,255,0.18); border-color: rgba(124,92,255,0.4); }
+.tl.on { color: #ede9fe; background: rgba(59,130,246,0.18); border-color: rgba(59,130,246,0.4); }
 .table-wrap { overflow: auto; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .tbl th { text-align: left; font-size: 10.5px; color: #7d8bab; font-weight: 600; padding: 12px 16px; border-bottom: 1px solid var(--line); letter-spacing: 0.4px; white-space: nowrap; }

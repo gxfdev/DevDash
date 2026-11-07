@@ -243,12 +243,14 @@ func (o *Orchestrator) catalogModelRef(catalogID string) string {
 func (o *Orchestrator) pullImage(ctx context.Context, serviceID, ref string) error {
 	lastEmit := time.Time{}
 	lastStatus := ""
+	pullCtx, cancel := context.WithTimeout(ctx, 25*time.Minute)
+	defer cancel()
 	pullRef := ref
 	if mirror := strings.TrimSpace(os.Getenv("AIDASH_IMAGE_MIRROR")); mirror != "" && strings.HasPrefix(ref, "ghcr.io/") {
 		pullRef = strings.TrimSuffix(mirror, "/") + strings.TrimPrefix(ref, "ghcr.io")
 		o.event(serviceID, "info", "使用镜像加速: "+pullRef)
 	}
-	err := o.docker.PullImage(ctx, pullRef, "", func(p engine.PullProgress) {
+	err := o.docker.PullImage(pullCtx, pullRef, "", func(p engine.PullProgress) {
 		msg := strings.TrimSpace(p.Status + " " + p.ID + " " + p.Progress)
 		if msg == "" || msg == lastStatus {
 			return

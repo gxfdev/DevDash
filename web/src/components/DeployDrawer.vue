@@ -128,7 +128,7 @@ function removeEnv(i: number) { form.envRows.splice(i, 1) }
   <n-drawer :show="show" :width="620" placement="right" @update:show="emit('update:show', $event)">
     <div v-if="item" class="deploy">
       <header class="d-head">
-        <div class="d-icon" :style="{ background: `linear-gradient(140deg, ${item.accent}33, rgba(10,14,26,0.9))`, borderColor: `${item.accent}55` }">
+        <div class="d-icon" :style="{ background: 'rgba(255,255,255,0.04)', borderColor: `${item.accent}55` }">
           <n-icon :component="isModel ? RocketOutline : WarningOutline" :size="22" :style="{ color: item.accent }" />
         </div>
         <div style="flex: 1; min-width: 0">

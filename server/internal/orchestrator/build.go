@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gxfdev/aidash/server/internal/catalog"
 	"github.com/gxfdev/aidash/server/internal/engine"
@@ -225,13 +227,25 @@ func (o *Orchestrator) BuildSpec(req DeployRequest, cat *catalog.Catalog) (*mode
 		}
 	}
 
-	// Allocate reachable host ports, avoiding ports claimed by existing services.
+	// Allocate reachable host ports, avoiding ports already published by
+	// Docker containers or claimed by existing AIDash services.
 	used := map[int]bool{}
 	if svcs, err := o.store.ListServices(); err == nil {
 		for _, s := range svcs {
 			for _, p := range s.Spec.Ports {
 				if p.HostPort > 0 {
 					used[p.HostPort] = true
+				}
+			}
+		}
+	}
+	listCtx, cancelList := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelList()
+	if containers, err := o.docker.ListContainers(listCtx, true); err == nil {
+		for _, c := range containers {
+			for _, port := range c.Ports {
+				if port.PublicPort > 0 {
+					used[port.PublicPort] = true
 				}
 			}
 		}
@@ -366,6 +380,8 @@ func (o *Orchestrator) BuildCreateRequest(svc *model.Service) engine.CreateReque
 		Memory:        spec.Resources.MemoryMB * 1024 * 1024,
 		ShmSize:       spec.Resources.ShmMB * 1024 * 1024,
 		LogConfig:     &engine.LogConfig{Type: "json-file", Config: map[string]string{"max-size": "10m", "max-file": "3"}},
+		NetworkMode:   "aidash-net",
+		ExtraHosts:    []string{"host.docker.internal:host-gateway"},
 	}
 	if spec.Resources.GPUCount > 0 {
 		hostConfig.DeviceRequests = []engine.DeviceRequest{{

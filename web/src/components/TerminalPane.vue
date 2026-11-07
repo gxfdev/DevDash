@@ -22,10 +22,10 @@ function connect() {
     theme: {
       background: '#05080f',
       foreground: '#c9d4ee',
-      cursor: '#7c5cff',
-      selectionBackground: 'rgba(124,92,255,0.3)',
+      cursor: '#3b82f6',
+      selectionBackground: 'rgba(59,130,246,0.3)',
       black: '#0a0f1a', red: '#fb7185', green: '#34d399', yellow: '#fbbf24',
-      blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#e2e8f0',
+      blue: '#60a5fa', magenta: '#c084fc', cyan: '#14b8a6', white: '#e2e8f0',
     },
     scrollback: 4000,
     convertEol: true,

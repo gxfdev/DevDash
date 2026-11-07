@@ -234,13 +234,13 @@ watch(() => route.query.focus, (v) => {
 .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .chips { display: flex; gap: 6px; }
 .chip { font-size: 11.5px; padding: 5px 12px; border-radius: 999px; cursor: pointer; font-family: inherit; background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--muted); }
-.chip.on { color: #ede9fe; background: rgba(124,92,255,0.2); border-color: rgba(124,92,255,0.45); }
+.chip.on { color: #ede9fe; background: rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.45); }
 
 .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 .svc-card { padding: 16px 18px; cursor: pointer; transition: all 0.18s ease; display: flex; flex-direction: column; gap: 11px; }
-.svc-card:hover { transform: translateY(-2px); border-color: rgba(124,92,255,0.35); }
+.svc-card:hover { transform: translateY(-2px); border-color: rgba(59,130,246,0.35); }
 .sc-head { display: flex; align-items: center; gap: 11px; }
-.sc-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: none; color: #a5b4fc; background: rgba(124,92,255,0.12); border: 1px solid rgba(124,92,255,0.22); }
+.sc-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: none; color: #a5b4fc; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.22); }
 .sc-icon.running { color: #6ee7b7; background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.26); }
 .sc-icon.error { color: #fda4af; background: rgba(251,113,133,0.1); border-color: rgba(251,113,133,0.26); }
 .sc-title-wrap { flex: 1; min-width: 0; }
@@ -254,7 +254,7 @@ watch(() => route.query.focus, (v) => {
 .sc-meta div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sc-meta span { color: #5d6a89; }
 .sc-meta b { font-weight: 550; color: #b9c5dd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sc-endpoint { font-size: 11px; color: #a5f3fc; background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.16); padding: 6px 9px; border-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-endpoint { font-size: 11px; color: #a5f3fc; background: rgba(20,184,166,0.06); border: 1px solid rgba(20,184,166,0.16); padding: 6px 9px; border-radius: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-error { font-size: 11px; color: #fda4af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sc-foot { display: flex; align-items: center; gap: 4px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); }
 

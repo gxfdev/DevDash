@@ -81,17 +81,16 @@ function memLabel(mb: number): string {
   position: relative; padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px;
   overflow: hidden; transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.catalog-card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent) 40%, transparent); box-shadow: 0 26px 60px rgba(0,0,0,0.5); }
+.catalog-card:hover { border-color: rgba(59,130,246,0.45); }
 .glow {
   position: absolute; inset: -1px; pointer-events: none;
-  background: radial-gradient(320px 120px at 8% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
-  opacity: 0.9;
+  background: none;
 }
 .cc-head { display: flex; align-items: center; gap: 12px; position: relative; }
 .cc-icon {
   width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; flex: none;
   color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  background: color-mix(in srgb, var(--accent) 13%, rgba(10,14,26,0.6));
+  background: rgba(255,255,255,0.04);
 }
 .cc-title-wrap { flex: 1; min-width: 0; }
 .cc-title { font-size: 14.5px; font-weight: 680; letter-spacing: -0.2px; }

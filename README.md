@@ -290,7 +290,8 @@ docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compo
 ```
 
 **说明**：第一次推送 `main` 后需要等待 Actions 完成（约 5-15 分钟），在仓库 Actions 页面查看
-`Publish Docker image` 是否成功；之后每次推送自动更新 `latest`。
+`Publish Docker image` 是否成功；之后每次推送自动更新 `latest`。若服务器 `docker pull` 返回 401，
+说明镜像还在构建或包仍是私有，按上面的可见性说明处理即可。
 
 ### 构建镜像
 

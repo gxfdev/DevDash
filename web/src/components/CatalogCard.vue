@@ -39,7 +39,6 @@ function memLabel(mb: number): string {
 
 <template>
   <article class="catalog-card glass" :style="{ '--accent': item.accent }">
-    <div class="glow" />
     <header class="cc-head">
       <div class="cc-icon">
         <n-icon :component="icon" :size="23" />
@@ -82,10 +81,7 @@ function memLabel(mb: number): string {
   overflow: hidden; transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .catalog-card:hover { border-color: rgba(59,130,246,0.45); }
-.glow {
-  position: absolute; inset: -1px; pointer-events: none;
-  background: none;
-}
+
 .cc-head { display: flex; align-items: center; gap: 12px; position: relative; }
 .cc-icon {
   width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; flex: none;

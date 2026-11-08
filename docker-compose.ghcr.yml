@@ -1,0 +1,61 @@
+# AIDash · 单机 AI 操作系统（预构建镜像版）
+#
+# 使用 GitHub Actions 发布的多架构镜像，无需在服务器上构建。
+# 镜像地址：ghcr.io/gxfdev/devdash:latest
+# 首次使用请参考 README「方式零」配置 .env 与镜像可见性。
+services:
+  aidash:
+    image: ${AIDASH_IMAGE:-ghcr.io/gxfdev/devdash:latest}
+    container_name: aidash
+    restart: unless-stopped
+    # 运维模式：面板自身需要 root 级能力来管理容器与宿主机
+    privileged: true
+    pid: host
+    ports:
+      - "${AIDASH_PORT:-9090}:9090"
+    volumes:
+      - aidash-data:/data
+      - aidash-models:/models
+      # 管理宿主机 Docker（部署 / 启停 / 日志 / exec）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 宿主机根目录（运维助手 / 宿主机权限容器）
+      - /:/host:rw
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /dev:/host/dev:ro
+    environment:
+      - PORT=9090
+      - TZ=${TZ:-Asia/Shanghai}
+      - GIN_MODE=release
+      - JWT_SECRET=${JWT_SECRET:?请在 .env 中设置 JWT_SECRET（openssl rand -hex 32）}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-admin123}
+      - PUBLIC_URL=${PUBLIC_URL:-}
+      - HOST_ROOT=/host
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_DEV=/host/dev
+      - AIDASH_TARGET_OS=linux
+      - AIDASH_HOST_NS=1
+      # 国内服务器可启用 ghcr 镜像加速
+      # - AIDASH_IMAGE_MIRROR=ghcr.m.daocloud.io
+      - PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+    security_opt:
+      - seccomp:unconfined
+      - apparmor=unconfined
+    networks:
+      - aidash-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  aidash-data:
+  aidash-models:
+    # 代码中以字面量 aidash-models 引用该卷，必须固定卷名
+    name: aidash-models
+
+networks:
+  aidash-net:
+    name: aidash-net
+    driver: bridge

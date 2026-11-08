@@ -246,6 +246,52 @@ flowchart TB
 
 ## 一键部署
 
+### 方式零：拉取预构建镜像（推荐，服务器无需构建）
+
+GitHub Actions 在每次推送到 `main` 时自动构建 **linux/amd64 + linux/arm64** 镜像并推送到 GHCR，
+服务器只需要拉镜像启动，不需要 Node / Go 构建环境。
+
+- 镜像：`ghcr.io/gxfdev/devdash:latest`
+- 标签：`latest`（main）、`vX.Y.Z`（打 tag）、`sha-xxxxxxx`（提交）
+- 工作流：`.github/workflows/publish.yml`
+
+**一条命令启动（镜像公开时）：**
+
+```bash
+git clone git@github.com:gxfdev/DevDash.git aidash && cd aidash
+JWT_SECRET=$(openssl rand -hex 32) \
+  AIDASH_IMAGE=ghcr.io/gxfdev/devdash:latest \
+  docker compose -f docker-compose.ghcr.yml up -d
+```
+
+**或使用安装脚本（会自动拉取镜像，不构建）：**
+
+```bash
+cp .env.example .env   # 填写 JWT_SECRET
+./install.sh --image
+```
+
+访问 `http://服务器IP:9090`，默认 `admin / admin123`。
+
+**镜像可见性**：GHCR 包默认私有。公开拉取前，在 GitHub → Packages → `devdash` → Package settings 中改为 Public；
+若保持私有，服务器先登录：
+
+```bash
+echo "<GitHub PAT，勾选 read:packages>" | docker login ghcr.io -u <你的用户名> --password-stdin
+```
+
+**升级**：
+
+```bash
+# 预构建镜像
+docker compose -f docker-compose.ghcr.yml pull && docker compose -f docker-compose.ghcr.yml up -d
+# 或
+./install.sh --image
+```
+
+**说明**：第一次推送 `main` 后需要等待 Actions 完成（约 5-15 分钟），在仓库 Actions 页面查看
+`Publish Docker image` 是否成功；之后每次推送自动更新 `latest`。
+
 ### 构建镜像
 
 镜像为三阶段构建（前端 → Go → Alpine），运行时约 40 MB（模型镜像另行拉取）：

@@ -5,6 +5,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+USE_IMAGE=0
+IMAGE_REF="${AIDASH_IMAGE:-ghcr.io/gxfdev/devdash:latest}"
+for arg in "$@"; do
+  case "$arg" in
+    --image|--prebuilt) USE_IMAGE=1 ;;
+    -h|--help)
+      echo "用法: ./install.sh [--image]"
+      echo "  --image  使用 GitHub Actions 发布的预构建镜像（默认 ghcr.io/gxfdev/devdash:latest）"
+      exit 0 ;;
+  esac
+done
+
 if [ -f .env ]; then
   set -a
   # shellcheck disable=SC1091
@@ -63,8 +75,22 @@ else
   info "使用已有 .env"
 fi
 
-info "构建并启动 AIDash（首次构建约 2-5 分钟）"
-$COMPOSE up -d --build
+COMPOSE_FILES=""
+if [ "$USE_IMAGE" = "1" ]; then
+  info "拉取预构建镜像 ${IMAGE_REF}（多架构，无需本地构建）"
+  if ! docker pull "${IMAGE_REF}"; then
+    fail "镜像拉取失败。若镜像是私有包，请先 docker login ghcr.io；也可以去掉 --image 使用本地构建"
+  fi
+  export AIDASH_IMAGE="${IMAGE_REF}"
+  COMPOSE_FILES="-f docker-compose.ghcr.yml"
+  UPGRADE_CMD="$COMPOSE $COMPOSE_FILES pull && $COMPOSE $COMPOSE_FILES up -d"
+  info "启动 AIDash"
+  $COMPOSE $COMPOSE_FILES up -d
+else
+  UPGRADE_CMD="$COMPOSE up -d --build"
+  info "构建并启动 AIDash（首次构建约 2-5 分钟）"
+  $COMPOSE up -d --build
+fi
 
 info "等待服务就绪…"
 for i in $(seq 1 60); do
@@ -90,9 +116,9 @@ cat <<EOF
      默认账号: admin / admin123 （登录后请立即修改密码）
 
      常用命令:
-       $COMPOSE logs -f aidash     # 查看日志
-       $COMPOSE restart aidash     # 重启
-       $COMPOSE down               # 停止
-       $COMPOSE up -d --build      # 升级（保留数据卷）
+       $COMPOSE $COMPOSE_FILES logs -f aidash     # 查看日志
+       $COMPOSE $COMPOSE_FILES restart aidash     # 重启
+       $COMPOSE $COMPOSE_FILES down               # 停止
+       $UPGRADE_CMD                               # 升级（保留数据卷）
 
 EOF

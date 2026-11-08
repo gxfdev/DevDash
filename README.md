@@ -5,6 +5,7 @@
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3.4-4FC08D?style=flat-square&logo=vue.js" />
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Engine%20API-2496ED?style=flat-square&logo=docker" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
+  <img alt="Publish" src="https://github.com/gxfdev/DevDash/actions/workflows/publish.yml/badge.svg" />
 </p>
 
 > 把一台 Linux 服务器变成「AI 操作系统」：模型广场、模型仓库、模型服务、AI 应用、容器引擎、可观测、AI 网关与权限体系，
@@ -247,6 +248,8 @@ flowchart TB
 ## 一键部署
 
 ### 方式零：拉取预构建镜像（推荐，服务器无需构建）
+
+> 已发布：`ghcr.io/gxfdev/devdash:latest` 与 `ghcr.io/gxfdev/devdash:v2.0.0`，支持 linux/amd64 与 linux/arm64。
 
 GitHub Actions 在每次推送到 `main` 时自动构建 **linux/amd64 + linux/arm64** 镜像并推送到 GHCR，
 服务器只需要拉镜像启动，不需要 Node / Go 构建环境。
